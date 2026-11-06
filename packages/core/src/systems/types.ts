@@ -14,12 +14,14 @@
  * real implementation is a network call. Money is integer minor units
  * (centavos for PHP) everywhere, formatted only when spoken.
  *
- * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 adds
+ * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 added
  * diagnosis and remote reboots to the network side, a ticket lookup, and the
- * field-service side, and changes one member: `createTicket` is told when the
- * ticket is opened, so a ticket can be checked as opened on the call. A later
- * ticket adds plans (#16).
+ * field-service side, and changed one member: `createTicket` is told when the
+ * ticket is opened, so a ticket can be checked as opened on the call. #16 adds
+ * the plan-change side: quotes, and the plan changes made with them, and the
+ * knowledge base: the company's help articles, searched.
  */
+import type { HelpArticle } from "../pack/help-articles";
 
 /** Where an account's line is: the unit outages are declared against. */
 export interface ServiceArea {
@@ -40,8 +42,8 @@ export interface AccountRecord {
   /** E.164, e.g. `+639175550101`. Identity is checked against its last 4 digits. */
   registeredMobile: string;
   status: AccountStatus;
-  /** As the caller knows it, e.g. `Kidlat 300`. The plan catalog is #16. */
-  planName: string;
+  /** The id of the account's plan in the company's plan catalog, e.g. `kidlat-300`. */
+  planId: string;
   serviceArea: ServiceArea;
 }
 
@@ -240,6 +242,83 @@ export interface FieldService {
   ): Promise<{ reference: string } | null>;
 }
 
+/** A plan change priced for an account, as the plan-change side is asked to keep it. */
+export interface NewPlanQuote {
+  /** Normalized. */
+  accountNumber: string;
+  /** The id of the plan the account was on when the change was priced. */
+  currentPlanId: string;
+  /** The id of the plan the change moves the account to. */
+  newPlanId: string;
+  /** The new plan's monthly price, in minor units. */
+  newMonthlyPriceMinor: number;
+  /** Added to the next bill, in minor units. */
+  proratedAmountMinor: number;
+  /** When the new plan starts. */
+  effectiveAt: Date;
+}
+
+/** A quote as the plan-change side holds it. */
+export interface PlanQuoteRecord extends NewPlanQuote {
+  /** e.g. `QTE-2026-00001`. */
+  reference: string;
+  /** When it was made. A quote made before a call started is not that call's. */
+  quotedAt: Date;
+  /** Whether a plan change has been made with it. */
+  used: boolean;
+}
+
+/** A plan change made on an account that takes effect later. */
+export interface ScheduledPlanChange {
+  /** The id of the plan the account moves to. */
+  planId: string;
+  /** When it moves. */
+  effectiveAt: Date;
+}
+
+/** The plan-change side: quotes for plan changes, and the changes made with them. */
+export interface PlanChanges {
+  /**
+   * Keeps a quote and returns the reference it goes by, e.g. `QTE-2026-00001`.
+   *
+   * `quotedAt` is when it was made: the in-memory world has no clock of its
+   * own, so it is told, and `latestQuote` gives it back.
+   */
+  createQuote(quote: NewPlanQuote, quotedAt: Date): Promise<{ reference: string }>;
+  /**
+   * The quote made most recently for this account, or null when it has none.
+   * It may be from an earlier call (`quotedAt` says when it was made) or used
+   * already. Returns a copy.
+   */
+  latestQuote(accountNumber: string): Promise<PlanQuoteRecord | null>;
+  /**
+   * Makes the change a quote priced, and marks the quote used.
+   *
+   * `appliedAt` is when it is made: the in-memory world has no clock of its
+   * own, so it is told. A quote in effect by then moves the account to its new
+   * plan at once, and drops any change scheduled for later. One that takes
+   * effect later is scheduled instead, replacing any change already scheduled,
+   * and the account stays on its plan until then. Rejects when this account
+   * has no quote with this reference, or it is used: one quote changes a plan
+   * once.
+   */
+  applyQuote(accountNumber: string, reference: string, appliedAt: Date): Promise<void>;
+  /** The change scheduled for this account to take effect later, or null. Returns a copy. */
+  scheduledChange(accountNumber: string): Promise<ScheduledPlanChange | null>;
+}
+
+/** How many articles a knowledge-base search gives at most. */
+export const MAX_HELP_RESULTS = 3;
+
+/** The knowledge base: the company's help articles, which hold nothing about any account. */
+export interface KnowledgeBase {
+  /**
+   * The articles that best answer this question, best first, at most
+   * `MAX_HELP_RESULTS`. Empty when none matches. Copies.
+   */
+  search(query: string): Promise<HelpArticle[]>;
+}
+
 export interface SmsMessage {
   /** E.164, e.g. `+639175550102`. */
   to: string;
@@ -262,4 +341,6 @@ export interface BusinessSystems {
   tickets: Ticketing;
   sms: SmsGateway;
   fieldService: FieldService;
+  plans: PlanChanges;
+  knowledgeBase: KnowledgeBase;
 }

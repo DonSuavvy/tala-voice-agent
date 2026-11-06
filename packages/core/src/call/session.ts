@@ -368,16 +368,21 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     throw error;
   };
   const data: CallData = {
-    systems: createInMemorySystems(pack.world, startedAt, pack.company.timeZone),
+    systems: createInMemorySystems(pack, startedAt, pack.company.timeZone),
     identity: initialIdentityState(),
     company: {
       timeZone: pack.company.timeZone,
       locale: pack.company.locale,
       currency: pack.company.currency,
     },
+    plans: pack.plans,
     startedAt,
+    lastCallerTurnAt: () => lastCallerTurnAt,
     wait: options.wait ?? waitOnTimer,
   };
+
+  /** When the current caller turn started; what `CallData.lastCallerTurnAt` reads. */
+  let lastCallerTurnAt: Date | null = null;
 
   let history: MessageParam[] = [];
   let state: CallState = "not_started";
@@ -557,6 +562,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     // Nothing of this turn has been said yet, whatever the last one said.
     currentModelCall = { number: currentModelCall.number, streaming: false, deltas: [] };
     const now = clock();
+    lastCallerTurnAt = now;
     onEvent({ type: "caller_said", text: words, at: now });
 
     const result = await runAgentLoop({

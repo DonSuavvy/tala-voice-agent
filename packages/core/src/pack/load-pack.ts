@@ -5,7 +5,9 @@
  * A broken pack throws one `PackValidationError` that lists every problem it
  * found, like the tool registry does, so a pack is fixed in one pass rather
  * than one boot at a time. Each section (id, sop, company, persona, policy,
- * world) is checked independently; a failing section never hides another.
+ * plans, help, world) is checked independently; a failing section never hides
+ * another. Once the plans and the world both pass, every account's plan is
+ * checked against the catalog, one issue per account.
  * Issue lines read `<section>.<path>: <message>`, numeric path segments in
  * brackets (`world.accounts[1].barangayId`).
  *
@@ -27,7 +29,13 @@
  */
 import { z } from "zod";
 
-import { compileSop, placeholdersIn, sopPlaceholders, strayBraces } from "../agent/sop";
+import {
+  compileSop,
+  placeholdersIn,
+  sopPlaceholders,
+  strayBraces,
+  type SopRenderers,
+} from "../agent/sop";
 import {
   SUPPORT_POLICY_RENDERERS,
   supportPolicySchema,
@@ -35,7 +43,35 @@ import {
 } from "../policy/support-policy";
 import { seedWorldSchema, type SeedWorld } from "../systems/seed-world";
 
+import { helpArticlesSchema, type HelpArticle } from "./help-articles";
+import { PLAN_CATALOG_RENDERERS, planCatalogSchema, type Plan } from "./plan-catalog";
+
 const nonEmpty = z.string().min(1);
+
+/** What a pack's SOP placeholders render from: its policy and its plan catalog. */
+interface SopFacts {
+  policy: SupportPolicy;
+  plans: readonly Plan[];
+}
+
+/** Each of `renderers`, rendering from its own part of the facts. */
+function renderingFrom<P>(
+  renderers: SopRenderers<P>,
+  part: (facts: SopFacts) => P,
+): SopRenderers<SopFacts> {
+  return Object.fromEntries(
+    Object.entries(renderers).map(([name, render]) => [
+      name,
+      (facts: SopFacts) => render(part(facts)),
+    ]),
+  );
+}
+
+/** Every placeholder a pack's SOP may use: the policy's figures, then the plan catalog. */
+const PACK_SOP_RENDERERS: SopRenderers<SopFacts> = {
+  ...renderingFrom(SUPPORT_POLICY_RENDERERS, (facts) => facts.policy),
+  ...renderingFrom(PLAN_CATALOG_RENDERERS, (facts) => facts.plans),
+};
 
 function isValidTimeZone(zone: string): boolean {
   try {
@@ -128,6 +164,9 @@ export interface PackSource {
   company: unknown;
   persona: unknown;
   policy: unknown;
+  plans: unknown;
+  /** The help articles: each file's name and its markdown, in knowledge base order. */
+  help: unknown;
   world: unknown;
 }
 
@@ -137,6 +176,8 @@ export interface CompanyPack {
   company: Company;
   persona: Persona;
   policy: SupportPolicy;
+  plans: Plan[];
+  help: HelpArticle[];
   world: SeedWorld;
 }
 
@@ -156,8 +197,8 @@ export class PackValidationError extends Error {
 export function compilePackSop(pack: CompanyPack): string {
   return compileSop({
     bodyMarkdown: pack.sop.body,
-    policyConfig: pack.policy,
-    renderers: SUPPORT_POLICY_RENDERERS,
+    facts: { policy: pack.policy, plans: pack.plans },
+    renderers: PACK_SOP_RENDERERS,
   });
 }
 
@@ -203,9 +244,22 @@ export function loadPack(source: PackSource): CompanyPack {
   const company = checkSection("company", companySchema, source.company, issues);
   const persona = checkSection("persona", personaSchema, source.persona, issues);
   const policy = checkSection("policy", supportPolicySchema, source.policy, issues);
+  const plans = checkSection("plans", planCatalogSchema, source.plans, issues);
+  const help = checkSection("help", helpArticlesSchema, source.help, issues);
   const world = checkSection("world", seedWorldSchema, source.world, issues);
 
-  const known = sopPlaceholders(SUPPORT_POLICY_RENDERERS);
+  if (plans && world) {
+    const names = new Set(plans.map((plan) => plan.name));
+    world.accounts.forEach((account, index) => {
+      if (names.has(account.planName)) return;
+      const where = formatPath("world", ["accounts", index, "planName"]);
+      issues.push(
+        `${where}: account ${account.accountNumber} names unknown plan "${account.planName}"`,
+      );
+    });
+  }
+
+  const known = sopPlaceholders(PACK_SOP_RENDERERS);
   for (const name of sop ? placeholdersIn(sop.body) : []) {
     if (!known.includes(name)) {
       issues.push(
@@ -220,7 +274,17 @@ export function loadPack(source: PackSource): CompanyPack {
     );
   }
 
-  if (issues.length > 0 || id === undefined || !sop || !company || !persona || !policy || !world) {
+  if (
+    issues.length > 0 ||
+    id === undefined ||
+    !sop ||
+    !company ||
+    !persona ||
+    !policy ||
+    !plans ||
+    !help ||
+    !world
+  ) {
     throw new PackValidationError(typeof source.id === "string" ? source.id : "(no id)", issues);
   }
 
@@ -230,6 +294,8 @@ export function loadPack(source: PackSource): CompanyPack {
     company,
     persona,
     policy,
+    plans,
+    help,
     world,
   });
   // Rehearse the compile once so a renderer bug fails at boot, not mid-call.

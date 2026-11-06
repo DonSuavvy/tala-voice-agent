@@ -11,6 +11,8 @@ import {
   formatMoney,
   loadPack,
   PackValidationError,
+  PAYMENT_CHANNELS,
+  type PaymentChannel,
 } from "@tala/core";
 
 import { KIDLAT_SOP_VERSION, kidlatFiberSource, loadKidlatFiber } from "./index";
@@ -32,12 +34,154 @@ describe("the Kidlat Fiber pack", () => {
     const source = kidlatFiberSource();
     const shipped = compilePackSop(loadPack(source));
     const stricter = compilePackSop(
-      loadPack({ ...source, policy: { identity: { maxFailedAttempts: 2 } } }),
+      loadPack({ ...source, policy: { identity: { maxFailedAttempts: 2 }, planChanges: { upgrade: "now", downgrade: "next_cycle" } } }),
     );
 
     expect(shipped).toContain("After 3 failed attempts");
     expect(stricter).toContain("After 2 failed attempts");
     expect(shipped).not.toContain("{{");
+  });
+
+  /** The plans DESIGN §4 names, with Kidlat's speeds and monthly prices. */
+  it("offers the Kidlat 100, 300, 500 and 1000 plans", () => {
+    expect(loadKidlatFiber().plans).toEqual([
+      { id: "kidlat-100", name: "Kidlat 100", downloadMbps: 100, monthlyPriceMinor: 129_900 },
+      { id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 },
+      { id: "kidlat-500", name: "Kidlat 500", downloadMbps: 500, monthlyPriceMinor: 209_900 },
+      { id: "kidlat-1000", name: "Kidlat 1000", downloadMbps: 1000, monthlyPriceMinor: 299_900 },
+    ]);
+  });
+
+  /**
+   * The seed's bills are a month of each account's plan. The loader cannot
+   * require this of every pack (a bill can carry a prorated amount, or an
+   * older plan), so it is checked here, on the data Kidlat ships.
+   */
+  it("bills every account at its plan's monthly price", () => {
+    const { plans, world } = loadKidlatFiber();
+
+    for (const account of world.accounts) {
+      const plan = plans.find((p) => p.name === account.planName);
+      const bills = world.bills.filter((b) => b.accountNumber === account.accountNumber);
+
+      expect(plan, account.planName).toBeDefined();
+      expect(bills.length, account.accountNumber).toBeGreaterThan(0);
+      for (const bill of bills) expect(bill.amountMinor, bill.reference).toBe(plan?.monthlyPriceMinor);
+    }
+  });
+
+  describe("its help articles", () => {
+    const article = (id: string) => {
+      const found = loadKidlatFiber().help.find((a) => a.id === id);
+      if (!found) throw new Error(`no help article "${id}"`);
+      return found;
+    };
+
+    it("covers the modem lights, restarting the modem, the Wi-Fi name and password, paying, slow Wi-Fi in some rooms and moving", () => {
+      expect(loadKidlatFiber().help.map((a) => a.id)).toEqual([
+        "modem-lights",
+        "moving-address",
+        "payment-channels",
+        "restart-modem",
+        "slow-wifi-rooms",
+        "wifi-name-password",
+      ]);
+    });
+
+    it("says what a red or blinking LOS light means, and what to check first", () => {
+      const { body } = article("modem-lights");
+
+      for (const light of ["Power", "PON", "LOS", "LAN", "WLAN"]) expect(body).toContain(light);
+      expect(body).toMatch(/red/);
+      expect(body).toMatch(/blink/);
+      expect(body).toMatch(/fiber cable/);
+    });
+
+    /** Callers say what they see in Tagalog too: "pulang ilaw", "kumikislap". */
+    it("tags the modem lights with the words callers use, in English and Tagalog", () => {
+      expect(article("modem-lights").tags).toEqual(
+        expect.arrayContaining(["lights", "los", "red", "blinking", "ilaw", "pula", "kumikislap"]),
+      );
+    });
+
+    /**
+     * How the article names each channel the billing system knows. Keyed by
+     * the channel, so a channel core adds fails tsc until it is named here.
+     */
+    const SPOKEN_CHANNEL: { readonly [C in PaymentChannel]: string } = {
+      gcash: "GCash",
+      maya: "Maya",
+      bank: "bank",
+      seven_eleven: "7-Eleven",
+      bayad: "Bayad",
+    };
+
+    it("names each payment channel the billing system knows", () => {
+      const { body } = article("payment-channels");
+
+      for (const channel of PAYMENT_CHANNELS) expect(body).toContain(SPOKEN_CHANNEL[channel]);
+    });
+
+    /**
+     * Prices, fees and limits belong to the plan catalog and the policy, never
+     * to an article; and a count or a wait in an article is a figure too, so
+     * none is stated, in digits or in words. "7-Eleven" is a name.
+     */
+    it("states no number in digits or words, no amount, and names no plan", () => {
+      const { help, plans } = loadKidlatFiber();
+
+      for (const { id, title, body } of help) {
+        const text = `${title} ${body}`;
+        const unnamed = text.replace(/7-Eleven/g, "");
+        expect(unnamed, id).not.toMatch(/\d/);
+        expect(unnamed, id).not.toMatch(
+          /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i,
+        );
+        expect(text, id).not.toMatch(/₱|peso/i);
+        for (const plan of plans) expect(text, id).not.toContain(plan.name);
+      }
+    });
+  });
+
+  /** Kidlat starts an upgrade at once and a downgrade with the next billing cycle. */
+  it("states when plan changes take effect from its policy, not from typed text", () => {
+    const source = kidlatFiberSource();
+    // The SOP wraps its lines, so a sentence is looked for with its spaces joined.
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    const shipped = flat(compilePackSop(loadPack(source)));
+    const flipped = flat(
+      compilePackSop(
+        loadPack({
+          ...source,
+          policy: {
+            identity: { maxFailedAttempts: 3 },
+            planChanges: { upgrade: "next_cycle", downgrade: "now" },
+          },
+        }),
+      ),
+    );
+
+    expect(shipped).toContain("A move to a faster plan takes effect at once.");
+    expect(shipped).toContain("A move to a cheaper plan takes effect when the next billing cycle starts.");
+    expect(flipped).toContain("A move to a faster plan takes effect when the next billing cycle starts.");
+    expect(flipped).toContain("A move to a cheaper plan takes effect at once.");
+    expect(source.sop.body).not.toMatch(/billing cycle starts|at once/);
+  });
+
+  it("names its plans and their speeds from its catalog, not from typed text", () => {
+    const source = kidlatFiberSource();
+    const shipped = compilePackSop(loadPack(source));
+    const faster = compilePackSop(
+      loadPack({
+        ...source,
+        plans: (source.plans as { id: string; downloadMbps: number }[]).map((plan) =>
+          plan.id === "kidlat-1000" ? { ...plan, downloadMbps: 1200 } : plan,
+        ),
+      }),
+    );
+
+    expect(shipped).toContain("- Kidlat 1000: 1000 Mbps, plan id kidlat-1000");
+    expect(faster).toContain("- Kidlat 1000: 1200 Mbps, plan id kidlat-1000");
   });
 
   it("opens every call by saying Tala is an AI and the call is recorded", () => {
@@ -55,8 +199,11 @@ describe("the Kidlat Fiber pack", () => {
   });
 
   it("has scenario 1's world: a fiber cut in Batasan Hills with a restoration time", async () => {
-    const { world } = loadKidlatFiber();
-    const systems = createInMemorySystems(world, new Date("2026-11-06T05:00:00Z"), "Asia/Manila");
+    const systems = createInMemorySystems(
+      loadKidlatFiber(),
+      new Date("2026-11-06T05:00:00Z"),
+      "Asia/Manila",
+    );
 
     const maria = await systems.accounts.findAccount("8012345601");
     const outages = await systems.network.outagesAffecting("batasan-hills");
@@ -79,7 +226,7 @@ describe("the Kidlat Fiber pack", () => {
     const GCASH_REFERENCE = "1234567890123";
 
     function systems() {
-      return createInMemorySystems(loadKidlatFiber().world, CALL_STARTED_AT, "Asia/Manila");
+      return createInMemorySystems(loadKidlatFiber(), CALL_STARTED_AT, "Asia/Manila");
     }
 
     it("has Jose's account, with his registered mobile ending 0102", async () => {
@@ -153,7 +300,7 @@ describe("the Kidlat Fiber pack", () => {
     const DAY_MS = 86_400_000;
 
     function systems() {
-      return createInMemorySystems(loadKidlatFiber().world, CALL_STARTED_AT, "Asia/Manila");
+      return createInMemorySystems(loadKidlatFiber(), CALL_STARTED_AT, "Asia/Manila");
     }
 
     it("has Ana's account in San Antonio, Pasig, with her registered mobile ending 0103", async () => {
@@ -242,6 +389,7 @@ describe("kidlatFiberSource on a broken copy of the pack", () => {
     const here = fileURLToPath(new URL("../", import.meta.url));
     cpSync(join(here, "sop"), join(dir, "sop"), { recursive: true });
     cpSync(join(here, "pack"), join(dir, "pack"), { recursive: true });
+    cpSync(join(here, "help"), join(dir, "help"), { recursive: true });
     return { root: pathToFileURL(dir + sep), dir };
   }
 

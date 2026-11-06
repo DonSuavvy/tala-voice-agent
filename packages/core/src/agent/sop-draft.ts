@@ -73,7 +73,7 @@ export function validateSopDraft<P>(
   // the bad token and the known vocabulary.
   compileSop({
     bodyMarkdown: input.bodyMarkdown,
-    policyConfig,
+    facts: policyConfig,
     renderers: pack.renderers,
   });
 

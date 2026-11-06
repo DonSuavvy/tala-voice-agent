@@ -11,8 +11,10 @@
  *
  * Test-only. Nothing outside `*.test.ts` files imports this module.
  */
+import { helpArticlesSchema } from "../pack/help-articles";
 import type { PackSource } from "../pack/load-pack";
 import { initialIdentityState } from "../policy/identity";
+import type { SupportPolicy } from "../policy/support-policy";
 import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
 import type { SeedWorld } from "../systems/seed-world";
 import type { BusinessSystems } from "../systems/types";
@@ -24,6 +26,17 @@ export const CALL_STARTED_AT = new Date("2026-11-06T05:00:00Z");
 /** How the test company speaks times and money: its time zone, locale and currency. */
 export const TEST_COMPANY = { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" } as const;
 
+/**
+ * The test company's support policy: three verification attempts, an upgrade
+ * at once and a downgrade with the next billing cycle. A fresh copy each call.
+ */
+export function testPolicy() {
+  return {
+    identity: { maxFailedAttempts: 3 },
+    planChanges: { upgrade: "now", downgrade: "next_cycle" },
+  } as const satisfies SupportPolicy;
+}
+
 /** A wait that resolves at once, so no test sits through a modem's restart. */
 export const noWait = (): Promise<void> => Promise.resolve();
 
@@ -32,17 +45,26 @@ export function testSystems(
   world: SeedWorld = testWorld(),
   startedAt: Date = CALL_STARTED_AT,
 ): InMemorySystems {
-  return createInMemorySystems(world, startedAt, TEST_COMPANY.timeZone);
+  return createInMemorySystems(
+    { world, plans: testPlans(), help: testHelpArticles() },
+    startedAt,
+    TEST_COMPANY.timeZone,
+  );
 }
 
 /**
  * A tool context for one test call that started at `CALL_STARTED_AT`: nobody
- * verified yet, the test company, the test policy, and a wait that resolves at
- * once unless one is given. `now` defaults to the call's start.
+ * verified yet, the test company, its plans, the test policy, and a wait that
+ * resolves at once unless one is given. `now` defaults to the call's start,
+ * and the caller has said nothing unless `lastCallerTurnAt` says otherwise.
  */
 export function testToolContext(
   systems: BusinessSystems,
-  options: { now?: Date; wait?: (ms: number) => Promise<void> } = {},
+  options: {
+    now?: Date;
+    wait?: (ms: number) => Promise<void>;
+    lastCallerTurnAt?: () => Date | null;
+  } = {},
 ): TalaToolContext {
   return {
     workspaceId: "test-isp",
@@ -53,10 +75,12 @@ export function testToolContext(
       systems,
       identity: initialIdentityState(),
       company: { ...TEST_COMPANY },
+      plans: testPlans(),
       startedAt: CALL_STARTED_AT,
+      lastCallerTurnAt: options.lastCallerTurnAt ?? (() => null),
       wait: options.wait ?? noWait,
     },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
+    policyConfig: testPolicy(),
   };
 }
 
@@ -221,6 +245,52 @@ export function testWorld(): SeedWorld {
   };
 }
 
+/**
+ * The test pack's plan catalog: every plan the test world's accounts are on.
+ * A fresh copy on every call.
+ */
+export function testPlans() {
+  return [
+    { id: "kidlat-100", name: "Kidlat 100", downloadMbps: 100, monthlyPriceMinor: 129_900 },
+    { id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 },
+    { id: "kidlat-500", name: "Kidlat 500", downloadMbps: 500, monthlyPriceMinor: 209_900 },
+  ];
+}
+
+/**
+ * The test pack's help articles, as a pack hands them over: each file's name
+ * and its markdown, front matter first. A fresh copy on every call.
+ */
+export function testHelpFiles() {
+  return [
+    {
+      file: "help/modem-lights.md",
+      markdown:
+        "---\n" +
+        "id: modem-lights\n" +
+        "title: What the lights on your modem mean\n" +
+        "tags: modem, lights, ilaw\n" +
+        "---\n" +
+        "Power is on when the modem has power. A red LOS light means no signal reaches it.\n",
+    },
+    {
+      file: "help/wifi-password.md",
+      markdown:
+        "---\n" +
+        "id: wifi-password\n" +
+        "title: Changing your Wi-Fi password\n" +
+        "tags: wifi, password\n" +
+        "---\n" +
+        "Open the settings page printed on the modem's sticker and choose a new password.\n",
+    },
+  ];
+}
+
+/** The test pack's help articles, read the way the pack loader reads them. */
+export function testHelpArticles() {
+  return helpArticlesSchema.parse(testHelpFiles());
+}
+
 /** The test pack's SOP. Its one placeholder is filled from the policy. */
 export const TEST_SOP_BODY =
   "You are the assistant on Test ISP's support line.\n\n" +
@@ -242,7 +312,9 @@ export function testPackSource(): PackSource {
       fillerLine: "Sandali lang po, iche-check ko.",
       closingLine: "Salamat po sa pagtawag sa Test ISP. Ingat po!",
     },
-    policy: { identity: { maxFailedAttempts: 3 } },
+    policy: testPolicy(),
+    plans: testPlans(),
+    help: testHelpFiles(),
     world: testWorld(),
   };
 }

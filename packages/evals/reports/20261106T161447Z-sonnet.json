@@ -1,0 +1,1211 @@
+{
+  "format": 1,
+  "masking": "numbers of 10 or more digits, last 4 kept",
+  "ranAt": "2026-11-06T16:14:47.658Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "cd53dbfcbf79",
+    "policyVersion": "4a8f8888d3c8",
+    "model": "sonnet",
+    "modelId": "claude-sonnet-5-5",
+    "gitSha": "f9f77ee4fd987b82ef27f75e88b4759fd83f1cac",
+    "gitDirty": false
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "slug": "help-modem-lights",
+      "title": "Help question: what a red LOS light on the modem means, answered from the help articles",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "help",
+          "actual": "help",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:search_knowledge_base",
+          "expected": "search_knowledge_base",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolResults:search_knowledge_base",
+          "expected": {
+            "tool": "search_knowledge_base",
+            "result": {
+              "articles": [
+                {
+                  "id": "modem-lights"
+                }
+              ]
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "query": "red LOS light modem"
+              },
+              "result": {
+                "articles": [
+                  {
+                    "id": "modem-lights",
+                    "title": "What the lights on your modem mean",
+                    "text": "Each light on your modem tells you something about your connection.\n\nPower is on when the modem has power. If it is off, check that the power adapter is plugged in and that the outlet works.\n\nPON shows the connection to our network. Steady means the modem is connected. Blinking means it is still trying to connect.\n\nLOS means loss of signal, and it is normally off. A red or blinking LOS light means no signal is reaching the modem through the fiber line.\n\nLAN is on or blinking when a device is plugged into the modem with a cable.\n\nWLAN is on or blinking when the modem's Wi-Fi is on.\n\nIf the LOS light is red or blinking, here is what you can do.\n\nFirst, check the thin fiber cable that goes into the back of the modem. It should be firmly plugged in, and not bent, pinched or pulled tight. Do not unplug it, and never look into the end of the cable.\n\nNext, restart the modem: turn it off, wait a few seconds, and turn it back on.\n\nIf LOS is still red or blinking once the modem has started up again, the problem may be on the line outside your home or in your area. Tell us on the hotline, and we can check your connection."
+                  },
+                  {
+                    "id": "restart-modem",
+                    "title": "Restarting your modem yourself",
+                    "text": "Restarting the modem clears many small problems, such as a slow or dropped connection.\n\nPress the power button on the modem to turn it off, or unplug its power adapter. Wait a few seconds, then turn it back on.\n\nGive the modem a few minutes to start up. The Power light comes on first, and the PON light turns steady once the modem is connected again.\n\nDo not press the small reset hole with a pin. That erases your Wi-Fi name, your password and the modem's other settings."
+                  },
+                  {
+                    "id": "moving-address",
+                    "title": "Moving to a new address",
+                    "text": "If you are moving, tell us before you move.\n\nOur team first checks whether we have service at your new address. If we do, they arrange for a technician to move your connection there.\n\nKeep your modem and its power adapter, and take them with you. Do not cut or unplug the fiber cable at your old home yourself."
+                  }
+                ]
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "saidMentions:loss of signal",
+          "expected": "loss of signal",
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.049665",
+      "latencyMs": 17030,
+      "agentRunId": "59be173c-34c2-4f61-957b-352fdd57fe9d",
+      "cost": {
+        "tala": {
+          "nanos": 37564800,
+          "usd": "0.037565",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 6706000,
+          "usd": "0.006706",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5394000,
+          "usd": "0.005394",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 49664800,
+          "usd": "0.049665",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 3,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Replies are English-led with po and a short 'Sandali lang po', and the goodbye matches the style. The second and third turns run a bit long: the explanation packs in extra steps, and the 'call us on the hotline' line is odd when the caller is already on the hotline. Taglish is natural but fairly light, which fits the style."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po! Ah, may general question lang ako. Kanina kasi sa modem ko, nag-blink na red yung LOS light for a while. Okay na siya ngayon, pero ano ba talaga ibig sabihin nung red LOS?"
+        },
+        {
+          "speaker": "tala",
+          "text": "Sandali lang po, let me check."
+        },
+        {
+          "speaker": "tala",
+          "text": "A red LOS light means \"loss of signal\" po, so no signal was reaching your modem through the fiber line. If it shows up again, check that the thin fiber cable at the back is firmly plugged in and not bent or pinched, then restart the modem. Is it working fine now po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah okay po, gets. Yes po, working na siya ngayon. So pag nag-red ulit, check ko lang yung fiber cable if nakasaksak nang maayos at hindi bent, tapos i-restart ko yung modem, tama po? And what if hindi pa rin nawala yung red?"
+        },
+        {
+          "speaker": "tala",
+          "text": "Tama po. If the red LOS is still there after the restart, the problem may be on the line outside your home or in your area, so please call us on the hotline and we can check your connection. Is there anything else I can help you with po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah okay po, malinaw na. Thank you po sa help, Tala! Sige po, bye na."
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 2,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.061240",
+      "latencyMs": 37497,
+      "agentRunId": "a884d456-ea8e-4697-a38c-18bcdf455e81",
+      "cost": {
+        "tala": {
+          "nanos": 40948400,
+          "usd": "0.040948",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 13880000,
+          "usd": "0.013880",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 6412000,
+          "usd": "0.006412",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 61240400,
+          "usd": "0.061240",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 5,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Replies are short, spoken-style, and professional, with the correct 'Sorry to hear that po', a tool-call line, and a proper goodbye. Taglish stays English-led with 'po' and set phrases; 'Verified na po kayo' is slightly more Tagalog than ideal, and 'Sige po' is fine. She stays courteous and patient through the caller's confusion, and only gives the last four digits."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, magandang umaga. Wala pong internet ang bahay namin since kanina pong umaga. Gusto ko lang pong malaman kung bakit at kailan babalik."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry to hear that po. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number so I can verify your account?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang account number ko po ay ******5601. Tapos yung last four digits ng mobile number ko po ay 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Maria. Let me check your area for outages now."
+        },
+        {
+          "speaker": "tala",
+          "text": "There's an outage in your area po, caused by a fiber cable cut along Batasan Road during road works. Service is expected back around 4:15 AM today."
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah, ganun po ba. Pero po, umaga na ngayon at wala pa rin kaming internet. Sigurado po ba kayo sa 4:15 AM? Baka po 4:15 PM yung ibig ninyong sabihin?"
+        },
+        {
+          "speaker": "tala",
+          "text": "The system shows 4:15 AM po, and I can't change or guess that time. It's an estimate, so if you still have no internet after that, please call us again and we'll check your connection. Would you like the outage reference po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ay, ganun po ba. Eh kasi po nakakalito, kasi lampas na po ng 4:15 AM ngayon. Ibig sabihin po ba, bukas ng madaling araw pa babalik? Para po alam ko kung maghahanap ako ng ibang paraan para makapagtrabaho."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry po for the confusion. Let me check the outage again to see if there's an updated time."
+        },
+        {
+          "speaker": "tala",
+          "text": "The system still shows the same estimate po, 4:15 AM today, and I have no newer time. I can't say it will be tomorrow, so if you need to work now, it's safer to have a backup like mobile data. Would you like me to text you the outage reference?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Sige po, salamat sa pag-check. Mag-mobile data na lang muna ako. Opo, pakitext na lang po yung outage reference. Salamat po, paalam na po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sige po, I'll text it to you now."
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po. I sent the outage reference to your mobile ending in 0101. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-2-payment",
+      "title": "Scenario 2: GCash payment not posted, disconnection due tomorrow",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "payment",
+          "actual": "payment",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_payment",
+          "expected": "verify_payment",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:create_trouble_ticket",
+          "expected": "create_trouble_ticket",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:send_sms",
+          "expected": "send_sms",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalledInOrder",
+          "expected": [
+            "verify_identity",
+            "verify_payment",
+            "create_trouble_ticket",
+            "send_sms",
+            "end_call"
+          ],
+          "actual": [
+            "verify_identity",
+            "verify_payment",
+            "get_account_overview",
+            "create_trouble_ticket",
+            "send_sms",
+            "end_call"
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:verify_payment",
+          "expected": {
+            "tool": "verify_payment",
+            "result": {
+              "found": true,
+              "posted": false
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "reference": "*********0123"
+              },
+              "result": {
+                "found": true,
+                "channel": "gcash",
+                "amount": "₱1,299.00",
+                "paid_at": "Fri, Nov 6, 12:15 AM",
+                "posted": false
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:create_trouble_ticket",
+          "expected": {
+            "tool": "create_trouble_ticket",
+            "input": {
+              "category": "billing"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "category": "billing",
+                "notes": "GCash payment of ₱1,299.00 paid Fri, Nov 6, 12:15 AM, reference *********0123, was received but has not posted. Please post it to the account. Disconnection is scheduled for Sun, Nov 8."
+              },
+              "result": {
+                "created": true,
+                "reference": "TKT-2026-00001"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.052534",
+      "latencyMs": 28169,
+      "agentRunId": "661858c3-88c1-4cee-9bf0-1bc2413dc06d",
+      "cost": {
+        "tala": {
+          "nanos": 33736400,
+          "usd": "0.033736",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 12818000,
+          "usd": "0.012818",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5980000,
+          "usd": "0.005980",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 52534400,
+          "usd": "0.052534",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 5,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Replies are short, spoken-style, and use the prescribed phrases (\"Sandali lang po\", \"Sorry to hear that po\", \"You're welcome po\"), and she only reads back the last four digits. The Taglish stays English-led with natural \"po\" and short Tagalog bits, though the ticket line is a bit long and detailed and a few lines had two questions or extra detail."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello, good morning po. Yesterday nag-bayad na ako ng bill ko, 1,299 pesos, through GCash, pero unpaid pa rin sa account ko. Tapos nakatanggap ako ng notice na ma-didisconnect daw ang internet namin tomorrow. Paki-check naman po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Good morning po, sorry to hear that. First, may I have your Kidlat Fiber account number and the last four digits of your registered mobile number?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, ang account number ko is ******5602. Tapos yung last four digits ng registered mobile number is 0102."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Sir Jose. May I have the GCash reference number of your payment so I can check it?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang GCash reference number is *********0123."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me check that payment."
+        },
+        {
+          "speaker": "tala",
+          "text": "We received your GCash payment po, pero hindi pa po siya posted. I'll open a ticket now to have it posted."
+        },
+        {
+          "speaker": "tala",
+          "text": "I've opened a ticket with the payment reference, amount, and your scheduled disconnection date. The ticket reference is T K T, then 2026, then 0 0 0 0 1. Would you like me to text it to your registered mobile po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, please text it to my registered mobile para hindi ko na kailangan isulat. Salamat po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sure po, sending it now."
+        },
+        {
+          "speaker": "tala",
+          "text": "I sent it to your mobile ending in 0102 po. Is there anything else I can help you with?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Wala na po, yun lang. Salamat po sa tulong, Tala. Paalam po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po, Sir Jose. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-3-slow-internet",
+      "title": "Scenario 3: slow internet, a reboot that does not fix it, a technician visit",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "slow_internet",
+          "actual": "slow_internet",
+          "passed": true
+        },
+        {
+          "name": "toolsCalledInOrder",
+          "expected": [
+            "verify_identity",
+            "check_area_outage",
+            "run_line_diagnostics",
+            "remote_reboot_modem",
+            "create_trouble_ticket",
+            "get_technician_slots",
+            "book_technician_visit",
+            "send_sms",
+            "end_call"
+          ],
+          "actual": [
+            "verify_identity",
+            "check_area_outage",
+            "run_line_diagnostics",
+            "remote_reboot_modem",
+            "create_trouble_ticket",
+            "get_technician_slots",
+            "book_technician_visit",
+            "send_sms",
+            "end_call"
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:create_trouble_ticket",
+          "expected": {
+            "tool": "create_trouble_ticket",
+            "input": {
+              "category": "connection"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "category": "connection",
+                "notes": "Customer reports slow internet for two days with frozen video calls. Line check found high signal loss on the fiber line, modem degraded. Remote modem restart was tried and the fault remains."
+              },
+              "result": {
+                "created": true,
+                "reference": "TKT-2026-00001"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:book_technician_visit",
+          "expected": {
+            "tool": "book_technician_visit",
+            "input": {
+              "slot_id": "san-antonio-1"
+            },
+            "result": {
+              "booked": true
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "account_number": "******5603",
+                "slot_id": "san-antonio-1",
+                "ticket_reference": "TKT-2026-00001"
+              },
+              "result": {
+                "booked": true,
+                "booking_reference": "VIS-2026-00001",
+                "window": "Sun, Nov 8, 9:00 AM to 12:00 PM"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.081954",
+      "latencyMs": 99119,
+      "agentRunId": "369dd800-26d4-439c-ab9b-6bad55d7c7dc",
+      "cost": {
+        "tala": {
+          "nanos": 60932400,
+          "usd": "0.060932",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 14638000,
+          "usd": "0.014638",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 6384000,
+          "usd": "0.006384",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 81954400,
+          "usd": "0.081954",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 6,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Tala stays English-led with natural po/opo and short set phrases (Sandali lang po, Sige po), uses the prescribed tool lines and goodbye, and avoids Naku/Walang anuman. Minor deductions: a couple of replies run long (the technician windows and the booking/reference readout), and \"Verified na po kayo\" is more Tagalog than the style's example."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello, good morning. Ang bagal po ng internet ko for two days na, nag-freeze na yung video calls ko and ang tagal mag-load ng pages. Work from home po kasi ako, so I need this fixed soon."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry to hear that po, I'll help you right away. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, my account number is ******5603. And the last four digits of my mobile is 0103."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Ma'am Ana. Let me check your area for any outage now."
+        },
+        {
+          "speaker": "tala",
+          "text": "There's no outage in your area po. Let me check your connection next."
+        },
+        {
+          "speaker": "tala",
+          "text": "The check found a problem on your connection po, a signal loss on the fiber line. A restart may fix it. May I restart your modem remotely? Your internet will drop for a short while."
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, sige, please go ahead and restart the modem."
+        },
+        {
+          "speaker": "tala",
+          "text": "Okay po, I'm restarting your modem now. Please wait a moment."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry po, the fault is still there after the restart. Let me open a ticket for you now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Ticket is open po. Let me check the technician windows for you."
+        },
+        {
+          "speaker": "tala",
+          "text": "A technician can come on Sunday, November 8, 9:00 AM to 12:00 PM, or Sunday 1:00 PM to 4:00 PM. There's also Monday, November 9, 9:00 AM to 12:00 PM. Which works for you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yung earliest po, Sunday, November 8, 9:00 AM to 12:00 PM. Sige po, yun na lang."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sige po, let me book that for you."
+        },
+        {
+          "speaker": "tala",
+          "text": "You're booked po for Sunday, November 8, 9:00 AM to 12:00 PM. Your booking reference is V-I-S, then 2026, then 0000 1. Your ticket reference is T-K-T, 2026, 0000 1. Would you like me to text these to your registered mobile po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, please text it to my registered mobile para hindi ko na kailangan isulat."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sandali lang po, let me check."
+        },
+        {
+          "speaker": "tala",
+          "text": "I've sent the text po to your mobile ending in 0103. Is there anything else I can help you with?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Wala na po, that's all. Thank you very much po, Tala. Goodbye!"
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-plan-upgrade-accepted",
+      "title": "Plan change: an upgrade to Kidlat 500, priced, read back and accepted",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "plan_change",
+          "actual": "plan_change",
+          "passed": true
+        },
+        {
+          "name": "toolsCalledInOrder",
+          "expected": [
+            "verify_identity",
+            "change_plan_quote",
+            "change_plan",
+            "end_call"
+          ],
+          "actual": [
+            "verify_identity",
+            "change_plan_quote",
+            "change_plan",
+            "end_call"
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:change_plan_quote",
+          "expected": {
+            "tool": "change_plan_quote",
+            "input": {
+              "plan_id": "kidlat-500"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "account_number": "******5601",
+                "plan_id": "kidlat-500"
+              },
+              "result": {
+                "quote_id": "QTE-2026-00001",
+                "current_plan": "Kidlat 300",
+                "new_plan": "Kidlat 500",
+                "new_monthly_price": "₱2,099.00",
+                "prorated_amount": "₱77.42",
+                "effective_date": "Sat, Nov 7",
+                "kind": "upgrade"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:change_plan",
+          "expected": {
+            "tool": "change_plan",
+            "input": {
+              "customer_confirmed": true
+            },
+            "result": {
+              "changed": true,
+              "plan": "Kidlat 500"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "account_number": "******5601",
+                "quote_id": "QTE-2026-00001",
+                "customer_confirmed": true
+              },
+              "result": {
+                "changed": true,
+                "plan": "Kidlat 500",
+                "effective_date": "Sat, Nov 7"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "saidMentions:2,099",
+          "expected": "2,099",
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.037763",
+      "latencyMs": 21362,
+      "agentRunId": "9b943af7-e262-45bd-b7da-f80ea6038c19",
+      "cost": {
+        "tala": {
+          "nanos": 23455200,
+          "usd": "0.023455",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 8866000,
+          "usd": "0.008866",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5442000,
+          "usd": "0.005442",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 37763200,
+          "usd": "0.037763",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 4,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Replies are short, spoken-style, and professional with a good tool-call line and goodbye. Minor issues: the date is said as 'Saturday, November 7' (twice) rather than simply 'today' or a spoken time, and 'Verified na po kayo' leans slightly more Tagalog than the English-led style, though still natural."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hi, good morning po. I want to upgrade my plan to Kidlat 500, kasi I work from home na and I need faster internet for my video calls."
+        },
+        {
+          "speaker": "tala",
+          "text": "Good morning po! Happy to help you with that. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number so I can verify your account?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Sure po. My account number is ******5601, and the last four digits of my mobile number are 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Maria. Let me price the Kidlat 500 upgrade for you now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Kidlat 500 would be 2,099 pesos a month, with 77 pesos and 42 centavos added to your next bill. It starts right away, on Saturday, November 7. Shall I go ahead po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Okay po, sige, that's fine. Yes, go ahead with the upgrade to Kidlat 500."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sige po, I'll process the upgrade now."
+        },
+        {
+          "speaker": "tala",
+          "text": "You're now on Kidlat 500 po, effective Saturday, November 7. Is there anything else I can help you with?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Wala na po, that's all. Thank you very much, Tala! Goodbye po."
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po, Maria. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-plan-upgrade-declined",
+      "title": "Plan change: an upgrade to Kidlat 300, priced and declined, the plan kept",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "plan_change",
+          "actual": "plan_change",
+          "passed": true
+        },
+        {
+          "name": "toolsCalledInOrder",
+          "expected": [
+            "verify_identity",
+            "change_plan_quote",
+            "end_call"
+          ],
+          "actual": [
+            "verify_identity",
+            "change_plan_quote",
+            "end_call"
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:change_plan_quote",
+          "expected": {
+            "tool": "change_plan_quote",
+            "input": {
+              "plan_id": "kidlat-300"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "account_number": "******5602",
+                "plan_id": "kidlat-300"
+              },
+              "result": {
+                "quote_id": "QTE-2026-00001",
+                "current_plan": "Kidlat 100",
+                "new_plan": "Kidlat 300",
+                "new_monthly_price": "₱1,699.00",
+                "prorated_amount": "₱77.42",
+                "effective_date": "Sat, Nov 7",
+                "kind": "upgrade"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolsNever:change_plan",
+          "expected": "change_plan",
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.034896",
+      "latencyMs": 22816,
+      "agentRunId": "6be62641-95bb-4687-9ac6-59c9fe6cf125",
+      "cost": {
+        "tala": {
+          "nanos": 19931600,
+          "usd": "0.019932",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 9366000,
+          "usd": "0.009366",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5598000,
+          "usd": "0.005598",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 34895600,
+          "usd": "0.034896",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 4,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Replies are short, spoken-style, and professional, with correct 'You're welcome po' and a goodbye. Taglish is mostly English-led with po and 'Sandali lang po'; 'Verified na po kayo' leans a bit more Tagalog than the set phrases, and the proration detail with the date was slightly more than needed, but overall natural."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, magandang araw. I'm thinking of moving to the Kidlat 300 plan, gusto ko lang malaman kung magkano siya before I decide."
+        },
+        {
+          "speaker": "tala",
+          "text": "Magandang araw po! I can price that for you, but first I need to verify your account. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Sure po. Account number ko is ******5602, and the last four digits of my mobile number is 0102."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Sir Jose. Let me price the Kidlat 300 plan for you now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Kidlat 300 would be 1,699 pesos a month, up from your current Kidlat 100. There would be 77 pesos and 42 centavos added to your next bill, starting Saturday, November 7. Would you like me to go ahead po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ay, medyo mahal po pala siya para sa akin ngayon. Keep ko na lang muna yung current plan ko, Kidlat 100. Hindi muna ako magpapalit."
+        },
+        {
+          "speaker": "tala",
+          "text": "No problem po, Sir Jose. Your plan stays on Kidlat 100. Is there anything else I can help you with?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Wala na po, yun lang naman. Salamat po sa tulong, Tala. Goodbye po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po, Sir Jose. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 216568800,
+      "usd": "0.216569",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 66274000,
+      "usd": "0.066274",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 35210000,
+      "usd": "0.035210",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 318052800,
+      "usd": "0.318053",
+      "estimated": false
+    }
+  }
+}

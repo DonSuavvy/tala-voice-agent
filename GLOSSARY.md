@@ -95,7 +95,7 @@ _Avoid_: lockout, ban
 
 **Company pack**:
 Everything that makes Tala one company's agent: its SOP, policy, persona,
-company details and seed world.
+company details, plans, help articles and seed world.
 _Avoid_: config, tenant, profile
 
 **SOP**:
@@ -188,6 +188,57 @@ _Avoid_: reflected, credited, cleared
 Service cut off for an unpaid balance, on a scheduled date after the balance
 was due.
 _Avoid_: cut-off, termination
+
+**Billing cycle**:
+The month of service that starts when an account's latest bill is issued and
+ends at the same time one calendar month later.
+_Avoid_: billing period, statement period
+
+## Plans
+
+**Plan**:
+One of the internet services a company offers, with a download speed and a
+monthly price. Every account is on one; together they are the plan catalog.
+_Avoid_: package, subscription, product
+
+**Upgrade**:
+A change to a plan with a higher monthly price. The policy says whether it
+starts at once or with the next billing cycle.
+_Avoid_: upsell
+
+**Downgrade**:
+A change to a plan that costs no more a month. The policy says whether it
+starts at once or with the next billing cycle.
+_Avoid_: plan reduction
+
+**Scheduled plan change**:
+A plan change made on the call that starts with the next billing cycle. Until
+then the account stays on its plan.
+_Avoid_: pending change, future plan
+
+**Prorated amount**:
+What a plan change that starts at once adds to the next bill: the difference
+in monthly price for the part of the billing cycle still to run. It is a
+credit when the new plan costs less.
+_Avoid_: pro-rata charge, adjustment
+
+**Quote**:
+The price of one plan change for the verified account: the new monthly price,
+any prorated amount and when the change takes effect, with a reference. A plan
+changes only with the latest quote made on the call, once, after the caller
+has heard it and said yes.
+_Avoid_: estimate, offer, quotation
+
+## Help
+
+**Help article**:
+A short public answer to a general how-to question, such as what a light on
+the modem means. Reading one out needs no verification.
+_Avoid_: FAQ, doc, knowledge article
+
+**Knowledge base**:
+All of a company's help articles.
+_Avoid_: help center, FAQ
 
 ## Tickets
 

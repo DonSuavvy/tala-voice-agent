@@ -127,6 +127,7 @@ function row(over: { case?: EvalCase; call?: SimulatedCall; grade?: AdvisoryGrad
     case: over.case ?? CASE,
     call: over.call ?? simulated(),
     world: WORLD,
+    plans: [],
     grade: over.grade ?? GRADE,
     callId: "call_1",
     latencyMs: 4_200,

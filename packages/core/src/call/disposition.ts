@@ -10,7 +10,9 @@
  * such as which account was verified and which SOP version ran, come from the
  * call session, never from the model's say-so.
  *
- * The enums grow with the tickets: `escalated` arrives with escalation (#14).
+ * The enums grow with the tickets: `help`, a general how-to question answered
+ * from the help articles, came with #16; `escalated` arrives with escalation
+ * (#14).
  */
 import { z } from "zod";
 
@@ -25,6 +27,7 @@ export const DISPOSITION_TOPICS = [
   "payment",
   "plan_change",
   "account_access",
+  "help",
   "other",
 ] as const;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEST_COMPANY } from "../testing/fixtures";
+import { TEST_COMPANY, testHelpArticles, testPlans } from "../testing/fixtures";
 
 import { createInMemorySystems } from "./in-memory";
 import type { SeedWorld } from "./seed-world";
@@ -131,16 +131,19 @@ function seed(): SeedWorld {
   };
 }
 
+/** The pack's data the world is built from, around this seed. */
+const dataFor = (world: SeedWorld) => ({ world, plans: testPlans(), help: testHelpArticles() });
+
 describe("createInMemorySystems", () => {
   describe("accounts.findAccount", () => {
     it("returns the account with its service area resolved", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.accounts.findAccount("1234567890")).toEqual({
         accountNumber: "1234567890",
         holderName: "Maria Santos",
         registeredMobile: "+639175550101",
         status: "active",
-        planName: "Kidlat 300",
+        planId: "kidlat-300",
         serviceArea: {
           barangayId: "batasan-hills",
           barangayName: "Batasan Hills",
@@ -149,14 +152,14 @@ describe("createInMemorySystems", () => {
       });
     });
     it("returns null for an unknown number and for a near miss", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.accounts.findAccount("9999999999")).toBeNull();
       expect(await systems.accounts.findAccount("123456789")).toBeNull();
       expect(await systems.accounts.findAccount("1234567890 ")).toBeNull();
     });
 
     it("hands back a copy: mutating it changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const first = await systems.accounts.findAccount("1234567890");
       first!.holderName = "Someone Else";
       first!.serviceArea.city = "Manila";
@@ -165,17 +168,26 @@ describe("createInMemorySystems", () => {
       expect(second!.serviceArea.city).toBe("Quezon City");
     });
 
+    /** The pack's boot check makes every seeded plan name a catalog plan; the world matches ids after. */
+    it("refuses to build from a seed whose plan name is not in the catalog", () => {
+      const world = seed();
+      world.accounts[1].planName = "Kidlat 200";
+      expect(() => createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA)).toThrow(
+        'account 2234567890 names unknown plan "Kidlat 200"',
+      );
+    });
+
     it("rejects, rather than serving a half record, when a seed skipped the schema and dangles", async () => {
       const world = seed();
       world.accounts[0].barangayId = "payatas";
-      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA);
       await expect(systems.accounts.findAccount("1234567890")).rejects.toThrow(/payatas/);
     });
 
     it("gives each call a fresh world: two systems from one seed share nothing", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       shared.accounts[0].holderName = "Edited After Creation";
       shared.barangays[0].name = "Edited Barangay";
       for (const systems of [one, two]) {
@@ -188,7 +200,7 @@ describe("createInMemorySystems", () => {
 
   describe("network.outagesAffecting", () => {
     it("anchors the relative times to the call's start", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.network.outagesAffecting("batasan-hills")).toEqual([
         {
           reference: "OUT-2026-0412",
@@ -210,7 +222,7 @@ describe("createInMemorySystems", () => {
         { ...template, reference: "TIE-B", startedMinutesBeforeCall: 300 },
         { ...template, reference: "ELSEWHERE", startedMinutesBeforeCall: 5000, barangayIds: ["commonwealth"] },
       ];
-      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA);
       const refs = (await systems.network.outagesAffecting("batasan-hills")).map((o) => o.reference);
       expect(refs).toEqual(["OLDEST", "TIE-A", "TIE-B", "RECENT"]);
     });
@@ -218,14 +230,14 @@ describe("createInMemorySystems", () => {
     it("reports a null restoration time when the network team has none", async () => {
       const world = seed();
       world.outages[0].restorationMinutesAfterCall = null;
-      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA);
       const [outage] = await systems.network.outagesAffecting("batasan-hills");
       expect(outage.estimatedRestorationAt).toBeNull();
       expect(outage.startedAt).toEqual(new Date("2026-11-06T03:30:00Z"));
     });
 
     it("returns an empty list for a barangay with no outage and for an unknown one", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.network.outagesAffecting("commonwealth")).toEqual([]);
       expect(await systems.network.outagesAffecting("atlantis")).toEqual([]);
     });
@@ -233,13 +245,13 @@ describe("createInMemorySystems", () => {
     it("lists a multi-barangay outage under each of its barangays", async () => {
       const world = seed();
       world.outages[0].barangayIds = ["batasan-hills", "commonwealth"];
-      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA);
       expect(await systems.network.outagesAffecting("commonwealth")).toHaveLength(1);
       expect(await systems.network.outagesAffecting("batasan-hills")).toHaveLength(1);
     });
 
     it("hands back copies: mutating a result changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const [first] = await systems.network.outagesAffecting("batasan-hills");
       first.cause = "tampered";
       first.barangayIds.push("commonwealth");
@@ -253,9 +265,9 @@ describe("createInMemorySystems", () => {
 
     it("does not let two calls from one seed see each other's world or the seed's later edits", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       shared.outages[0].cause = "edited after creation";
-      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       expect((await one.network.outagesAffecting("batasan-hills"))[0].cause).toBe(
         "fiber cut along Batasan Road from road works",
       );
@@ -264,7 +276,7 @@ describe("createInMemorySystems", () => {
 
     it("follows the call's start, not the wall clock", async () => {
       const later = new Date("2031-02-14T22:15:00Z");
-      const systems = createInMemorySystems(seed(), later, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), later, MANILA);
       const [outage] = await systems.network.outagesAffecting("batasan-hills");
       expect(outage.startedAt).toEqual(new Date("2031-02-14T19:45:00Z"));
       expect(outage.estimatedRestorationAt).toEqual(new Date("2031-02-14T23:45:00Z"));
@@ -278,7 +290,7 @@ describe("createInMemorySystems", () => {
    */
   describe("network.diagnose and network.rebootModem", () => {
     it("diagnoses a modem as the seed states it, last seen relative to the call's start", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.network.diagnose("1234567890")).toEqual({
         modemStatus: "degraded",
         receivedPowerDbm: -28.4,
@@ -289,13 +301,13 @@ describe("createInMemorySystems", () => {
     });
 
     it("returns null for an account with no modem on record, to diagnose or to reboot", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.network.diagnose("9999999999")).toBeNull();
       expect(await systems.network.rebootModem("9999999999", CALL_STARTED_AT)).toBeNull();
     });
 
     it("says how long a restart takes, then reads the modem as it came back, with the fault cleared", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const askedAt = new Date("2026-11-06T06:03:00Z");
 
       expect(await systems.network.rebootModem("2234567890", askedAt)).toEqual({ restartSeconds: 60 });
@@ -309,7 +321,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("still reads a fault the reboot does not clear once the modem is back", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const askedAt = new Date("2026-11-06T06:03:00Z");
 
       expect(await systems.network.rebootModem("1234567890", askedAt)).toEqual({ restartSeconds: 90 });
@@ -323,13 +335,13 @@ describe("createInMemorySystems", () => {
     });
 
     it("reboots only the account it is asked to", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       await systems.network.rebootModem("2234567890", CALL_STARTED_AT);
       expect((await systems.network.diagnose("1234567890"))?.receivedPowerDbm).toBe(-28.4);
     });
 
     it("hands back copies: mutating a diagnosis changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const first = await systems.network.diagnose("1234567890");
       first!.fault = "tampered";
       first!.lastSeenAt.setUTCFullYear(1999);
@@ -340,8 +352,8 @@ describe("createInMemorySystems", () => {
 
     it("keeps a reboot on one call out of another call from the same seed", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       await one.network.rebootModem("2234567890", CALL_STARTED_AT);
       expect((await two.network.diagnose("2234567890"))?.modemStatus).toBe("degraded");
     });
@@ -349,7 +361,7 @@ describe("createInMemorySystems", () => {
 
   describe("billing.balanceOf", () => {
     it("anchors the due date and the disconnection to the call's start", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.balanceOf("1234567890")).toEqual({
         amountDueMinor: 129_900,
         dueAt: new Date("2026-10-27T06:00:00Z"),
@@ -358,7 +370,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("reports nulls for an account that owes nothing", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.balanceOf("2234567890")).toEqual({
         amountDueMinor: 0,
         dueAt: null,
@@ -367,12 +379,12 @@ describe("createInMemorySystems", () => {
     });
 
     it("returns null for an account with no balance on record", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.balanceOf("9999999999")).toBeNull();
     });
 
     it("hands back a copy: mutating it changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const first = await systems.billing.balanceOf("1234567890");
       first!.amountDueMinor = 0;
       first!.disconnectionAt!.setUTCFullYear(1999);
@@ -386,7 +398,7 @@ describe("createInMemorySystems", () => {
 
   describe("billing.billsFor and billing.paymentsFor", () => {
     it("lists only this account's bills, newest first", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.billsFor("1234567890")).toEqual([
         { reference: "SOA-2610-7890", amountMinor: 129_900, issuedAt: new Date("2026-10-12T06:00:00Z") },
         { reference: "SOA-2609-7890", amountMinor: 129_900, issuedAt: new Date("2026-10-07T06:00:00Z") },
@@ -394,7 +406,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("lists only this account's payments, newest first, with whether each has posted", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.paymentsFor("1234567890")).toEqual([
         {
           reference: "1234567890123",
@@ -416,19 +428,19 @@ describe("createInMemorySystems", () => {
     it("keeps seed order for equal times", async () => {
       const world = seed();
       world.payments[0].paidMinutesBeforeCall = 1_440;
-      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA);
       const refs = (await systems.billing.paymentsFor("1234567890")).map((p) => p.reference);
       expect(refs).toEqual(["BNK20261001", "1234567890123"]);
     });
 
     it("returns empty lists for an unknown account", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.billsFor("9999999999")).toEqual([]);
       expect(await systems.billing.paymentsFor("9999999999")).toEqual([]);
     });
 
     it("hands back copies: mutating a result changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const [bill] = await systems.billing.billsFor("1234567890");
       bill.amountMinor = 1;
       bill.issuedAt.setUTCFullYear(1999);
@@ -448,7 +460,7 @@ describe("createInMemorySystems", () => {
 
   describe("billing.findPayment", () => {
     it("finds a payment by its exact reference on the account it was made to", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.findPayment("1234567890", "1234567890123")).toEqual({
         reference: "1234567890123",
         channel: "gcash",
@@ -459,13 +471,13 @@ describe("createInMemorySystems", () => {
     });
 
     it("does not find another account's payment", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.findPayment("2234567890", "1234567890123")).toBeNull();
       expect(await systems.billing.findPayment("1234567890", "MAYA7K2Q9")).toBeNull();
     });
 
     it("returns null for an unknown reference and for a near miss", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.findPayment("1234567890", "9999999999999")).toBeNull();
       expect(await systems.billing.findPayment("1234567890", "123456789012")).toBeNull();
       expect(await systems.billing.findPayment("1234567890", "1234 567890123")).toBeNull();
@@ -482,7 +494,7 @@ describe("createInMemorySystems", () => {
     const OPENED_AT = new Date("2026-11-06T06:05:00Z");
 
     it("numbers the call's tickets in order, in the call's year", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       expect(await systems.tickets.createTicket(BILLING_TICKET, OPENED_AT)).toEqual({
         reference: "TKT-2026-00001",
       });
@@ -492,7 +504,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("keeps what was opened, and when, oldest first, as copies", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       await systems.tickets.createTicket(BILLING_TICKET, OPENED_AT);
       const [opened] = systems.openedTickets();
       opened.notes = "tampered";
@@ -504,9 +516,9 @@ describe("createInMemorySystems", () => {
 
     it("starts each call's numbering afresh, and follows the call's start", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       await one.tickets.createTicket(BILLING_TICKET, OPENED_AT);
-      const two = createInMemorySystems(shared, new Date("2031-02-14T22:15:00Z"), MANILA);
+      const two = createInMemorySystems(dataFor(shared), new Date("2031-02-14T22:15:00Z"), MANILA);
       expect(await two.tickets.createTicket(BILLING_TICKET, OPENED_AT)).toEqual({
         reference: "TKT-2031-00001",
       });
@@ -516,7 +528,7 @@ describe("createInMemorySystems", () => {
     /** 12:30 AM on New Year's Day in Manila is still the old year in UTC. */
     it("numbers tickets and visits in the year of the call's start in the company's time zone", async () => {
       const newYear = new Date("2026-12-31T16:30:00Z");
-      const systems = createInMemorySystems(seed(), newYear, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), newYear, MANILA);
 
       expect(await systems.tickets.createTicket(BILLING_TICKET, newYear)).toEqual({
         reference: "TKT-2027-00001",
@@ -539,7 +551,7 @@ describe("createInMemorySystems", () => {
     } as const;
 
     it("finds a ticket by its exact reference, with when it was opened", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const openedAt = new Date("2026-11-06T06:05:00Z");
       const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET, openedAt);
 
@@ -552,7 +564,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("does not find another account's ticket, or a reference never given", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET, CALL_STARTED_AT);
 
       expect(await systems.tickets.findTicket("2234567890", reference)).toBeNull();
@@ -560,7 +572,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("hands back a copy: mutating it changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET, CALL_STARTED_AT);
       const found = await systems.tickets.findTicket("1234567890", reference);
       found!.openedAt.setUTCFullYear(1999);
@@ -568,6 +580,221 @@ describe("createInMemorySystems", () => {
       expect((await systems.tickets.findTicket("1234567890", reference))?.openedAt).toEqual(
         CALL_STARTED_AT,
       );
+    });
+  });
+
+  /** The knowledge base: the pack's help articles, searched with the ranking. */
+  describe("knowledgeBase.search", () => {
+    it("gives the articles that match the question, best first", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+
+      expect((await systems.knowledgeBase.search("wifi password")).map((a) => a.id)).toEqual([
+        "wifi-password",
+      ]);
+      expect((await systems.knowledgeBase.search("the modem")).map((a) => a.id)).toEqual([
+        "modem-lights",
+        "wifi-password",
+      ]);
+    });
+
+    it("gives each article whole, as a copy", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const [found] = await systems.knowledgeBase.search("ilaw");
+      found.tags.push("tampered");
+      found.title = "Tampered";
+
+      expect(await systems.knowledgeBase.search("ilaw")).toEqual([testHelpArticles()[0]]);
+    });
+
+    it("gives nothing when no article matches", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      expect(await systems.knowledgeBase.search("cancel my service")).toEqual([]);
+    });
+  });
+
+  /** Quotes for plan changes, and the changes made with them. */
+  describe("plans", () => {
+    /** Maria, from Kidlat 300 to Kidlat 500, priced five minutes into the call. */
+    const QUOTE = {
+      accountNumber: "1234567890",
+      currentPlanId: "kidlat-300",
+      newPlanId: "kidlat-500",
+      newMonthlyPriceMinor: 209_900,
+      proratedAmountMinor: 7_742,
+      effectiveAt: new Date("2026-11-06T06:05:00Z"),
+    };
+    const QUOTED_AT = new Date("2026-11-06T06:05:00Z");
+
+    it("numbers the call's quotes in order, in the call's year", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+
+      expect(await systems.plans.createQuote(QUOTE, QUOTED_AT)).toEqual({
+        reference: "QTE-2026-00001",
+      });
+      expect(await systems.plans.createQuote(QUOTE, QUOTED_AT)).toEqual({
+        reference: "QTE-2026-00002",
+      });
+    });
+
+    /** 12:30 AM on New Year's Day in Manila is still the old year in UTC. */
+    it("numbers quotes in the year of the call's start in the company's time zone", async () => {
+      const newYear = new Date("2026-12-31T16:30:00Z");
+      const systems = createInMemorySystems(dataFor(seed()), newYear, MANILA);
+
+      expect(await systems.plans.createQuote(QUOTE, newYear)).toEqual({ reference: "QTE-2027-00001" });
+    });
+
+    it("gives the account's latest quote, with when it was made, not yet used", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      expect(await systems.plans.latestQuote("1234567890")).toEqual({
+        reference: "QTE-2026-00001",
+        ...QUOTE,
+        quotedAt: QUOTED_AT,
+        used: false,
+      });
+    });
+
+    /** A newer quote supersedes the older one: only the latest can change a plan. */
+    it("gives the newer of two quotes for the account", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      await systems.plans.createQuote(QUOTE, QUOTED_AT);
+      await systems.plans.createQuote({ ...QUOTE, newPlanId: "kidlat-100" }, QUOTED_AT);
+
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({
+        reference: "QTE-2026-00002",
+        newPlanId: "kidlat-100",
+      });
+    });
+
+    it("gives no quote for an account that has none, though another account has one", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      expect(await systems.plans.latestQuote("2234567890")).toBeNull();
+    });
+
+    it("hands back a copy, and keeps one: mutating either changes nothing stored", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const given = { ...QUOTE, effectiveAt: new Date(QUOTE.effectiveAt) };
+      await systems.plans.createQuote(given, QUOTED_AT);
+      given.effectiveAt.setUTCFullYear(1999);
+      const found = await systems.plans.latestQuote("1234567890");
+      found!.quotedAt.setUTCFullYear(1999);
+      found!.newPlanId = "kidlat-1000";
+
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({
+        newPlanId: "kidlat-500",
+        effectiveAt: QUOTE.effectiveAt,
+        quotedAt: QUOTED_AT,
+      });
+    });
+
+    it("moves the account to the quote's plan at once when the quote is in effect, and marks it used", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
+
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({ reference, used: true });
+      expect(await systems.plans.scheduledChange("1234567890")).toBeNull();
+    });
+
+    /** Maria, from Kidlat 300 down to Kidlat 100, starting with her next billing cycle. */
+    const LATER = { ...QUOTE, newPlanId: "kidlat-100", effectiveAt: new Date("2026-11-12T06:00:00Z") };
+
+    it("schedules a quote that takes effect later, and keeps the account on its plan until then", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(LATER, QUOTED_AT);
+
+      await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
+
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
+      expect(await systems.plans.scheduledChange("1234567890")).toEqual({
+        planId: "kidlat-100",
+        effectiveAt: new Date("2026-11-12T06:00:00Z"),
+      });
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({ reference, used: true });
+    });
+
+    it("has no scheduled change for an account until one is made, nor for anyone else", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      expect(await systems.plans.scheduledChange("1234567890")).toBeNull();
+
+      const { reference } = await systems.plans.createQuote(LATER, QUOTED_AT);
+      await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
+
+      expect(await systems.plans.scheduledChange("2234567890")).toBeNull();
+    });
+
+    /** One change at a time: the latest one made is the one that holds. */
+    it("drops a scheduled change when a change is made at once", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const later = await systems.plans.createQuote(LATER, QUOTED_AT);
+      await systems.plans.applyQuote("1234567890", later.reference, QUOTED_AT);
+      const now = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      await systems.plans.applyQuote("1234567890", now.reference, QUOTED_AT);
+
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
+      expect(await systems.plans.scheduledChange("1234567890")).toBeNull();
+    });
+
+    it("hands back a copy of the scheduled change: mutating it changes nothing stored", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(LATER, QUOTED_AT);
+      await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
+      const scheduled = await systems.plans.scheduledChange("1234567890");
+      scheduled!.effectiveAt.setUTCFullYear(1999);
+      scheduled!.planId = "kidlat-1000";
+
+      expect(await systems.plans.scheduledChange("1234567890")).toEqual({
+        planId: "kidlat-100",
+        effectiveAt: new Date("2026-11-12T06:00:00Z"),
+      });
+    });
+
+    it("rejects a quote already used, so one quote changes a plan once", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+      await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
+      await systems.plans.createQuote(
+        { ...QUOTE, currentPlanId: "kidlat-500", newPlanId: "kidlat-100" },
+        QUOTED_AT,
+      );
+
+      await expect(systems.plans.applyQuote("1234567890", reference, QUOTED_AT)).rejects.toThrow(
+        'quote "QTE-2026-00001" cannot be applied',
+      );
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
+    });
+
+    it("rejects another account's quote, or a reference never given, and changes no plan", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      await expect(systems.plans.applyQuote("2234567890", reference, QUOTED_AT)).rejects.toThrow(
+        'quote "QTE-2026-00001" cannot be applied',
+      );
+      await expect(systems.plans.applyQuote("1234567890", "QTE-2026-00009", QUOTED_AT)).rejects.toThrow(
+        'quote "QTE-2026-00009" cannot be applied',
+      );
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
+      expect((await systems.accounts.findAccount("2234567890"))?.planId).toBe("kidlat-100");
+    });
+
+    it("changes the plan in this call's copy only, never in the seed", async () => {
+      const shared = seed();
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
+      const { reference } = await one.plans.createQuote(QUOTE, QUOTED_AT);
+      await one.plans.applyQuote("1234567890", reference, QUOTED_AT);
+
+      const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
+      expect(shared.accounts[0].planName).toBe("Kidlat 300");
+      expect((await two.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
+      expect(await two.plans.latestQuote("1234567890")).toBeNull();
     });
   });
 
@@ -583,7 +810,7 @@ describe("createInMemorySystems", () => {
     };
 
     it("lists a barangay's open slots, soonest first, in the company's time zone", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
 
       expect(await systems.fieldService.availableSlots("batasan-hills")).toEqual([
         {
@@ -605,7 +832,7 @@ describe("createInMemorySystems", () => {
 
     it("anchors the slots to the call's date in the time zone it is given", async () => {
       // 1:00 AM, Fri, Nov 6 in New York: 9:00 AM the next day is 2:00 PM UTC.
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, "America/New_York");
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, "America/New_York");
 
       const [first] = await systems.fieldService.availableSlots("commonwealth");
       expect(first.startsAt).toEqual(new Date("2026-11-07T14:00:00Z"));
@@ -614,14 +841,14 @@ describe("createInMemorySystems", () => {
     it("returns an empty list for a barangay with no slots and for an unknown one", async () => {
       const world = seed();
       world.technicianSlots = world.technicianSlots.filter((s) => s.barangayId !== "commonwealth");
-      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA);
 
       expect(await systems.fieldService.availableSlots("commonwealth")).toEqual([]);
       expect(await systems.fieldService.availableSlots("atlantis")).toEqual([]);
     });
 
     it("books a slot for its ticket, numbers the call's visits, and takes the slot off the list", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
 
       expect(await systems.fieldService.bookVisit(VISIT)).toEqual({ reference: "VIS-2026-00001" });
       expect(
@@ -635,7 +862,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("refuses a slot already booked or unknown, so two visits never share one", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       await systems.fieldService.bookVisit(VISIT);
 
       await expect(systems.fieldService.bookVisit(VISIT)).rejects.toThrow(
@@ -648,7 +875,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("hands back copies: mutating a slot or a booking changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const [slot] = await systems.fieldService.availableSlots("batasan-hills");
       slot.startsAt.setUTCFullYear(1999);
       const [again] = await systems.fieldService.availableSlots("batasan-hills");
@@ -660,7 +887,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("finds the visit booked for a ticket, on its own account only", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       await systems.fieldService.bookVisit(VISIT);
 
       expect(await systems.fieldService.visitForTicket("1234567890", "TKT-2026-00001")).toEqual({
@@ -672,8 +899,8 @@ describe("createInMemorySystems", () => {
 
     it("keeps one call's bookings out of another call from the same seed", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       await one.fieldService.bookVisit(VISIT);
 
       expect(two.bookedVisits()).toEqual([]);
@@ -683,7 +910,7 @@ describe("createInMemorySystems", () => {
 
   describe("sms.send", () => {
     it("puts the text in the outbox, addressed as given", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       await systems.sms.send({ to: "+639175550101", message: "Your ticket is TKT-2026-00001." });
       expect(systems.outbox()).toEqual([
         { to: "+639175550101", message: "Your ticket is TKT-2026-00001." },
@@ -692,8 +919,8 @@ describe("createInMemorySystems", () => {
 
     it("hands back copies, and gives each call its own outbox", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const one = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       await one.sms.send({ to: "+639175550101", message: "Hello po." });
       one.outbox()[0].to = "+639990000000";
       expect(one.outbox()).toEqual([{ to: "+639175550101", message: "Hello po." }]);

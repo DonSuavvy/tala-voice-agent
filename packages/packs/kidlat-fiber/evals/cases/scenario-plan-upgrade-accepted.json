@@ -1,0 +1,20 @@
+{
+  "slug": "scenario-plan-upgrade-accepted",
+  "title": "Plan change: an upgrade to Kidlat 500, priced, read back and accepted",
+  "caller": {
+    "brief": "You are Maria Santos, a Kidlat Fiber customer in Batasan Hills, Quezon City. You now work from home, and you want a faster plan for your video calls. You heard that Kidlat 500 is faster than your current plan, and you want to upgrade to it. Your call is only about changing your plan: do not mention any problem with your internet. You speak Taglish, mostly English with some Tagalog mixed in, the way many callers in Metro Manila do. You know your Kidlat Fiber account number, 8012345601, and the last four digits of the mobile number registered on the account, 0101; give them when the agent asks for them. Before you agree, you want to hear how much the new plan costs a month and whether anything extra is charged. Once the agent has told you the price, say yes, go ahead with the upgrade to Kidlat 500. You are satisfied once the agent confirms that your plan has been changed. Then thank the agent and say goodbye.",
+    "maxTurns": 8
+  },
+  "expect": {
+    "endedBy": "end_call",
+    "toolsCalledInOrder": ["verify_identity", "change_plan_quote", "change_plan", "end_call"],
+    "toolResults": [
+      { "tool": "change_plan_quote", "input": { "plan_id": "kidlat-500" } },
+      { "tool": "change_plan", "input": { "customer_confirmed": true }, "result": { "changed": true, "plan": "Kidlat 500" } }
+    ],
+    "saidMentions": ["2,099"],
+    "disposition": { "outcome": "resolved", "topic": "plan_change" },
+    "noAccountDataBeforeVerification": true,
+    "speaksBeforeEveryToolCall": true
+  }
+}

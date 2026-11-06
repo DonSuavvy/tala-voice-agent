@@ -1,0 +1,6 @@
+[
+  { "id": "kidlat-100", "name": "Kidlat 100", "downloadMbps": 100, "monthlyPriceMinor": 129900 },
+  { "id": "kidlat-300", "name": "Kidlat 300", "downloadMbps": 300, "monthlyPriceMinor": 169900 },
+  { "id": "kidlat-500", "name": "Kidlat 500", "downloadMbps": 500, "monthlyPriceMinor": 209900 },
+  { "id": "kidlat-1000", "name": "Kidlat 1000", "downloadMbps": 1000, "monthlyPriceMinor": 299900 }
+]

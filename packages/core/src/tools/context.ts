@@ -5,6 +5,7 @@
 import type { z } from "zod";
 
 import type { ToolContext, ToolDefinition } from "../agent/registry";
+import type { Plan } from "../pack/plan-catalog";
 import type { IdentityState } from "../policy/identity";
 import type { SupportPolicy } from "../policy/support-policy";
 import type { BusinessSystems } from "../systems/types";
@@ -15,11 +16,21 @@ export interface CallData {
   identity: IdentityState;
   /** How times and money are spoken: the company's time zone, locale and ISO 4217 currency. */
   company: { timeZone: string; locale: string; currency: string };
+  /** The company pack's plan catalog: the plans the SOP names, and what each costs a month. */
+  plans: readonly Plan[];
   /**
-   * When the call started, from the session's clock. "Opened on this call"
-   * means opened at or after this, whatever else the business systems hold.
+   * When the call started, from the session's clock. A ticket "opened on this
+   * call" or a quote "made on this call" is one opened or made at or after
+   * this, whatever else the business systems hold.
    */
   startedAt: Date;
+  /**
+   * When the caller last spoke, from the session's clock: the start of the
+   * caller turn now running. Null before the caller has said anything. The
+   * call session supplies it; a tool reads it to know whether the caller has
+   * answered something said since.
+   */
+  lastCallerTurnAt: () => Date | null;
   /**
    * Resolves after this many milliseconds, for a tool that has to wait, such
    * as a remote reboot waiting out the restart. The call session supplies it:

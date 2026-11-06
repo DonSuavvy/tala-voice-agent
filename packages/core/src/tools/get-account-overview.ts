@@ -1,12 +1,14 @@
 /**
- * `get_account_overview`: the verified caller's plan, status and what they
- * owe.
+ * `get_account_overview`: the verified caller's plan, any plan change scheduled,
+ * status and what they owe.
  *
  * It takes an account number, like `check_area_outage`, so a request about
  * anyone else's account ("my neighbor's balance") reaches the code and is
  * refused there by the account gate, where the refusal can be seen.
  */
 import { z } from "zod";
+
+import { planWithId } from "../pack/plan-catalog";
 
 import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
@@ -21,7 +23,8 @@ export const getAccountOverview = defineTalaTool({
     "whether they will be disconnected. It works only for the account verified on this call " +
     "with verify_identity, and refuses any other. Amounts and dates are given as they should " +
     "be said. A null due_date means nothing is due; a null disconnection_date means none is " +
-    "scheduled.",
+    "scheduled. scheduled_plan_change is a plan change made to take effect later, with the plan " +
+    "and the date it starts, or null when none is scheduled.",
   input: z
     .object({
       account_number: accountNumberInput,
@@ -31,14 +34,15 @@ export const getAccountOverview = defineTalaTool({
   idempotent: true,
   handler: async (input, ctx) => {
     const account = await requireVerifiedAccount(ctx, input.account_number);
-    const { systems, company } = ctx.data;
+    const { systems, company, plans } = ctx.data;
     const balance = await systems.billing.balanceOf(account.accountNumber);
     if (balance === null) {
       throw new Error("no balance is on record for the account verified on this call");
     }
+    const scheduled = await systems.plans.scheduledChange(account.accountNumber);
 
     return {
-      plan: account.planName,
+      plan: planWithId(plans, account.planId).name,
       account_status: account.status,
       balance_due: formatCompanyMoney(balance.amountDueMinor, company),
       due_date: balance.dueAt === null ? null : formatLocalDate(balance.dueAt, company),
@@ -50,6 +54,13 @@ export const getAccountOverview = defineTalaTool({
         balance.dueAt.getTime() < ctx.now.getTime(),
       disconnection_date:
         balance.disconnectionAt === null ? null : formatLocalDate(balance.disconnectionAt, company),
+      scheduled_plan_change:
+        scheduled === null
+          ? null
+          : {
+              plan: planWithId(plans, scheduled.planId).name,
+              effective_date: formatLocalDate(scheduled.effectiveAt, company),
+            },
     };
   },
 });

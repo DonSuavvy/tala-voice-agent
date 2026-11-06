@@ -240,6 +240,7 @@ async function main(): Promise<number> {
       case: kase,
       call,
       world: pack.world,
+      plans: pack.plans,
       grade,
       callId,
       latencyMs: Date.now() - started,

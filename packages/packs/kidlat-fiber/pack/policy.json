@@ -1,5 +1,9 @@
 {
   "identity": {
     "maxFailedAttempts": 3
+  },
+  "planChanges": {
+    "upgrade": "now",
+    "downgrade": "next_cycle"
   }
 }

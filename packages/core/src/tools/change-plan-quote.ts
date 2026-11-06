@@ -1,0 +1,108 @@
+/**
+ * `change_plan_quote`: price a change of the verified caller's plan, and keep
+ * the quote so `change_plan` can make that change once the caller says yes.
+ *
+ * The price is the plan-change policy's (`../policy/plan-change`), from the
+ * company pack's catalog and the account's latest bill, at the call's `now`.
+ * The quote is kept in the business systems with when it was made; it changes
+ * nothing about the account.
+ */
+import { z } from "zod";
+
+import { planWithId } from "../pack/plan-catalog";
+import { pricePlanChange, type PlanChangePrice } from "../policy/plan-change";
+
+/** Why the policy refuses to price a change: its own reasons, not the handler's. */
+type Refusal = Extract<PlanChangePrice, { allowed: false }>["reason"];
+
+import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
+import { defineTalaTool } from "./context";
+import { formatCompanyMoney, formatLocalDate } from "./format-time";
+
+export const changePlanQuote = defineTalaTool({
+  name: "change_plan_quote",
+  description:
+    "Prices a change of the caller's plan: the new plan's monthly price, the prorated amount " +
+    "added to the next bill (negative when it is a credit), the date the change takes effect, " +
+    "and its kind: an upgrade, to a plan that costs more, or a downgrade. When each kind takes " +
+    "effect is the company's policy; a change that takes effect at once is prorated for the " +
+    "rest of the billing cycle. Use it when a verified caller asks to change plans or what a " +
+    "change would cost. " +
+    "It works only for the account verified on this call with verify_identity, and refuses any " +
+    "other. It changes nothing: read the price back to the caller, and only if they say yes, " +
+    "make the change with change_plan and the quote_id this returns. Amounts and dates are " +
+    "given as they should be said.",
+  input: z
+    .object({
+      account_number: accountNumberInput,
+      plan_id: z
+        .string()
+        .min(1)
+        .max(40)
+        .describe(
+          "The id of the plan the caller wants, as the plan list in your instructions gives it.",
+        ),
+    })
+    .strict(),
+  safetyClass: "read",
+  idempotent: false,
+  handler: async (input, ctx) => {
+    const account = await requireVerifiedAccount(ctx, input.account_number);
+    const { systems, company, plans } = ctx.data;
+
+    const next = plans.find((plan) => plan.id === input.plan_id);
+    if (!next) {
+      throw new Error(
+        "Refused: no plan has that id. Use a plan id from the plan list in your instructions.",
+      );
+    }
+    const current = planWithId(plans, account.planId);
+
+    const [latestBill] = await systems.billing.billsFor(account.accountNumber);
+    const price = pricePlanChange({
+      current,
+      next,
+      latestBillIssuedAt: latestBill?.issuedAt ?? null,
+      now: ctx.now,
+      timeZone: company.timeZone,
+      policy: ctx.policyConfig,
+    });
+    if (!price.allowed) throw new Error(refusal(price.reason));
+
+    const { reference } = await systems.plans.createQuote(
+      {
+        accountNumber: account.accountNumber,
+        currentPlanId: current.id,
+        newPlanId: next.id,
+        newMonthlyPriceMinor: next.monthlyPriceMinor,
+        proratedAmountMinor: price.proratedAmountMinor,
+        effectiveAt: price.effectiveAt,
+      },
+      ctx.now,
+    );
+    return {
+      quote_id: reference,
+      current_plan: current.name,
+      new_plan: next.name,
+      new_monthly_price: formatCompanyMoney(next.monthlyPriceMinor, company),
+      prorated_amount: formatCompanyMoney(price.proratedAmountMinor, company),
+      effective_date: formatLocalDate(price.effectiveAt, company),
+      kind: price.kind,
+    };
+  },
+});
+
+/** What the model reads when the change cannot be priced. */
+function refusal(reason: Refusal): string {
+  switch (reason) {
+    case "same_plan":
+      return "Refused: the caller is already on that plan.";
+    case "no_current_cycle":
+      return (
+        "Refused: the account has no current billing cycle to price the change against, so " +
+        "its plan cannot be changed on this call."
+      );
+    default:
+      return reason satisfies never;
+  }
+}

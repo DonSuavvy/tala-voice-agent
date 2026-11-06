@@ -90,8 +90,9 @@ export const expectationsSchema = z
     /**
      * For each entry, some successful call of `tool` whose input and result
      * hold the given fields with equal values: a recursive subset match on
-     * objects, element by element on arrays, exact on everything else. Input
-     * and result are checked on the same call.
+     * objects, a prefix on arrays (each expected element at the same index,
+     * the actual array possibly longer), exact on everything else. Input and
+     * result are checked on the same call.
      */
     toolResults: z
       .array(

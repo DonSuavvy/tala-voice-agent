@@ -25,7 +25,7 @@
  * its document against the list at boot. Values are pre-formatted for prose,
  * so no SOP author has to divide minor units correctly.
  */
-export type SopRenderers<P> = Readonly<Record<string, (policy: P) => string>>;
+export type SopRenderers<P> = Readonly<Record<string, (facts: P) => string>>;
 
 /** The placeholders a set of renderers understands, in declaration order. */
 export function sopPlaceholders<P>(renderers: SopRenderers<P>): readonly string[] {
@@ -104,7 +104,11 @@ export function strayBraces(body: string): boolean {
 
 export interface CompileSopInput<P> {
   bodyMarkdown: string;
-  policyConfig: P;
+  /**
+   * What the renderers read: a pack's policy, or more than its policy, such
+   * as the policy and the plan catalog together.
+   */
+  facts: P;
   renderers: SopRenderers<P>;
 }
 
@@ -118,7 +122,7 @@ export interface CompileSopInput<P> {
  */
 export function compileSop<P>({
   bodyMarkdown,
-  policyConfig,
+  facts,
   renderers,
 }: CompileSopInput<P>): string {
   return bodyMarkdown.replace(PLACEHOLDER, (_match, name: string) => {
@@ -129,7 +133,7 @@ export function compileSop<P>({
     if (!Object.hasOwn(renderers, name)) {
       throw new UnknownPlaceholderError(name, sopPlaceholders(renderers));
     }
-    return renderers[name](policyConfig);
+    return renderers[name](facts);
   });
 }
 

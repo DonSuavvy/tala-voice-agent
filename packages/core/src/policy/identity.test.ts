@@ -9,8 +9,9 @@ import {
   normalizeAccountNumber,
   recordVerification,
 } from "./identity";
+import { testPolicy } from "../testing/fixtures";
 
-const POLICY_3 = { identity: { maxFailedAttempts: 3 } };
+const POLICY_3 = testPolicy();
 
 /**
  * The account gate and identity verification, as pure decisions. A caller
@@ -155,7 +156,7 @@ describe("checkVerificationAttempt", () => {
       reason: "locked",
     });
     expect(
-      checkVerificationAttempt(threeFailures, "8012345678", { identity: { maxFailedAttempts: 5 } }),
+      checkVerificationAttempt(threeFailures, "8012345678", { ...testPolicy(), identity: { maxFailedAttempts: 5 } }),
     ).toEqual({ allowed: true, alreadyVerified: false });
   });
 
@@ -179,7 +180,7 @@ describe("checkVerificationAttempt", () => {
     const verified = { verifiedAccount: "8012345678", failedAttempts: 0 };
 
     expect(() =>
-      checkVerificationAttempt(fresh, "8012345678", { identity: { maxFailedAttempts: 50 } }),
+      checkVerificationAttempt(fresh, "8012345678", { ...testPolicy(), identity: { maxFailedAttempts: 50 } }),
     ).toThrow(/maxFailedAttempts/);
     expect(() => checkVerificationAttempt(verified, "8012345678", undefined)).toThrow();
   });

@@ -8,8 +8,8 @@
  * - Each call gets a fresh copy of the seed (spec: "each call starts from a
  *   fresh copy of the seed world"). The seed is cloned on creation, so two
  *   calls never share state and nothing a call does can reach the seed. The
- *   tickets a call opens, the texts it sends and the modems it reboots live
- *   in that copy too.
+ *   tickets a call opens, the texts it sends, the modems it reboots, and the
+ *   quotes and plan changes it makes live in that copy too.
  * - It never reads the wall clock. The seed stores times relative to the
  *   call's start (see `./seed-world`); `callStartedAt` turns those offsets
  *   into dates, and a reboot is told when it was asked for. That also makes
@@ -18,7 +18,11 @@
  * Everything handed out is a copy, so a caller that mutates a result changes
  * nothing stored.
  */
+import type { HelpArticle } from "../pack/help-articles";
+import type { Plan } from "../pack/plan-catalog";
+
 import type { SeedWorld } from "./seed-world";
+import { rankHelpArticles } from "./rank-help-articles";
 import { slotWindow } from "./slot-window";
 import { MINUTE_MS, SECOND_MS } from "./time-units";
 import type {
@@ -27,10 +31,13 @@ import type {
   BillRecord,
   BusinessSystems,
   Diagnosis,
+  NewPlanQuote,
   NewTicket,
   NewVisit,
   OutageRecord,
   PaymentRecord,
+  PlanQuoteRecord,
+  ScheduledPlanChange,
   SmsMessage,
   TechnicianSlot,
   TicketRecord,
@@ -60,20 +67,48 @@ export interface InMemorySystems extends BusinessSystems {
   bookedVisits(): BookedVisit[];
 }
 
+/** What the in-memory world is built from: the company pack's data. */
+export interface InMemorySource {
+  /** The seed world every call starts from a fresh copy of. */
+  world: SeedWorld;
+  /** The plan catalog the seed's plan names are resolved against. */
+  plans: readonly Plan[];
+  /** The help articles the knowledge base searches, in knowledge base order. */
+  help: readonly HelpArticle[];
+}
+
 /**
+ * `source` is the company pack's data; a loaded pack can be passed as it is.
  * `timeZone` is the company's (an IANA name such as `Asia/Manila`): technician
  * slots are stated by the call's local date, and references carry the year of
  * the call's start there, so the world needs it.
  */
 export function createInMemorySystems(
-  seed: SeedWorld,
+  source: InMemorySource,
   callStartedAt: Date,
   timeZone: string,
 ): InMemorySystems {
-  const world = structuredClone(seed);
+  const world = structuredClone(source.world);
   const tickets: OpenedTicket[] = [];
   const outbox: SmsMessage[] = [];
   const visits: BookedVisit[] = [];
+  const quotes: PlanQuoteRecord[] = [];
+  const scheduled = new Map<string, ScheduledPlanChange>();
+
+  // Each account's plan, by id. The seed names plans as callers know them;
+  // the pack's boot check makes every name a catalog plan, and the world
+  // resolves them once, here, so everything after compares ids.
+  const planIdOf = new Map(source.plans.map((plan) => [plan.name, plan.id]));
+  const accountPlans = new Map<string, string>();
+  for (const account of world.accounts) {
+    const planId = planIdOf.get(account.planName);
+    if (planId === undefined) {
+      throw new Error(
+        `account ${account.accountNumber} names unknown plan "${account.planName}"`,
+      );
+    }
+    accountPlans.set(account.accountNumber, planId);
+  }
   const minutesFromStart = (minutes: number) =>
     new Date(callStartedAt.getTime() + minutes * MINUTE_MS);
 
@@ -93,7 +128,8 @@ export function createInMemorySystems(
       holderName: account.holderName,
       registeredMobile: account.registeredMobile,
       status: account.status,
-      planName: account.planName,
+      // Set for every account above, so never undefined here.
+      planId: accountPlans.get(account.accountNumber)!,
       serviceArea: {
         barangayId: barangay.id,
         barangayName: barangay.name,
@@ -205,8 +241,9 @@ export function createInMemorySystems(
   };
 
   // Deterministic within a call: the call's first ticket is always 00001, and
-  // its first visit too, in the year the call started in the company's time
-  // zone (a Manila call at 12:30 AM on New Year's Day gets the new year).
+  // its first visit and first quote too, in the year the call started in the
+  // company's time zone (a Manila call at 12:30 AM on New Year's Day gets the
+  // new year).
   const callYear = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(
     callStartedAt,
   );
@@ -263,6 +300,50 @@ export function createInMemorySystems(
     return visit ? { reference: visit.reference } : null;
   };
 
+  const copyOfQuote = (quote: PlanQuoteRecord): PlanQuoteRecord => ({
+    ...quote,
+    effectiveAt: new Date(quote.effectiveAt),
+    quotedAt: new Date(quote.quotedAt),
+  });
+
+  const createQuote = (quote: NewPlanQuote, quotedAt: Date): { reference: string } => {
+    const reference = nextReference("QTE", quotes.length);
+    quotes.push(copyOfQuote({ ...quote, reference, quotedAt, used: false }));
+    return { reference };
+  };
+
+  const quoteOf = (accountNumber: string, reference: string): PlanQuoteRecord | undefined =>
+    quotes.find((q) => q.accountNumber === accountNumber && q.reference === reference);
+
+  // Quotes are kept in the order they were made, so the last one is the latest.
+  const latestQuote = (accountNumber: string): PlanQuoteRecord | null => {
+    const quote = quotes.findLast((q) => q.accountNumber === accountNumber);
+    return quote ? copyOfQuote(quote) : null;
+  };
+
+  const applyQuote = (accountNumber: string, reference: string, appliedAt: Date): void => {
+    const quote = quoteOf(accountNumber, reference);
+    if (!quote || quote.used || !accountPlans.has(accountNumber)) {
+      throw new Error(`quote "${reference}" cannot be applied`);
+    }
+    if (quote.effectiveAt.getTime() <= appliedAt.getTime()) {
+      accountPlans.set(accountNumber, quote.newPlanId);
+      scheduled.delete(accountNumber);
+    } else {
+      const { newPlanId: planId, effectiveAt } = quote;
+      scheduled.set(accountNumber, { planId, effectiveAt: new Date(effectiveAt) });
+    }
+    quote.used = true;
+  };
+
+  const scheduledChange = (accountNumber: string): ScheduledPlanChange | null => {
+    const change = scheduled.get(accountNumber);
+    return change ? { ...change, effectiveAt: new Date(change.effectiveAt) } : null;
+  };
+
+  const searchHelp = (query: string): HelpArticle[] =>
+    rankHelpArticles(source.help, query).map((article) => ({ ...article, tags: [...article.tags] }));
+
   // Every real implementation is a network call, so these are async. Wrapping
   // in a promise (rather than an async body) turns a throw into a rejection.
   const later = <T>(work: () => T): Promise<T> => Promise.resolve().then(work);
@@ -295,6 +376,13 @@ export function createInMemorySystems(
       bookVisit: (visit) => later(() => bookVisit(visit)),
       visitForTicket: (n, reference) => later(() => visitForTicket(n, reference)),
     },
+    plans: {
+      createQuote: (quote, quotedAt) => later(() => createQuote(quote, quotedAt)),
+      latestQuote: (n) => later(() => latestQuote(n)),
+      applyQuote: (n, reference, appliedAt) => later(() => applyQuote(n, reference, appliedAt)),
+      scheduledChange: (n) => later(() => scheduledChange(n)),
+    },
+    knowledgeBase: { search: (query) => later(() => searchHelp(query)) },
     openedTickets: () => tickets.map((t) => ({ ...t, openedAt: new Date(t.openedAt) })),
     outbox: () => outbox.map((m) => ({ ...m })),
     bookedVisits: () => visits.map((v) => ({ ...v })),
