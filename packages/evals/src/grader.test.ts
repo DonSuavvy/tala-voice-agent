@@ -6,6 +6,7 @@ import {
   GRADE_JSON_SCHEMA,
   gradeSchema,
   gradeTranscript,
+  speakingStyleOf,
   type GradeCreator,
   type GradeRequest,
 } from "./grader";
@@ -26,6 +27,36 @@ const TRANSCRIPT: TranscriptLine[] = [
 ];
 
 const GRADE = { tone: 4, taglish: 5, politeness: 5, notes: "Warm and brief." };
+
+/**
+ * Not Kidlat's SOP: the grader must take the style from the SOP it is given.
+ * Its language rule is deliberately unlike Kidlat's.
+ */
+const SOP = [
+  "# Test ISP hotline",
+  "",
+  "You are Tala.",
+  "",
+  "## How you speak",
+  "",
+  '- Speak plain English, with an occasional "po".',
+  "",
+  "### Times",
+  "",
+  '- Say times aloud, like "around 4 PM".',
+  "",
+  "## Verifying the caller",
+  "",
+  "Ask for the account number before anything else.",
+].join("\n");
+
+const STYLE = [
+  '- Speak plain English, with an occasional "po".',
+  "",
+  "### Times",
+  "",
+  '- Say times aloud, like "around 4 PM".',
+].join("\n");
 
 function usage(input = 10, output = 10) {
   return {
@@ -53,10 +84,37 @@ function scripted(answer: AssistantTurn | Error) {
 }
 
 function grade(createMessage: GradeCreator, transcript = TRANSCRIPT) {
-  return gradeTranscript({ transcript, provider: anthropicProvider, createMessage });
+  return gradeTranscript({ transcript, sop: SOP, provider: anthropicProvider, createMessage });
 }
 
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The company's speaking style is the SOP's own "## How you speak" section,
+ * so the grade follows the SOP Tala was briefed with instead of a copy of its
+ * rules that drifts.
+ */
+describe("speakingStyleOf", () => {
+  it("is the section under the How you speak heading, subsections included", () => {
+    expect(speakingStyleOf(SOP)).toBe(STYLE);
+  });
+
+  it("reads Windows line endings the same way", () => {
+    expect(speakingStyleOf(SOP.replace(/\n/g, "\r\n"))).toBe(STYLE.replace(/\n/g, "\r\n"));
+  });
+
+  it("runs to the end of the SOP when it is the last section", () => {
+    expect(speakingStyleOf("# SOP\n\n## How you speak\n\nBe brief.\n")).toBe("Be brief.");
+  });
+
+  it.each([
+    ["no such section", "# SOP\n\n## Verifying the caller\n\nAsk first.\n"],
+    ["only a deeper heading of that name", "# SOP\n\n### How you speak\n\nBe brief.\n"],
+    ["an empty section", "# SOP\n\n## How you speak\n\n## Verifying the caller\n"],
+  ])("is null for %s", (_label, sop) => {
+    expect(speakingStyleOf(sop)).toBeNull();
+  });
+});
 
 describe("gradeTranscript: a grade", () => {
   it("returns the grade the model gave, with no reason", async () => {
@@ -84,6 +142,7 @@ describe("gradeTranscript: a grade", () => {
   ] as const)("prices a %s grader call from its real usage", async (model, nanos) => {
     const result = await gradeTranscript({
       transcript: TRANSCRIPT,
+      sop: SOP,
       provider: anthropicProvider,
       createMessage: scripted(reply([text(JSON.stringify(GRADE))], { usage: usage(1000, 200) }))
         .create,
@@ -111,6 +170,7 @@ describe("gradeTranscript: the request", () => {
     expect(request.system).toMatch(/tone/i);
     expect(request.system).toMatch(/taglish/i);
     expect(request.system).toMatch(/politeness/i);
+    expect(request.system).toContain(STYLE);
     expect(request.messages).toHaveLength(1);
     expect(request.messages[0].role).toBe("user");
     const content = request.messages[0].content as string;
@@ -118,10 +178,41 @@ describe("gradeTranscript: the request", () => {
     expect(content).toContain("Caller: Wala po kaming internet since this morning.");
   });
 
+  /** Only the style: the rest of the SOP is not the grader's business, and it keeps no copy of the rules. */
+  it("briefs the grader with the SOP's style and nothing else from it", async () => {
+    const claude = scripted(reply([text(JSON.stringify(GRADE))]));
+    await grade(claude.create);
+
+    const { system } = claude.requests[0];
+    expect(system).not.toContain("Ask for the account number");
+    expect(system).not.toMatch(/English-led|Sandali lang|Salamat po/);
+  });
+
+  /** Nothing to grade against is a reason, not a throw and not a paid call. */
+  it("gives an SOP without a How you speak section as the reason there is no grade", async () => {
+    const claude = scripted(reply([text(JSON.stringify(GRADE))]));
+    const result = await gradeTranscript({
+      transcript: TRANSCRIPT,
+      sop: "# SOP\n\n## Verifying the caller\n\nAsk first.\n",
+      provider: anthropicProvider,
+      createMessage: claude.create,
+    });
+
+    expect(claude.requests).toHaveLength(0);
+    expect(result).toEqual({
+      grade: null,
+      reason: 'the SOP has no "## How you speak" section to grade the call against',
+      usage: null,
+      costNanos: 0,
+      estimated: false,
+    });
+  });
+
   it("uses the grader model it is given", async () => {
     const claude = scripted(reply([text(JSON.stringify(GRADE))]));
     await gradeTranscript({
       transcript: TRANSCRIPT,
+      sop: SOP,
       provider: anthropicProvider,
       createMessage: claude.create,
       model: "haiku",
