@@ -29,7 +29,13 @@
  */
 import { z } from "zod";
 
-import { compileSop, placeholdersIn, sopPlaceholders, strayBraces } from "../agent/sop";
+import {
+  compileSop,
+  placeholdersIn,
+  sopPlaceholders,
+  strayBraces,
+  type SopRenderers,
+} from "../agent/sop";
 import {
   SUPPORT_POLICY_RENDERERS,
   supportPolicySchema,
@@ -37,9 +43,34 @@ import {
 } from "../policy/support-policy";
 import { seedWorldSchema, type SeedWorld } from "../systems/seed-world";
 
-import { planCatalogSchema, type Plan } from "./plan-catalog";
+import { PLAN_CATALOG_RENDERERS, planCatalogSchema, type Plan } from "./plan-catalog";
 
 const nonEmpty = z.string().min(1);
+
+/** What a pack's SOP placeholders render from: its policy and its plan catalog. */
+interface SopFacts {
+  policy: SupportPolicy;
+  plans: readonly Plan[];
+}
+
+/** Each of `renderers`, rendering from its own part of the facts. */
+function renderingFrom<P>(
+  renderers: SopRenderers<P>,
+  part: (facts: SopFacts) => P,
+): SopRenderers<SopFacts> {
+  return Object.fromEntries(
+    Object.entries(renderers).map(([name, render]) => [
+      name,
+      (facts: SopFacts) => render(part(facts)),
+    ]),
+  );
+}
+
+/** Every placeholder a pack's SOP may use: the policy's figures, then the plan catalog. */
+const PACK_SOP_RENDERERS: SopRenderers<SopFacts> = {
+  ...renderingFrom(SUPPORT_POLICY_RENDERERS, (facts) => facts.policy),
+  ...renderingFrom(PLAN_CATALOG_RENDERERS, (facts) => facts.plans),
+};
 
 function isValidTimeZone(zone: string): boolean {
   try {
@@ -162,8 +193,8 @@ export class PackValidationError extends Error {
 export function compilePackSop(pack: CompanyPack): string {
   return compileSop({
     bodyMarkdown: pack.sop.body,
-    policyConfig: pack.policy,
-    renderers: SUPPORT_POLICY_RENDERERS,
+    policyConfig: { policy: pack.policy, plans: pack.plans },
+    renderers: PACK_SOP_RENDERERS,
   });
 }
 
@@ -223,7 +254,7 @@ export function loadPack(source: PackSource): CompanyPack {
     });
   }
 
-  const known = sopPlaceholders(SUPPORT_POLICY_RENDERERS);
+  const known = sopPlaceholders(PACK_SOP_RENDERERS);
   for (const name of sop ? placeholdersIn(sop.body) : []) {
     if (!known.includes(name)) {
       issues.push(
