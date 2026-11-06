@@ -8,7 +8,8 @@
  * - `sop/v1.md`: the SOP, the prompt Claude reads. Its figures are
  *   placeholders filled from the policy at compile time, so what Tala says
  *   and what the tool handlers enforce cannot drift apart.
- * - `pack/policy.json`: the limits the tool handlers enforce.
+ * - `pack/policy.json`: the limits the tool handlers enforce, and when an
+ *   upgrade and a downgrade take effect.
  * - `pack/persona.json`: the lines Tala says that no model writes: the
  *   opening disclosure, the fallback line, and the filler and closing lines
  *   said for a model turn that calls a tool with nothing said.

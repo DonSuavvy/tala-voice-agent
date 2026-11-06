@@ -11,6 +11,8 @@ import {
   formatMoney,
   loadPack,
   PackValidationError,
+  PAYMENT_CHANNELS,
+  type PaymentChannel,
 } from "@tala/core";
 
 import { KIDLAT_SOP_VERSION, kidlatFiberSource, loadKidlatFiber } from "./index";
@@ -102,10 +104,22 @@ describe("the Kidlat Fiber pack", () => {
       );
     });
 
+    /**
+     * How the article names each channel the billing system knows. Keyed by
+     * the channel, so a channel core adds fails tsc until it is named here.
+     */
+    const SPOKEN_CHANNEL: { readonly [C in PaymentChannel]: string } = {
+      gcash: "GCash",
+      maya: "Maya",
+      bank: "bank",
+      seven_eleven: "7-Eleven",
+      bayad: "Bayad",
+    };
+
     it("names each payment channel the billing system knows", () => {
       const { body } = article("payment-channels");
 
-      for (const channel of ["GCash", "Maya", "bank", "7-Eleven", "Bayad"]) expect(body).toContain(channel);
+      for (const channel of PAYMENT_CHANNELS) expect(body).toContain(SPOKEN_CHANNEL[channel]);
     });
 
     /**

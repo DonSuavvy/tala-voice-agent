@@ -165,7 +165,7 @@ export interface PackSource {
   persona: unknown;
   policy: unknown;
   plans: unknown;
-  /** The help articles: each file's name and its markdown, in catalog order. */
+  /** The help articles: each file's name and its markdown, in knowledge base order. */
   help: unknown;
   world: unknown;
 }
@@ -197,7 +197,7 @@ export class PackValidationError extends Error {
 export function compilePackSop(pack: CompanyPack): string {
   return compileSop({
     bodyMarkdown: pack.sop.body,
-    policyConfig: { policy: pack.policy, plans: pack.plans },
+    facts: { policy: pack.policy, plans: pack.plans },
     renderers: PACK_SOP_RENDERERS,
   });
 }

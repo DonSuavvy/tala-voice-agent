@@ -51,7 +51,7 @@ function policy(overrides: {
 }
 
 function compile(bodyMarkdown: string, policyConfig: FixturePolicy = DEFAULT) {
-  return compileSop({ bodyMarkdown, policyConfig, renderers: RENDERERS });
+  return compileSop({ bodyMarkdown, facts: policyConfig, renderers: RENDERERS });
 }
 
 describe("compileSop", () => {

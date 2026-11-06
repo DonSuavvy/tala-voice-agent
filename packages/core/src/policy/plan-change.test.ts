@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TEST_COMPANY } from "../testing/fixtures";
+import { TEST_COMPANY, testPlans, testPolicy } from "../testing/fixtures";
 
 import { pricePlanChange } from "./plan-change";
 
@@ -8,25 +8,33 @@ import { pricePlanChange } from "./plan-change";
  * Pricing a plan change, as a pure decision: the clock is passed in.
  *
  * The billing cycle runs from the account's latest bill to one calendar month
- * later in the company's time zone. An upgrade starts now and adds the
- * difference in monthly price for the rest of the cycle to the next bill; a
- * downgrade starts with the next cycle and adds nothing. Every expected
- * amount below is worked out by hand in its comment, never recomputed here.
+ * later in the company's time zone. Under the test policy an upgrade starts
+ * now and adds the difference in monthly price for the rest of the cycle to
+ * the next bill, and a downgrade starts with the next cycle and adds nothing.
+ * Prices are the test catalog's: Kidlat 100 at 1,299 pesos, 300 at 1,699 and
+ * 500 at 2,099. Every expected amount below is worked out by hand in its
+ * comment, never recomputed here.
  */
 
 const { timeZone } = TEST_COMPANY;
 
-/** The policy's plan-change rules here: an upgrade at once, a downgrade with the next cycle. */
+/** The test policy, with these plan-change rules. */
 const withTimings = (upgrade: string, downgrade: string) => ({
-  identity: { maxFailedAttempts: 3 },
+  ...testPolicy(),
   planChanges: { upgrade, downgrade },
 });
-const POLICY = withTimings("now", "next_cycle");
+/** An upgrade at once, a downgrade with the next cycle. */
+const POLICY = testPolicy();
 
-const K100 = { id: "kidlat-100", monthlyPriceMinor: 129_900 };
-const K300 = { id: "kidlat-300", monthlyPriceMinor: 169_900 };
-const K500 = { id: "kidlat-500", monthlyPriceMinor: 209_900 };
-const K1000 = { id: "kidlat-1000", monthlyPriceMinor: 299_900 };
+/** A plan from the test catalog. */
+function plan(id: string) {
+  const found = testPlans().find((p) => p.id === id);
+  if (!found) throw new Error(`no test plan "${id}"`);
+  return found;
+}
+const K100 = plan("kidlat-100");
+const K300 = plan("kidlat-300");
+const K500 = plan("kidlat-500");
 
 describe("pricePlanChange — an upgrade", () => {
   /**
@@ -51,25 +59,25 @@ describe("pricePlanChange — an upgrade", () => {
   });
 
   /**
-   * A 30-day cycle (Nov 12 to Dec 12, 1:00 PM Manila) is 43,200 minutes.
-   * 500 to 1000 is 900 pesos a month more, 90,000 centavos.
-   * Six minutes left: 90,000 x 6 / 43,200 = 12.5, which rounds up to 13.
-   * Five minutes left: 90,000 x 5 / 43,200 = 10.42, which rounds down to 10.
+   * A February cycle (Feb 1 to Mar 1, 1:00 PM Manila) is 28 days, 40,320
+   * minutes. 300 to 500 is 40,000 centavos a month more.
+   * 63 minutes left: 40,000 x 63 / 40,320 = 62.5, which rounds up to 63.
+   * 64 minutes left: 40,000 x 64 / 40,320 = 63.49, which rounds down to 63.
    */
   it("rounds half a centavo up, and less than half down", () => {
-    const latestBillIssuedAt = new Date("2026-11-12T05:00:00Z");
+    const latestBillIssuedAt = new Date("2026-02-01T05:00:00Z");
     const price = (now: string) =>
       pricePlanChange({
-        current: K500,
-        next: K1000,
+        current: K300,
+        next: K500,
         latestBillIssuedAt,
         now: new Date(now),
         timeZone,
         policy: POLICY,
       });
 
-    expect(price("2026-12-12T04:54:00Z")).toMatchObject({ proratedAmountMinor: 13 });
-    expect(price("2026-12-12T04:55:00Z")).toMatchObject({ proratedAmountMinor: 10 });
+    expect(price("2026-03-01T03:57:00Z")).toMatchObject({ proratedAmountMinor: 63 });
+    expect(price("2026-03-01T03:56:00Z")).toMatchObject({ proratedAmountMinor: 63 });
   });
 
   /**
@@ -147,7 +155,7 @@ describe("pricePlanChange — a downgrade", () => {
   it("starts in the next year when the cycle crosses the new year", () => {
     expect(
       pricePlanChange({
-        current: K1000,
+        current: K500,
         next: K100,
         // Tue, Dec 15, 1:00 PM Manila to Fri, Jan 15, 1:00 PM.
         latestBillIssuedAt: new Date("2026-12-15T05:00:00Z"),

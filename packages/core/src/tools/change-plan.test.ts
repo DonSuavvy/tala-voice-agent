@@ -3,7 +3,14 @@ import { describe, expect, it } from "vitest";
 import { toStrictJsonSchema } from "../agent/registry";
 import type { InMemorySystems } from "../systems/in-memory";
 import { MINUTE_MS } from "../systems/time-units";
-import { CALL_STARTED_AT, JOSE, MARIA, testSystems, testToolContext } from "../testing/fixtures";
+import {
+  CALL_STARTED_AT,
+  JOSE,
+  MARIA,
+  testPlans,
+  testSystems,
+  testToolContext,
+} from "../testing/fixtures";
 
 import { changePlan } from "./change-plan";
 import { changePlanQuote } from "./change-plan-quote";
@@ -66,6 +73,9 @@ async function overviewOf(ctx: TalaToolContext, accountNumber: string) {
 async function planOf(ctx: TalaToolContext, accountNumber: string): Promise<string> {
   return (await overviewOf(ctx, accountNumber)).plan;
 }
+
+/** Kidlat 500, from the test catalog. */
+const KIDLAT_500 = testPlans().find((p) => p.id === "kidlat-500")!;
 
 const NO_QUOTE =
   "Refused: a plan is changed only with the latest quote made for this account on this " +
@@ -221,7 +231,7 @@ describe("change_plan — without a matching quote", () => {
         accountNumber: JOSE.accountNumber,
         currentPlanId: "kidlat-300",
         newPlanId: "kidlat-500",
-        newMonthlyPriceMinor: 209_900,
+        newMonthlyPriceMinor: KIDLAT_500.monthlyPriceMinor,
         proratedAmountMinor: 7_742,
         effectiveAt: CALL_STARTED_AT,
       },
@@ -246,11 +256,11 @@ describe("change_plan — without a matching quote", () => {
         accountNumber: MARIA.accountNumber,
         currentPlanId: "kidlat-300",
         newPlanId: "kidlat-500",
-        newMonthlyPriceMinor: 209_900,
+        newMonthlyPriceMinor: KIDLAT_500.monthlyPriceMinor,
         proratedAmountMinor: 7_742,
         effectiveAt: CALL_STARTED_AT,
       },
-      new Date(CALL_STARTED_AT.getTime() - 60_000),
+      new Date(CALL_STARTED_AT.getTime() - MINUTE_MS),
     );
 
     await expect(

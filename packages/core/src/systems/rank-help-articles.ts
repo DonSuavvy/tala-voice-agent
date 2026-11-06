@@ -30,7 +30,7 @@ function wordsOf(text: string): Set<string> {
 
 /**
  * The best `MAX_HELP_RESULTS` articles for the question, best first. Equal
- * scores keep the catalog's order. An article sharing no word with the
+ * scores keep the knowledge base's order. An article sharing no word with the
  * question is left out, so no match is an empty list.
  */
 export function rankHelpArticles(articles: readonly HelpArticle[], query: string): HelpArticle[] {

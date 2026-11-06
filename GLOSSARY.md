@@ -202,24 +202,31 @@ monthly price. Every account is on one; together they are the plan catalog.
 _Avoid_: package, subscription, product
 
 **Upgrade**:
-A change to a plan with a higher monthly price. It starts at once, with a
-prorated amount.
+A change to a plan with a higher monthly price. The policy says whether it
+starts at once or with the next billing cycle.
 _Avoid_: upsell
 
 **Downgrade**:
-A change to a plan that costs no more a month. It starts with the next billing
-cycle, with no prorated amount.
+A change to a plan that costs no more a month. The policy says whether it
+starts at once or with the next billing cycle.
 _Avoid_: plan reduction
 
+**Scheduled plan change**:
+A plan change made on the call that starts with the next billing cycle. Until
+then the account stays on its plan.
+_Avoid_: pending change, future plan
+
 **Prorated amount**:
-What an upgrade adds to the next bill: the difference in monthly price for the
-part of the billing cycle still to run.
+What a plan change that starts at once adds to the next bill: the difference
+in monthly price for the part of the billing cycle still to run. It is a
+credit when the new plan costs less.
 _Avoid_: pro-rata charge, adjustment
 
 **Quote**:
 The price of one plan change for the verified account: the new monthly price,
 any prorated amount and when the change takes effect, with a reference. A plan
-changes only with a quote made on the call, once, after the caller says yes.
+changes only with the latest quote made on the call, once, after the caller
+has heard it and said yes.
 _Avoid_: estimate, offer, quotation
 
 ## Help

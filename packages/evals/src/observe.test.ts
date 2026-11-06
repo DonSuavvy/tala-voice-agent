@@ -62,9 +62,6 @@ const OPENING = "Hello po! I'm Tala, an AI assistant, and this call is recorded.
 const FALLBACK = "Sorry po, our system is having a problem. Please call again later.";
 const FILLER = "Sandali lang po.";
 
-/** The pack's plan catalog, which the account-data check treats as public. */
-const PLANS = [{ id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 }];
-
 const SOURCE: PackSource = {
   id: "test-isp",
   sop: { version: "v1", body: "You are the assistant on Test ISP's support line.\n" },
@@ -76,10 +73,13 @@ const SOURCE: PackSource = {
     closingLine: "Salamat po sa pagtawag!",
   },
   policy: { identity: { maxFailedAttempts: 3 }, planChanges: { upgrade: "now", downgrade: "next_cycle" } },
-  plans: PLANS,
+  plans: [{ id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 }],
   help: [],
   world: WORLD,
 };
+
+/** The pack every call here runs with; the scorer reads its plan catalog as public. */
+const PACK = loadPack(SOURCE);
 
 const usage = {
   input_tokens: 10,
@@ -122,7 +122,7 @@ function newCall(turns: AssistantTurn[]) {
   const events: CallEvent[] = [];
   let t = new Date("2026-11-06T05:00:00Z").getTime();
   const session = createCallSession({
-    pack: loadPack(SOURCE),
+    pack: PACK,
     model: "sonnet",
     provider: anthropicProvider,
     createMessage: scriptedClaude(turns),
@@ -171,7 +171,7 @@ function outline(observed: Observed): string[] {
 
 describe("observeCall: a call that ended through end_call", () => {
   it("keeps Tala's lines, the caller's turns and the spans, in the call's order", async () => {
-    const observed = observeCall(await scenarioOneCall(), WORLD, PLANS);
+    const observed = observeCall(await scenarioOneCall(), WORLD, PACK.plans);
 
     expect(outline(observed)).toEqual([
       `speech: ${OPENING}`,
@@ -196,7 +196,7 @@ describe("observeCall: a call that ended through end_call", () => {
 
   /** Timestamps are not the scorer's business: a clock in the observation invites a check on it. */
   it("drops the caller's timestamps", async () => {
-    const observed = observeCall(await scenarioOneCall(), WORLD, PLANS);
+    const observed = observeCall(await scenarioOneCall(), WORLD, PACK.plans);
 
     expect(observed.events[1]).toEqual({
       type: "caller_said",
@@ -205,7 +205,7 @@ describe("observeCall: a call that ended through end_call", () => {
   });
 
   it("takes how the call ended and its disposition from call_ended, and passes the world through", async () => {
-    const observed = observeCall(await scenarioOneCall(), WORLD, PLANS);
+    const observed = observeCall(await scenarioOneCall(), WORLD, PACK.plans);
 
     expect(observed.endedBy).toBe("end_call");
     expect(observed.disposition).toEqual(DISPOSITION);
@@ -222,7 +222,7 @@ describe("observeCall: a call that ended through end_call", () => {
       maxModelCalls: 6,
     };
 
-    const result = score(expectations, observeCall(await scenarioOneCall(), WORLD, PLANS));
+    const result = score(expectations, observeCall(await scenarioOneCall(), WORLD, PACK.plans));
 
     expect(result.failureReason).toBeNull();
     expect(result.passed).toBe(true);
@@ -246,7 +246,7 @@ describe("observeCall: through a real call, the voice checks see what went wrong
     await session.callerSaid("Wala po kaming internet.");
     await session.callerSaid("8012345601 po, 0101.");
 
-    const observed = observeCall(events, WORLD, PLANS);
+    const observed = observeCall(events, WORLD, PACK.plans);
     const result = score({ speaksBeforeEveryToolCall: true }, observed);
 
     expect(observed.events).toContainEqual({ type: "speech", text: FILLER });
@@ -265,7 +265,7 @@ describe("observeCall: through a real call, the voice checks see what went wrong
     session.start();
     await session.callerSaid("Maria Santos po, 8012345601, 0101.");
 
-    const result = score({ noAccountDataBeforeVerification: true }, observeCall(events, WORLD, PLANS));
+    const result = score({ noAccountDataBeforeVerification: true }, observeCall(events, WORLD, PACK.plans));
 
     expect(result.assertions[0].actual).toEqual(["surname of account ending 5601"]);
   });
@@ -280,7 +280,7 @@ describe("observeCall: through a real call, the voice checks see what went wrong
 
     const result = score(
       { noAccountDataBeforeVerification: true },
-      observeCall(events, WORLD, PLANS),
+      observeCall(events, WORLD, PACK.plans),
     );
 
     expect(result.assertions[0]).toMatchObject({ passed: true, actual: [] });
@@ -294,7 +294,7 @@ describe("observeCall: calls that did not end through end_call", () => {
     session.start();
     await session.callerSaid("Hello po.");
 
-    const observed = observeCall(events, WORLD, PLANS);
+    const observed = observeCall(events, WORLD, PACK.plans);
 
     expect(observed.endedBy).toBe("not_ended");
     expect(observed.disposition).toBeNull();
@@ -305,7 +305,7 @@ describe("observeCall: calls that did not end through end_call", () => {
     session.start();
     await session.callerSaid("Hello po.");
 
-    const observed = observeCall(events, WORLD, PLANS);
+    const observed = observeCall(events, WORLD, PACK.plans);
 
     expect(observed.endedBy).toBe("failed");
     expect(observed.disposition).toBeNull();
@@ -327,6 +327,6 @@ describe("observeCall: event types it does not know", () => {
     ] as unknown as CallEvent[];
     const withUnknown = [...events.slice(0, 3), ...unknown, ...events.slice(3)];
 
-    expect(observeCall(withUnknown, WORLD, PLANS)).toEqual(observeCall(events, WORLD, PLANS));
+    expect(observeCall(withUnknown, WORLD, PACK.plans)).toEqual(observeCall(events, WORLD, PACK.plans));
   });
 });

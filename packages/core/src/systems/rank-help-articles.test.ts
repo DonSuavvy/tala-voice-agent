@@ -10,8 +10,8 @@ import { rankHelpArticles } from "./rank-help-articles";
  * Words are lowercased and stripped of punctuation. Each distinct word of the
  * question scores in each part of an article it appears in: the title most,
  * then the tags, then the body. The best three come back, best first; equal
- * scores keep the catalog's order, and an article that shares no word with
- * the question is left out. Every expected order is worked out by hand.
+ * scores keep the knowledge base's order, and an article that shares no word
+ * with the question is left out. Every expected order is worked out by hand.
  */
 
 const article = (id: string, title: string, tags: string[], body: string): HelpArticle => ({
@@ -21,7 +21,7 @@ const article = (id: string, title: string, tags: string[], body: string): HelpA
   body,
 });
 
-/** A small catalog, in catalog order. */
+/** A small knowledge base, in its order. */
 const LIGHTS = article(
   "modem-lights",
   "What the lights on your modem mean",
@@ -47,15 +47,15 @@ const SLOW = article(
   "Move the modem up high, away from walls.",
 );
 const PAY = article("pay-bill", "Where you can pay your bill", ["pay", "bayad"], "Pay through GCash.");
-const CATALOG = [LIGHTS, RESTART, PASSWORD, SLOW, PAY];
+const ARTICLES = [LIGHTS, RESTART, PASSWORD, SLOW, PAY];
 
-const idsFor = (query: string, articles: readonly HelpArticle[] = CATALOG) =>
+const idsFor = (query: string, articles: readonly HelpArticle[] = ARTICLES) =>
   rankHelpArticles(articles, query).map((a) => a.id);
 
 describe("rankHelpArticles", () => {
   /**
    * "fiber" is in the last article's title (3), the middle one's tags (2)
-   * and the first one's body (1): the field decides, not the catalog order.
+   * and the first one's body (1): the field decides, not the knowledge base's order.
    */
   it("ranks a word in the title above one in the tags, and the tags above the body", () => {
     const inBody = article("in-body", "Your connection", ["internet"], "Check the fiber.");
@@ -97,7 +97,7 @@ describe("rankHelpArticles", () => {
     expect(idsFor("the modem")).toEqual(["modem-lights", "restart-modem", "slow-wifi"]);
   });
 
-  it("keeps the catalog's order between articles with the same score", () => {
+  it("keeps the knowledge base's order between articles with the same score", () => {
     const first = article("first", "Fiber", ["cable"], "One.");
     const second = article("second", "Fiber", ["cable"], "Two.");
 
@@ -114,12 +114,12 @@ describe("rankHelpArticles", () => {
   });
 
   it("gives nothing when no article shares a word with the question", () => {
-    expect(rankHelpArticles(CATALOG, "cancel service")).toEqual([]);
-    expect(rankHelpArticles(CATALOG, "?!")).toEqual([]);
+    expect(rankHelpArticles(ARTICLES, "cancel service")).toEqual([]);
+    expect(rankHelpArticles(ARTICLES, "?!")).toEqual([]);
     expect(rankHelpArticles([], "modem")).toEqual([]);
   });
 
   it("hands back the articles themselves, whole", () => {
-    expect(rankHelpArticles(CATALOG, "reboot")).toEqual([RESTART]);
+    expect(rankHelpArticles(ARTICLES, "reboot")).toEqual([RESTART]);
   });
 });

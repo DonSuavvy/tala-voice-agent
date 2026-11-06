@@ -121,7 +121,7 @@ describe("SUPPORT_POLICY_RENDERERS", () => {
     expect(
       compileSop({
         bodyMarkdown: SOP,
-        policyConfig: parseSupportPolicy(withAttempts(3)),
+        facts: parseSupportPolicy(withAttempts(3)),
         renderers: SUPPORT_POLICY_RENDERERS,
       }),
     ).toBe("After 3 wrong answers, stop verifying.");
@@ -129,7 +129,7 @@ describe("SUPPORT_POLICY_RENDERERS", () => {
     expect(
       compileSop({
         bodyMarkdown: SOP,
-        policyConfig: parseSupportPolicy(withAttempts(5)),
+        facts: parseSupportPolicy(withAttempts(5)),
         renderers: SUPPORT_POLICY_RENDERERS,
       }),
     ).toBe("After 5 wrong answers, stop verifying.");
@@ -141,7 +141,7 @@ describe("SUPPORT_POLICY_RENDERERS", () => {
       compileSop({
         bodyMarkdown:
           "An upgrade takes effect {{upgradeTakesEffect}}. A downgrade takes effect {{downgradeTakesEffect}}.",
-        policyConfig: parseSupportPolicy({ identity: { maxFailedAttempts: 3 }, planChanges }),
+        facts: parseSupportPolicy({ identity: { maxFailedAttempts: 3 }, planChanges }),
         renderers: SUPPORT_POLICY_RENDERERS,
       });
 

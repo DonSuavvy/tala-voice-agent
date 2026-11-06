@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeedWorld } from "../systems/seed-world";
-import { CALL_STARTED_AT, JOSE, MARIA, testSystems, testToolContext, testWorld } from "../testing/fixtures";
+import {
+  CALL_STARTED_AT,
+  JOSE,
+  MARIA,
+  testPlans,
+  testSystems,
+  testToolContext,
+  testWorld,
+} from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { getAccountOverview } from "./get-account-overview";
@@ -108,7 +116,7 @@ describe("get_account_overview — the verified account", () => {
         accountNumber: MARIA.accountNumber,
         currentPlanId: "kidlat-300",
         newPlanId: "kidlat-100",
-        newMonthlyPriceMinor: 129_900,
+        newMonthlyPriceMinor: testPlans().find((p) => p.id === "kidlat-100")!.monthlyPriceMinor,
         proratedAmountMinor: 0,
         effectiveAt: new Date("2026-11-12T05:00:00Z"),
       },

@@ -19,7 +19,7 @@ describe("PLAN_CATALOG_RENDERERS", () => {
     expect(
       compileSop({
         bodyMarkdown: "Plans:\n{{planCatalog}}\nEnd.",
-        policyConfig: testPlans(),
+        facts: testPlans(),
         renderers: PLAN_CATALOG_RENDERERS,
       }),
     ).toBe(
