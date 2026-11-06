@@ -95,8 +95,8 @@ describe("loadPack placeholders", () => {
     const issues = issuesOf(source).filter((i) => i.startsWith("sop: "));
 
     expect(issues).toEqual([
-      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}})",
-      "sop: unknown placeholder {{refundWindow}} (known: {{maxFailedVerificationAttempts}})",
+      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}}, {{planCatalog}})",
+      "sop: unknown placeholder {{refundWindow}} (known: {{maxFailedVerificationAttempts}}, {{planCatalog}})",
     ]);
   });
 
@@ -105,7 +105,7 @@ describe("loadPack placeholders", () => {
     source.sop.body += "{{creditLimit}} then {{creditLimit}}\n";
 
     expect(issuesOf(source)).toEqual([
-      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}})",
+      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}}, {{planCatalog}})",
     ]);
   });
 });
@@ -309,5 +309,24 @@ describe("compilePackSop", () => {
 
     expect(compilePackSop(loadPack(three))).toContain("locked after 3 failed attempts");
     expect(compilePackSop(loadPack(five))).toContain("locked after 5 failed attempts");
+  });
+
+  /** The plans Tala names come from the pack's catalog, never from typed text. */
+  it("renders the pack's plan catalog, so changing the catalog changes the prompt", () => {
+    const shipped = testPackSource();
+    shipped.sop.body += "Plans:\n{{planCatalog}}\n";
+    const renamed = testPackSource();
+    renamed.sop.body += "Plans:\n{{planCatalog}}\n";
+    renamed.plans = testPlans().map((plan) =>
+      plan.id === "kidlat-500" ? { ...plan, downloadMbps: 600 } : plan,
+    );
+
+    expect(compilePackSop(loadPack(shipped))).toContain(
+      "Plans:\n" +
+        "- Kidlat 100: 100 Mbps, plan id kidlat-100\n" +
+        "- Kidlat 300: 300 Mbps, plan id kidlat-300\n" +
+        "- Kidlat 500: 500 Mbps, plan id kidlat-500\n",
+    );
+    expect(compilePackSop(loadPack(renamed))).toContain("- Kidlat 500: 600 Mbps, plan id kidlat-500\n");
   });
 });
