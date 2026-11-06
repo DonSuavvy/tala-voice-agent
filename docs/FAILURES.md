@@ -191,3 +191,152 @@ the corrected figures; the commits are left as written.
 **Lesson:** after any scripted edit to tests, compare the test count with the
 number you expect before committing. A regex that deletes a test produces a
 green suite.
+
+## 6. A `satisfies` check promised to catch a missing loop status, and could not — 2026-11-06
+
+**Severity: low (latent).** Inherited from OpsPilot's eval case schema. The
+gap was open on this branch for two commits: from `07e6756`, which added
+`awaiting_caller` to the loop, to the fix in `d7f6f5d`, the eval schema
+rejected it. No eval case existed yet to trip on it.
+
+**Caught by:** probing the claim before relying on it, while adding the loop's
+`awaiting_caller` status for #5.
+
+The eval case schema validated an expected status against its own copy of the
+loop's statuses:
+
+```ts
+export const AGENT_LOOP_STATUSES = [
+  "completed", "paused_for_approval", "refused", "failed", "budget_refused",
+] as const satisfies readonly AgentLoopStatus[];
+```
+
+Its comment said that adding a status to the loop without adding it here
+"fails `tsc`". Probed by adding `awaiting_caller` to `AgentLoopStatus` and
+nothing else: `tsc --noEmit` passed with no errors. `satisfies readonly
+AgentLoopStatus[]` checks that every listed status exists in the union. It
+never checks that every status in the union is listed. An eval case expecting
+`awaiting_caller` would have been rejected as malformed.
+
+**What made it dangerous:** the comment described a guarantee in the exact
+words a reader would want, so nobody would think to test it.
+
+**Fix:** the loop exports `AGENT_LOOP_STATUSES` as a value and derives
+`AgentLoopStatus` from it; the eval schema reads that list instead of a copy.
+RED `79c8e04`, GREEN `d7f6f5d`.
+
+**Lesson:** `satisfies T[]` on a list proves each member is a `T`, not that the
+list covers `T`. When two lists must agree, make one of them the other.
+
+## 7. A silent model turn handed the caller dead air, and would have broken the next request — 2026-11-06
+
+**Severity: medium.** A regression introduced on this branch by `07e6756`,
+the change that made a reply without a tool call end the caller's turn.
+
+**Caught by:** review round 1 (R1-01), with a probe through the call
+session.
+
+A model turn with no tool call and nothing to hear (`content: []`, a
+thinking block only, or whitespace) returned `awaiting_caller`. The caller
+heard nothing and was handed the turn. The empty assistant message stayed in
+the conversation and was replayed on the next request:
+
+```
+A1 turn end: awaiting_caller events: caller_said,span,span,span,awaiting_caller
+A1 speech events this turn: 0
+A1 roles/content-lengths sent on turn 2: [...,["assistant",0],["user","str"]]
+```
+
+The Messages API rejects an empty assistant message anywhere but last, so the
+caller's next words would most likely have ended the call with the fallback
+apology. (Not confirmed live: no key was available. The fix makes the
+question moot.)
+
+**What made it dangerous:** OpsPilot's nudge had covered this case by
+accident. Removing the nudge for a good reason removed the cover with it,
+and every test of the new behaviour used a turn that said something.
+
+**Fix:** a silent turn is dropped (it was never sent back, so nothing the
+model has seen is edited) and replaced by `SILENT_TURN_NOTICE`; the model is
+asked again, and repeated silence ends at the iteration cap. RED `3f4f0bb`,
+GREEN `ebcde50`.
+
+**Lesson:** when removing a mechanism, list every input it handled, not only
+the one it was written for.
+
+## 8. Tool calls beside `end_call` ran after the outcome, or were never heard — 2026-11-06
+
+**Severity: low (latent).** Inherited loop behaviour; no write tool existed yet
+for it to matter.
+
+**Caught by:** review round 1 (R1-03), both reviewers from different sides.
+
+A turn `[end_call, verify_identity]` ran `verify_identity` after the call's
+disposition was decided, and the verified account changed under a call that
+had ended:
+
+```
+G spans after end_call: end_call -> verify_identity
+G call_ended verifiedAccount: 8012345601
+```
+
+A turn `[check_area_outage, end_call]` ended the call before the model could
+tell the caller what the check found. With `send_sms` or `apply_bill_credit`
+in that position, money or messages would move after the record was written.
+
+**Fix:** the terminal tool completes a run only as the only call in its turn;
+beside other calls it is answered with `is_error` and the others run. The SOP
+says the same. RED `3f4f0bb`, GREEN `ebcde50`, SOP `eff1705`.
+
+**Lesson:** "the run ends at the terminal tool" needs a rule for everything
+else in the same turn.
+
+## 9. Verification could spend an attempt on correct digits, and concurrent attempts broke both limits — 2026-11-06
+
+**Severity: low (latent).** Through the call session, tools run one at a time,
+so the concurrency half could not happen; the whitespace half could.
+
+**Caught by:** review round 1 (R1-04, R1-05) and the fix lane for R1-05.
+
+- `verify_identity`'s schema accepts any whitespace in `mobile_last4`, but the
+  policy removed only ASCII spaces. Maria's correct `"01\t01"` returned
+  `{verified:false, attempts_remaining:2}`. A number with a tab, a newline or
+  a no-break space missed the lookup the same way.
+- The gate was checked before the account lookup's `await` and the attempt
+  recorded after it. Five concurrent wrong guesses with one attempt left
+  recorded seven failures. While fixing that, the fix lane found worse: two
+  concurrent verifications for different accounts both succeeded, the second
+  overwriting the first, which breaks one account per call.
+
+**Fix:** both sides strip the same whitespace, and account numbers also drop
+the Unicode dashes speech-to-text produces (RED `94eb7fb`, GREEN `f97739b`).
+The handler asks the gate again after the lookup, with no `await` between that
+check and the record (RED `0600230`, GREEN `69720ec`). A loop test pins
+sequential dispatch, which the session still relies on as the first line.
+
+**Lesson:** a schema and the code behind it must accept the same language.
+A check separated from its write by an `await` is not a check.
+
+## 10. A subscriber that threw was booked as a failed, free model call — 2026-11-06
+
+**Severity: low.**
+
+**Caught by:** review round 1 (R1-11).
+
+Speech was delivered from inside the model call. A subscriber that threw (a
+console whose socket had closed) made the model call look failed:
+
+```
+F llm span: [{"type":"llm_call","isError":true,"cost":0,"out":{"error":"console socket closed"}}]
+F state: in_progress | call_ended emitted: false
+```
+
+A turn Claude was paid for was booked at $0, so the spend guard under-counted
+it, and the call was left half-open.
+
+**Fix:** every event goes through one wrapper that holds a subscriber's first
+error, lets the turn finish and book its cost, and rethrows once the call's
+state is settled. RED `993f1d4`, GREEN `b4a553b`.
+
+**Lesson:** code that calls back into someone else's code from inside an
+accounting boundary inherits their failures as its own.
