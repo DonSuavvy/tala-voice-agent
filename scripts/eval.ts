@@ -52,6 +52,7 @@ import {
   anthropicGradeCreator,
   buildReport,
   caseRow,
+  errorText,
   formatCaseResult,
   formatCost,
   gradeTranscript,
@@ -270,8 +271,7 @@ main().then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`eval: ${message}`);
+    console.error(`eval: ${errorText(error)}`);
     const spent = finished.reduce((sum, row) => sum + row.cost.total.nanos, 0);
     if (spent > 0) console.error(`eval: the finished cases cost ${usd(spent)}`);
     process.exitCode = 1;

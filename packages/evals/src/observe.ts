@@ -3,9 +3,9 @@
  * stream and the seed world it started from in, the scorer's observation out.
  *
  * The scorer stays pure because this is the only place that knows what a call
- * session emits. It keeps what scoring reads, in order: Tala's lines
- * (`speech`, the whole utterance), the caller's turns and the spans. It drops
- * timestamps and the pin, which no check may depend on.
+ * session emits. It keeps what scoring reads, in order: Tala's lines (each
+ * `speech` event is one whole line), the caller's turns and the spans. It
+ * drops timestamps and the pin, which no check may depend on.
  *
  * **Unknown event types are passed over, not rejected.** The stream grows:
  * streaming (#6) adds `speech_delta` and `interrupted`, and later tickets add

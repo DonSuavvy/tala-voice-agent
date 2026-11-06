@@ -13,6 +13,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { caseSchema, type EvalCase } from "./case";
+import { errorText } from "./error-text";
 
 export class CaseLoadError extends Error {
   readonly issues: string[];
@@ -31,10 +32,6 @@ export interface CaseFile {
   /** The file's name, e.g. `scenario-1-outage.json`. */
   name: string;
   text: string;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** `caller.maxTurns`, `expect.toolsCalled[0]`: numeric segments in brackets. */
@@ -69,7 +66,7 @@ function parseOne(file: CaseFile, issues: string[]): EvalCase | undefined {
   try {
     raw = JSON.parse(file.text) as unknown;
   } catch (error) {
-    issues.push(`${file.name}: not valid JSON (${messageOf(error)})`);
+    issues.push(`${file.name}: not valid JSON (${errorText(error)})`);
     return undefined;
   }
 
@@ -126,14 +123,14 @@ export function loadCases(dir: string): EvalCase[] {
   try {
     names = readdirSync(dir).filter((name) => name.endsWith(".json"));
   } catch (error) {
-    throw new CaseLoadError(dir, [`cannot read the cases directory (${messageOf(error)})`]);
+    throw new CaseLoadError(dir, [`cannot read the cases directory (${errorText(error)})`]);
   }
 
   const entries = names.map((name): Entry => {
     try {
       return { name, text: readFileSync(join(dir, name), "utf8") };
     } catch (error) {
-      return { name, unreadable: messageOf(error) };
+      return { name, unreadable: errorText(error) };
     }
   });
   return parseEntries(dir, entries);

@@ -1,7 +1,7 @@
 /**
  * What was said on a call, in order: Tala's lines and the caller's turns.
  *
- * Read from `speech` (the whole utterance) and `caller_said` events only.
+ * Read from `speech` (one whole line of Tala's each) and `caller_said` events only.
  * Every other event type, including ones added later such as streaming's
  * partial speech (#6), is passed over.
  */

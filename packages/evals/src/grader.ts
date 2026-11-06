@@ -28,24 +28,24 @@
 import { z } from "zod";
 
 import {
-  costOf,
   type AssistantTurn,
   type createClient,
   type LogicalModel,
   type MessageParam,
   type Provider,
-  type TokenUsage,
 } from "@tala/core";
 
+import { errorText } from "./error-text";
+import { priceUsage, type PricedUsage } from "./priced";
 import type { TranscriptLine } from "./transcript";
 
 /** The model that grades unless a run says otherwise (DESIGN section 11). */
 export const DEFAULT_GRADER_MODEL: LogicalModel = "sonnet";
 
 /**
- * The skill's default for a non-streaming request. The 5.5 models think by
- * default and thinking counts against this; the SDK refuses a non-streaming
- * request above about 21,000.
+ * The claude-api skill's default for a non-streaming request. The 5.5 models
+ * think by default and thinking counts against this; the SDK refuses a
+ * non-streaming request above about 21,000.
  */
 const GRADER_MAX_TOKENS = 16_000;
 
@@ -152,15 +152,10 @@ export interface GradeRequest {
 
 export type GradeCreator = (request: GradeRequest) => Promise<AssistantTurn>;
 
-export interface AdvisoryGrade {
+export interface AdvisoryGrade extends PricedUsage {
   grade: Grade | null;
   /** Why there is no grade; null when there is one. */
   reason: string | null;
-  /** Null when no response came back. */
-  usage: TokenUsage | null;
-  costNanos: number;
-  /** True when priced from a rate card with no verified date. */
-  estimated: boolean;
 }
 
 export interface GradeOptions {
@@ -173,10 +168,6 @@ export interface GradeOptions {
   model?: LogicalModel;
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function transcriptText(transcript: readonly TranscriptLine[]): string {
   const lines = transcript.map((line) => `${line.speaker === "tala" ? "Tala" : "Caller"}: ${line.text}`);
   return ["<transcript>", ...lines, "</transcript>"].join("\n");
@@ -186,12 +177,11 @@ function transcriptText(transcript: readonly TranscriptLine[]): string {
 export async function gradeTranscript(options: GradeOptions): Promise<AdvisoryGrade> {
   const { transcript, provider, createMessage } = options;
   const model = options.model ?? DEFAULT_GRADER_MODEL;
-  const none = (reason: string, usage: TokenUsage | null = null, costNanos = 0, estimated = false) => ({
+  const unpriced: PricedUsage = { usage: null, costNanos: 0, estimated: false };
+  const none = (reason: string, priced: PricedUsage = unpriced): AdvisoryGrade => ({
     grade: null,
     reason,
-    usage,
-    costNanos,
-    estimated,
+    ...priced,
   });
 
   if (!transcript.some((line) => line.speaker === "tala")) {
@@ -215,14 +205,8 @@ export async function gradeTranscript(options: GradeOptions): Promise<AdvisoryGr
     return none(`the grader's model call failed: ${errorText(error)}`);
   }
 
-  const usage: TokenUsage = {
-    inputTokens: reply.usage.input_tokens,
-    outputTokens: reply.usage.output_tokens,
-    cacheCreationInputTokens: reply.usage.cache_creation_input_tokens ?? 0,
-    cacheReadInputTokens: reply.usage.cache_read_input_tokens ?? 0,
-  };
-  const cost = costOf(provider.rateCard(model), usage);
-  const noGrade = (reason: string) => none(reason, usage, cost.totalNanos, cost.estimated);
+  const priced = priceUsage(provider.rateCard(model), reply.usage);
+  const noGrade = (reason: string) => none(reason, priced);
 
   // Before the content: the output may not match the schema on either.
   if (reply.stop_reason === "refusal") return noGrade("the grader's model refused");
@@ -252,7 +236,7 @@ export async function gradeTranscript(options: GradeOptions): Promise<AdvisoryGr
     return noGrade(`the grader's reply did not match the grade schema: ${problems}`);
   }
 
-  return { grade: parsed.data, reason: null, usage, costNanos: cost.totalNanos, estimated: cost.estimated };
+  return { grade: parsed.data, reason: null, ...priced };
 }
 
 type AnthropicClient = ReturnType<typeof createClient>;

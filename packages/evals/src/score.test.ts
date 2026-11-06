@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Disposition, SeedWorld, SpanEvent, SpanType } from "@tala/core";
+import { anthropicProvider, type Disposition, type SeedWorld, type SpanEvent, type SpanType } from "@tala/core";
 
 import { EXPECTATION_KEYS, type Expectations } from "./case";
 import { score, type Observed, type ObservedEvent } from "./score";
@@ -40,7 +40,7 @@ function llm(blocks: string[], over: Partial<SpanEvent> = {}): ObservedEvent {
   const stop_reason = blocks.includes("tool_use") ? "tool_use" : "end_turn";
   return {
     type: "span",
-    span: span("llm_call", "claude-sonnet-5-5", { output: { stop_reason, blocks }, ...over }),
+    span: span("llm_call", anthropicProvider.modelId("sonnet"), { output: { stop_reason, blocks }, ...over }),
   };
 }
 
@@ -407,16 +407,16 @@ describe("score: noAccountDataBeforeVerification", () => {
     ]);
   });
 
-  it("fails on the holder's name before verification, with a sentence saying what was said", () => {
+  it("fails on the name on an account before verification, with a sentence saying what was said", () => {
     const result = check([caller("Hello po."), said("Hello po, Maria Santos!")]);
 
     expect(result.assertions[0].actual).toEqual([
-      "holder name of account ending 5601",
+      "name on account ending 5601",
       "surname of account ending 5601",
     ]);
     expect(result.failureReason).toBe(
       "expected no account data before verify_identity succeeded, but Tala said: " +
-        "holder name of account ending 5601; surname of account ending 5601",
+        "name on account ending 5601; surname of account ending 5601",
     );
   });
 

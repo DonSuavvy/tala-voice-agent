@@ -24,7 +24,6 @@
  * unit tests script both sides and the live suite passes the real client.
  */
 import {
-  costOf,
   createCallSession,
   type AssistantTurn,
   type CallEvent,
@@ -32,10 +31,11 @@ import {
   type LogicalModel,
   type MessageCreator,
   type MessageParam,
-  type TokenUsage,
 } from "@tala/core";
 
 import type { EvalCase } from "./case";
+import { errorText } from "./error-text";
+import { priceUsage, type PricedUsage } from "./priced";
 
 /** The model that plays callers unless a run says otherwise (DESIGN section 11). */
 export const DEFAULT_CALLER_MODEL: LogicalModel = "sonnet";
@@ -82,12 +82,7 @@ export type CallerStop =
   | "caller_failed";
 
 /** One simulated-caller model call, for the run's cost. */
-export interface CallerModelCall {
-  /** Null when the call failed before a response came back. */
-  usage: TokenUsage | null;
-  costNanos: number;
-  /** True when priced from a rate card with no verified date. */
-  estimated: boolean;
+export interface CallerModelCall extends PricedUsage {
   isError: boolean;
 }
 
@@ -120,10 +115,6 @@ function wordsOf(content: readonly { type: string; text?: unknown }[]): string {
     .flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []))
     .join(" ")
     .trim();
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export async function runSimulatedCall(options: SimulatedCallOptions): Promise<SimulatedCall> {
@@ -182,14 +173,7 @@ export async function runSimulatedCall(options: SimulatedCallOptions): Promise<S
       return stop("caller_failed", `the simulated caller's model call failed: ${errorText(error)}`);
     }
 
-    const usage: TokenUsage = {
-      inputTokens: reply.usage.input_tokens,
-      outputTokens: reply.usage.output_tokens,
-      cacheCreationInputTokens: reply.usage.cache_creation_input_tokens ?? 0,
-      cacheReadInputTokens: reply.usage.cache_read_input_tokens ?? 0,
-    };
-    const cost = costOf(provider.rateCard(callerModel), usage);
-    callerCalls.push({ usage, costNanos: cost.totalNanos, estimated: cost.estimated, isError: false });
+    callerCalls.push({ ...priceUsage(provider.rateCard(callerModel), reply.usage), isError: false });
 
     // Before the content, as in Tala's loop: a refused turn is never said.
     if (reply.stop_reason === "refusal") {

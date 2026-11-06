@@ -18,7 +18,7 @@
  * Only Tala's and the caller's spend counts toward the run's cap
  * (`sessionSpendNanos`); the grader's is reported and never budgets anything.
  * A figure is marked estimated when any part of it was, for example an
- * interrupted model call booked at its pre-flight estimate.
+ * estimated model call.
  *
  * Transcripts are saved unmasked for now, and the report says so at the top:
  * the data is the fictional seed world, and masking is #10.

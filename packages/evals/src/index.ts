@@ -6,11 +6,13 @@
 // grader shown beside the gate, and the pinned report and what prints it.
 export * from "./case";
 export * from "./diff";
+export * from "./error-text";
 export * from "./format";
 export * from "./grader";
 export * from "./load-cases";
 export * from "./observe";
 export * from "./pin";
+export * from "./priced";
 export * from "./report";
 export * from "./score";
 export * from "./simulated-caller";

@@ -10,14 +10,14 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
-import { formatDiff, parseReport, type DiffableReport } from "@tala/evals";
+import { errorText, formatDiff, parseReport, type DiffableReport } from "@tala/evals";
 
 function read(path: string): DiffableReport {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (error) {
-    throw new Error(`cannot read ${path} (${error instanceof Error ? error.message : String(error)})`, {
+    throw new Error(`cannot read ${path} (${errorText(error)})`, {
       cause: error,
     });
   }
@@ -25,7 +25,7 @@ function read(path: string): DiffableReport {
   try {
     raw = JSON.parse(text) as unknown;
   } catch (error) {
-    throw new Error(`${path} is not JSON (${error instanceof Error ? error.message : String(error)})`, {
+    throw new Error(`${path} is not JSON (${errorText(error)})`, {
       cause: error,
     });
   }
@@ -44,6 +44,6 @@ function main(): void {
 try {
   main();
 } catch (error) {
-  console.error(`eval:diff: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`eval:diff: ${errorText(error)}`);
   process.exitCode = 1;
 }

@@ -130,13 +130,28 @@ function dirtyMark(dirty: boolean | null): string {
   return dirty ? " (dirty)" : "";
 }
 
+/**
+ * How the pin line prints each field, in print order, guarded like the
+ * labels: a pin field with no printer fails `tsc`, so none can go unprinted.
+ * A field printed beside another returns null, and says which.
+ */
+const PIN_PRINTERS = {
+  model: (pin) => `${pin.model} (${pin.modelId})`,
+  modelId: () => null, // printed with model
+  packId: (pin) => `pack ${pin.packId}`,
+  sopVersion: (pin) => `sop ${pin.sopVersion}`,
+  promptVersion: (pin) => `prompt ${pin.promptVersion}`,
+  policyVersion: (pin) => `policy ${pin.policyVersion}`,
+  gitSha: (pin) =>
+    `git ${pin.gitSha === null ? "unknown" : pin.gitSha.slice(0, 7)}${dirtyMark(pin.gitDirty)}`,
+  gitDirty: () => null, // printed with gitSha
+} satisfies { [K in keyof ReportPin]-?: (pin: DiffableReport["pin"]) => string | null };
+
 function pinLine(label: string, report: DiffableReport): string {
-  const { pin } = report;
-  return (
-    `${label} ${report.ranAt}  ${pin.model} (${pin.modelId})  pack ${pin.packId}  ` +
-    `sop ${pin.sopVersion}  prompt ${pin.promptVersion}  policy ${pin.policyVersion}  ` +
-    `git ${pin.gitSha === null ? "unknown" : pin.gitSha.slice(0, 7)}${dirtyMark(pin.gitDirty)}`
-  );
+  const parts = (Object.keys(PIN_PRINTERS) as (keyof ReportPin)[])
+    .map((field) => PIN_PRINTERS[field](report.pin))
+    .filter((part): part is string => part !== null);
+  return `${label} ${report.ranAt}  ${parts.join("  ")}`;
 }
 
 /** Which parts of the pin moved, in the pin's own order. */

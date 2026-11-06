@@ -275,7 +275,7 @@ describe("observeCall: calls that did not end through end_call", () => {
 describe("observeCall: event types it does not know", () => {
   /**
    * Streaming (#6) adds `speech_delta` and `interrupted` events and keeps
-   * `speech` as the whole utterance. The adapter reads `speech` for what Tala
+   * `speech` as the whole line. The adapter reads `speech` for what Tala
    * said and must pass over anything else rather than fail on it.
    */
   it("ignores them, and observes the same call as without them", async () => {

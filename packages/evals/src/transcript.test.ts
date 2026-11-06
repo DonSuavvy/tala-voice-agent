@@ -6,7 +6,7 @@ import { transcriptOf } from "./transcript";
 
 /**
  * The transcript is what was said on the call, in order: Tala's lines (the
- * whole utterance each `speech` event carries) and the caller's turns. The
+ * whole line each `speech` event carries) and the caller's turns. The
  * advisory grader reads it, and the report keeps it.
  */
 
@@ -33,7 +33,7 @@ describe("transcriptOf", () => {
     ]);
   });
 
-  /** Streaming (#6) adds partial-speech events; the whole utterance is still `speech`. */
+  /** Streaming (#6) adds partial-speech events; each whole line is still `speech`. */
   it("passes over event types it does not know", () => {
     const events = [
       { type: "speech_delta", text: "Sand" },

@@ -212,7 +212,7 @@ describe("caseRow: cost", () => {
     });
   });
 
-  /** An interrupted model call books an estimate; any estimated part makes the total one. */
+  /** An estimated model call makes its part, and the total, an estimate. */
   it("marks a part, and the total, as estimated when any of it is", () => {
     const result = row({
       call: simulated({ events: events([llmSpan(3_000_000), llmSpan(1_000_000, true)]) }),
