@@ -253,10 +253,18 @@ function interruptWhen(
   return { ...call, interrupting: () => interrupting };
 }
 
-/** Matches Tala's nth speech_delta. */
+/** Matches Tala's nth speech_delta of the caller turn now running. */
 function nthDelta(n: number) {
+  let inTurn = false;
   let seen = 0;
-  return (event: CallEvent) => event.type === "speech_delta" && ++seen === n;
+  return (event: CallEvent) => {
+    // The opening line is spoken as a delta too; count from the caller's words.
+    if (event.type === "caller_said") {
+      inTurn = true;
+      seen = 0;
+    }
+    return inTurn && event.type === "speech_delta" && ++seen === n;
+  };
 }
 
 /**
@@ -352,8 +360,10 @@ describe("a call session — the opening", () => {
 
     session.start();
 
-    expect(types(events)).toEqual(["call_started", "speech", "awaiting_caller"]);
-    expect(events[1]).toEqual({ type: "speech", text: pack.persona.openingLine });
+    // As every line Tala says: the whole line as one delta, then its speech.
+    expect(types(events)).toEqual(["call_started", "speech_delta", "speech", "awaiting_caller"]);
+    expect(events[1]).toEqual({ type: "speech_delta", text: pack.persona.openingLine });
+    expect(events[2]).toEqual({ type: "speech", text: pack.persona.openingLine });
     expect(claude.requests).toHaveLength(0);
   });
 
@@ -593,6 +603,19 @@ describe("a call session — ending", () => {
       disposition: null,
     });
   });
+
+  it("says the fallback line as one speech_delta, then its speech, before the call ends", async () => {
+    // No scripted turns: the model call fails, and the call ends badly.
+    const { session, events, pack } = newCall([]);
+    session.start();
+    events.length = 0;
+
+    await session.callerSaid("Hello?");
+
+    expect(types(events)).toEqual(["caller_said", "span", "speech_delta", "speech", "call_ended"]);
+    expect(events[2]).toEqual({ type: "speech_delta", text: pack.persona.fallbackLine });
+    expect(events[3]).toEqual({ type: "speech", text: pack.persona.fallbackLine });
+  });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -703,13 +726,50 @@ describe("a call session — streaming speech", () => {
     const ended = await session.callerSaid("Hello?");
 
     expect(ended).toBe("ended");
+    // The refused words were heard as they streamed; the apology follows.
     expect(events.filter((e) => e.type === "speech_delta")).toEqual([
       { type: "speech_delta", text: "Ito po " },
       { type: "speech_delta", text: "ang sagot" },
+      { type: "speech_delta", text: pack.persona.fallbackLine },
     ]);
     expect(events.filter((e) => e.type === "speech")).toEqual([
       { type: "speech", text: pack.persona.fallbackLine },
     ]);
+  });
+
+  /**
+   * One rule for every consumer: a voice that speaks only speech_delta hears
+   * every line Tala says, the fixed lines included, and each speech event
+   * records an utterance whose words have already gone out as deltas.
+   */
+  it("lets a consumer that speaks only speech_delta hear every line Tala says", async () => {
+    const { session, events, pack } = newStreamedCall([
+      { parts: [say("Sige po, ", "iche-check ko."), verify(MARIA)] },
+      { parts: [say("Verified na po ", "kayo.")] },
+      // Nothing scripted after this, so the next caller turn fails and the
+      // call ends with the fallback line.
+    ]);
+
+    session.start();
+    await session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+    await session.callerSaid("May outage po ba?");
+
+    let deltas = "";
+    let spoken = "";
+    for (const event of events) {
+      if (event.type === "speech_delta") deltas += event.text;
+      if (event.type === "speech") {
+        spoken += event.text;
+        expect(deltas.startsWith(spoken), `speech before its deltas: ${event.text}`).toBe(true);
+      }
+    }
+    expect(deltas).toBe(spoken);
+    expect(spoken).toBe(
+      pack.persona.openingLine +
+        "Sige po, iche-check ko." +
+        "Verified na po kayo." +
+        pack.persona.fallbackLine,
+    );
   });
 });
 
@@ -768,6 +828,7 @@ describe("a call session — an interruption", () => {
       nthDelta(2),
     );
     call.session.start();
+    call.events.length = 0;
 
     await call.session.callerSaid("Wala po kaming internet.");
 
@@ -1125,6 +1186,7 @@ describe("a call session — a subscriber that throws", () => {
       },
     );
     session.start();
+    events.length = 0;
     armed = true;
 
     await expect(session.callerSaid("Hello po.")).rejects.toBe(boom);
