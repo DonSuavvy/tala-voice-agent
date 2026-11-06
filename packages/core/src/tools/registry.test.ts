@@ -28,6 +28,7 @@ describe("buildTalaRegistry", () => {
       "end_call",
       "get_account_overview",
       "get_billing_history",
+      "remote_reboot_modem",
       "run_line_diagnostics",
       "send_sms",
       "verify_identity",
@@ -50,6 +51,7 @@ describe("buildTalaRegistry", () => {
       verify_payment: "read",
       run_line_diagnostics: "read",
       create_trouble_ticket: "auto_write",
+      remote_reboot_modem: "auto_write",
       send_sms: "auto_write",
       end_call: "auto_write",
     });
@@ -91,6 +93,7 @@ describe("the account gate, on every account tool", () => {
     create_trouble_ticket: { category: "billing", notes: "A payment has not posted yet." },
     send_sms: { message: "Salamat po." },
     run_line_diagnostics: { account_number: "8012345601" },
+    remote_reboot_modem: { account_number: "8012345601" },
   };
 
   const accountTools = buildTalaRegistry()
@@ -109,6 +112,7 @@ describe("the account gate, on every account tool", () => {
           systems: createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila"),
           identity: initialIdentityState(),
           company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+          wait: () => Promise.resolve(),
         },
         policyConfig: { identity: { maxFailedAttempts: 3 } },
       };

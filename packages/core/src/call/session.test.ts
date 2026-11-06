@@ -12,6 +12,7 @@ import type {
 import { anthropicProvider } from "../agent/provider";
 import { loadPack, type PackSource } from "../pack/load-pack";
 import {
+  ANA,
   CALL_STARTED_AT,
   JOSE,
   MARIA,
@@ -93,7 +94,12 @@ function clockFrom(start: Date) {
   return () => new Date((t += 1000));
 }
 
-type CallOptions = { source?: PackSource; onEvent?: (event: CallEvent) => void };
+type CallOptions = {
+  source?: PackSource;
+  onEvent?: (event: CallEvent) => void;
+  /** How the call waits, for a tool that has to; left out, the session's own. */
+  wait?: (ms: number) => Promise<void>;
+};
 
 function callWith(create: MessageCreator, options: CallOptions) {
   const events: CallEvent[] = [];
@@ -109,6 +115,7 @@ function callWith(create: MessageCreator, options: CallOptions) {
       config: { dailyCapNanos: 1_000_000_000, killSwitch: false, runsPerMinute: 10 },
       spentTodayNanos: 0,
     },
+    ...(options.wait ? { wait: options.wait } : {}),
     onEvent: (event) => {
       events.push(event);
       options.onEvent?.(event);
@@ -589,6 +596,114 @@ describe("a call session — scenario 1", () => {
     expect(outage.content).toContain("fiber cable cut along Batasan Road");
     // The fixture's outage is back 240 minutes after a 1:00 PM Manila start.
     expect(outage.content).toContain("5:00 PM");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* A remote reboot's wait                                                     */
+/* -------------------------------------------------------------------------- */
+
+const rebootModem = (accountNumber: string) =>
+  toolUse("remote_reboot_modem", { account_number: accountNumber });
+
+/**
+ * A remote reboot waits the restart out before its re-check. The wait is the
+ * session's: a real timer unless the session is given one, so tests and the
+ * eval harness can pass one that resolves at once. Ana's modem takes 90
+ * seconds to restart, and its signal loss survives the reboot.
+ */
+describe("a call session — a remote reboot's wait", () => {
+  const ANA_REBOOT = [
+    turn([text("Sandali lang po, let me verify your account."), verify(ANA)]),
+    turn([text("Restarting your modem now po."), rebootModem(ANA.accountNumber)]),
+    turn([text("Tapos na po ang restart, but the signal loss is still there.")]),
+  ];
+  const ANA_SAYS = `Ang bagal po ng internet. ${ANA.accountNumber}, ${ANA.mobileLast4}.`;
+
+  it("waits the seeded restart through the wait it is given, then hands Claude the re-check", async () => {
+    const waits: number[] = [];
+    const { session, claude } = newCall(structuredClone(ANA_REBOOT), {
+      wait: (ms) => {
+        waits.push(ms);
+        return Promise.resolve();
+      },
+    });
+    session.start();
+
+    await session.callerSaid(ANA_SAYS);
+
+    expect(waits).toEqual([90_000]);
+    const [rebooted] = toolResultsIn(claude.requests[2]);
+    expect(rebooted.is_error).toBeUndefined();
+    expect(JSON.parse(rebooted.content)).toMatchObject({
+      rebooted: true,
+      waited_seconds: 90,
+      fault: "high signal loss on the fiber line",
+    });
+  });
+
+  it("waits on a real timer when it is given no wait", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session } = newCall(structuredClone(ANA_REBOOT));
+      session.start();
+      let settled = false;
+      const turnEnd = session.callerSaid(ANA_SAYS).then((end) => {
+        settled = true;
+        return end;
+      });
+
+      await vi.advanceTimersByTimeAsync(89_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await turnEnd).toBe("awaiting_caller");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** ADR 4: a tool already running when the caller talks finishes and keeps its real result. */
+  it("finishes a reboot the caller talks over, and gives Claude its re-check", async () => {
+    const rebooting = rebootModem(ANA.accountNumber) as ToolUseBlock;
+    const outage = checkOutage(ANA.accountNumber) as ToolUseBlock;
+    const interruptions: Promise<void>[] = [];
+    const call = newStreamedCall(
+      [
+        { parts: [say("Sandali lang po, let me verify your account."), verify(ANA)] },
+        { parts: [say("Restarting your modem now po."), rebooting, outage] },
+        { parts: [say("Opo, tapos na po ang restart.")] },
+      ],
+      {
+        // The caller talks while the modem restarts.
+        wait: () => {
+          interruptions.push(call.session.interrupt());
+          return Promise.resolve();
+        },
+      },
+    );
+    call.session.start();
+
+    const ended = await call.session.callerSaid(ANA_SAYS);
+    await Promise.all(interruptions);
+    expect(interruptions).toHaveLength(1);
+    expect(ended).toBe("interrupted");
+
+    await call.session.callerSaid("Hello po? Tapos na po ba?");
+
+    const [rebooted, notRun] = toolResultsIn({
+      ...call.claude.requests[2],
+      messages: call.claude.requests[2].messages.slice(0, -1),
+    });
+    expect(rebooted.tool_use_id).toBe(rebooting.id);
+    expect(rebooted.is_error).toBeUndefined();
+    expect(JSON.parse(rebooted.content)).toMatchObject({ rebooted: true, waited_seconds: 90 });
+    expect(notRun).toEqual({
+      type: "tool_result",
+      tool_use_id: outage.id,
+      content: "Not run: the caller interrupted.",
+      is_error: true,
+    });
+    expectValidConversation(call.claude);
   });
 });
 

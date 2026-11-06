@@ -25,6 +25,7 @@ function newCall(): { ctx: TalaToolContext; systems: InMemorySystems } {
       systems,
       identity: initialIdentityState(),
       company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+      wait: () => Promise.resolve(),
     },
     policyConfig: { identity: { maxFailedAttempts: 3 } },
   };
