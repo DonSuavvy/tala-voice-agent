@@ -71,6 +71,7 @@ const SOURCE: PackSource = {
     closingLine: "Salamat po sa pagtawag!",
   },
   policy: { identity: { maxFailedAttempts: 3 } },
+  plans: [{ id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 }],
   world: WORLD,
 };
 

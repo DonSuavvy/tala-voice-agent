@@ -14,6 +14,8 @@
  *   said for a model turn that calls a tool with nothing said.
  * - `pack/company.json`: the time zone and locale times are spoken in, and
  *   the currency money is spoken in.
+ * - `pack/plans.json`: the plan catalog, each plan with its download speed
+ *   and monthly price. Every account in the seed world is on one of them.
  * - `pack/world.json`: the seed world every call starts from a fresh copy of,
  *   including scenario 1's Batasan Hills fiber cut, scenario 2's GCash
  *   payment that has not posted, and scenario 3's San Antonio line with signal
@@ -31,7 +33,7 @@ export const KIDLAT_SOP_VERSION = "v1";
 
 const PACK_ROOT = new URL("../", import.meta.url);
 
-const JSON_FILES = ["company", "persona", "policy", "world"] as const;
+const JSON_FILES = ["company", "persona", "policy", "plans", "world"] as const;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -83,6 +85,7 @@ export function kidlatFiberSource(root: URL = PACK_ROOT): PackSource {
     company: json.company,
     persona: json.persona,
     policy: json.policy,
+    plans: json.plans,
     world: json.world,
   };
 }

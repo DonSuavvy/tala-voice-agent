@@ -5,7 +5,9 @@
  * A broken pack throws one `PackValidationError` that lists every problem it
  * found, like the tool registry does, so a pack is fixed in one pass rather
  * than one boot at a time. Each section (id, sop, company, persona, policy,
- * world) is checked independently; a failing section never hides another.
+ * plans, world) is checked independently; a failing section never hides
+ * another. Once the plans and the world both pass, every account's plan is
+ * checked against the catalog, one issue per account.
  * Issue lines read `<section>.<path>: <message>`, numeric path segments in
  * brackets (`world.accounts[1].barangayId`).
  *
@@ -34,6 +36,8 @@ import {
   type SupportPolicy,
 } from "../policy/support-policy";
 import { seedWorldSchema, type SeedWorld } from "../systems/seed-world";
+
+import { planCatalogSchema, type Plan } from "./plan-catalog";
 
 const nonEmpty = z.string().min(1);
 
@@ -128,6 +132,7 @@ export interface PackSource {
   company: unknown;
   persona: unknown;
   policy: unknown;
+  plans: unknown;
   world: unknown;
 }
 
@@ -137,6 +142,7 @@ export interface CompanyPack {
   company: Company;
   persona: Persona;
   policy: SupportPolicy;
+  plans: Plan[];
   world: SeedWorld;
 }
 
@@ -203,7 +209,19 @@ export function loadPack(source: PackSource): CompanyPack {
   const company = checkSection("company", companySchema, source.company, issues);
   const persona = checkSection("persona", personaSchema, source.persona, issues);
   const policy = checkSection("policy", supportPolicySchema, source.policy, issues);
+  const plans = checkSection("plans", planCatalogSchema, source.plans, issues);
   const world = checkSection("world", seedWorldSchema, source.world, issues);
+
+  if (plans && world) {
+    const names = new Set(plans.map((plan) => plan.name));
+    world.accounts.forEach((account, index) => {
+      if (names.has(account.planName)) return;
+      const where = formatPath("world", ["accounts", index, "planName"]);
+      issues.push(
+        `${where}: account ${account.accountNumber} names unknown plan "${account.planName}"`,
+      );
+    });
+  }
 
   const known = sopPlaceholders(SUPPORT_POLICY_RENDERERS);
   for (const name of sop ? placeholdersIn(sop.body) : []) {
@@ -220,7 +238,16 @@ export function loadPack(source: PackSource): CompanyPack {
     );
   }
 
-  if (issues.length > 0 || id === undefined || !sop || !company || !persona || !policy || !world) {
+  if (
+    issues.length > 0 ||
+    id === undefined ||
+    !sop ||
+    !company ||
+    !persona ||
+    !policy ||
+    !plans ||
+    !world
+  ) {
     throw new PackValidationError(typeof source.id === "string" ? source.id : "(no id)", issues);
   }
 
@@ -230,6 +257,7 @@ export function loadPack(source: PackSource): CompanyPack {
     company,
     persona,
     policy,
+    plans,
     world,
   });
   // Rehearse the compile once so a renderer bug fails at boot, not mid-call.
