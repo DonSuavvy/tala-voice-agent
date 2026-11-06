@@ -15,11 +15,11 @@ import {
  * request succeeds, reports `cache_creation_input_tokens: 0`, and the hit-rate
  * metric reads zero forever — indistinguishable from a caching bug.
  *
- * Demo mode runs Haiku 4.5, whose floor is 4096 against 512 on Opus 5, so the
- * SOP prefix is the *most* likely thing to sit under it. Decided 2026-08-14:
- * report the shortfall honestly rather than padding the constitution to clear
- * it, since a pad sized for Haiku is noise on Opus and padding that isn't real
- * policy content is theatre.
+ * Every 5.5 model's floor is 512 tokens (prompt caching docs, checked
+ * 2026-11-06). OpsPilot ran Haiku 4.5, whose floor was 4096 against 512 on
+ * Opus 5, and decided on 2026-08-14 to report the shortfall honestly rather
+ * than pad the prompt to clear it. The decision stands: the floor is still a
+ * per-model lookup, because it has not been monotonic across generations.
  */
 
 function usage(overrides: Partial<TokenUsage> = {}): TokenUsage {
@@ -34,8 +34,8 @@ function usage(overrides: Partial<TokenUsage> = {}): TokenUsage {
 
 describe("cacheEligibility", () => {
   it("knows each model's documented minimum cacheable prefix", () => {
-    expect(CACHE_MINIMUM_TOKENS.haiku).toBe(4096);
-    expect(CACHE_MINIMUM_TOKENS.sonnet).toBe(1024);
+    expect(CACHE_MINIMUM_TOKENS.haiku).toBe(512);
+    expect(CACHE_MINIMUM_TOKENS.sonnet).toBe(512);
     expect(CACHE_MINIMUM_TOKENS.opus).toBe(512);
   });
 
@@ -43,11 +43,11 @@ describe("cacheEligibility", () => {
     const result = cacheEligibility({ model: "haiku", promptTokens: 400 });
 
     expect(result.eligible).toBe(false);
-    expect(result.minimumTokens).toBe(4096);
-    expect(result.shortfallTokens).toBe(3696);
+    expect(result.minimumTokens).toBe(512);
+    expect(result.shortfallTokens).toBe(112);
   });
 
-  it("reports the same prefix as eligible on opus, where the floor is lower", () => {
+  it("reports a prefix above the floor as eligible", () => {
     const result = cacheEligibility({ model: "opus", promptTokens: 600 });
 
     expect(result.eligible).toBe(true);
@@ -55,8 +55,8 @@ describe("cacheEligibility", () => {
   });
 
   it("treats exactly the minimum as eligible", () => {
-    expect(cacheEligibility({ model: "sonnet", promptTokens: 1024 }).eligible).toBe(true);
-    expect(cacheEligibility({ model: "sonnet", promptTokens: 1023 }).eligible).toBe(false);
+    expect(cacheEligibility({ model: "sonnet", promptTokens: 512 }).eligible).toBe(true);
+    expect(cacheEligibility({ model: "sonnet", promptTokens: 511 }).eligible).toBe(false);
   });
 });
 
@@ -121,29 +121,28 @@ describe("describeCache", () => {
 
   /**
    * The case the honest-display decision exists for. Nothing cached, and the
-   * whole prompt was billed as input — so the prompt is 900 tokens, which is
-   * under Haiku's 4096 floor. That is a measured explanation, not a hunch.
+   * whole prompt was billed as input — so the prompt is 400 tokens, which is
+   * under the 512 floor. That is a measured explanation, not a hunch.
    */
   it("explains a non-cache as below-threshold using the measured prompt size", () => {
     const report = describeCache({
       model: "haiku",
-      usage: usage({ inputTokens: 900 }),
+      usage: usage({ inputTokens: 400 }),
     });
 
     expect(report.status).toBe("below_threshold");
-    expect(report.minimumTokens).toBe(4096);
-    expect(report.shortfallTokens).toBe(3196);
+    expect(report.minimumTokens).toBe(512);
+    expect(report.shortfallTokens).toBe(112);
   });
 
   /**
-   * Same numbers, different model. On Opus the floor is 512, so a 900-token
-   * prompt was eligible and simply did not hit — a cold first call, or a prefix
-   * that changed. Reporting that as "below threshold" would be a lie, which is
-   * why the floor is a per-model lookup rather than a constant.
+   * A 900-token prompt clears the 512 floor, so it was eligible and simply
+   * did not hit — a cold first call, or a prefix that changed. Reporting that
+   * as "below threshold" would be a lie.
    */
   it("distinguishes an eligible miss from a below-threshold prompt", () => {
     const report = describeCache({
-      model: "opus",
+      model: "haiku",
       usage: usage({ inputTokens: 900 }),
     });
 
@@ -164,7 +163,7 @@ describe("describeCache", () => {
 
   it("carries a label that never claims a hit that did not happen", () => {
     expect(
-      describeCache({ model: "haiku", usage: usage({ inputTokens: 900 }) }).label,
+      describeCache({ model: "haiku", usage: usage({ inputTokens: 400 }) }).label,
     ).toMatch(/below cache threshold/i);
 
     expect(
@@ -190,20 +189,21 @@ describe("describeCache", () => {
 });
 
 /**
- * Caught in the browser, not by a unit test: the console fed `describeCache`
- * the run's *summed* usage and rendered "cache miss — prefix was eligible but
- * not cached" on a Haiku run whose two prompts were 2618 and 2945 tokens.
- *
- * Neither was ever eligible — Haiku's floor is 4096 — but 2618 + 2945 = 5563
- * clears it arithmetically. The sum describes a prompt that never existed, and
- * the badge blamed the wrong thing in the confident voice of a measurement.
+ * Caught in OpsPilot's browser console, not by a unit test: it fed
+ * `describeCache` the run's *summed* usage and rendered "cache miss — prefix
+ * was eligible but not cached" on a Haiku 4.5 run whose two prompts were 2618
+ * and 2945 tokens. Neither was ever eligible (that floor was 4096), but the
+ * sum cleared it arithmetically. The sum describes a prompt that never
+ * existed, and the badge blamed the wrong thing in the confident voice of a
+ * measurement. Restated at the 5.5 floor: 300 + 450 tokens clears 512, and
+ * neither prompt did.
  *
  * Token counts sum across calls. Eligibility does not: it is a property of each
  * individual prefix, so the aggregate has to combine *verdicts*, never tokens.
  */
 describe("describeRunCache", () => {
-  const belowFloor = usage({ inputTokens: 2_618 });
-  const alsoBelowFloor = usage({ inputTokens: 2_945 });
+  const belowFloor = usage({ inputTokens: 300 });
+  const alsoBelowFloor = usage({ inputTokens: 450 });
 
   it("reports below-threshold when no single prompt cleared the floor", () => {
     const report = describeRunCache({
@@ -220,8 +220,8 @@ describe("describeRunCache", () => {
       usages: [belowFloor, alsoBelowFloor],
     });
 
-    expect(report?.promptTokens).toBe(2_945);
-    expect(report?.shortfallTokens).toBe(4_096 - 2_945);
+    expect(report?.promptTokens).toBe(450);
+    expect(report?.shortfallTokens).toBe(512 - 450);
   });
 
   it("never sums token counts across calls into one prompt", () => {
@@ -230,7 +230,7 @@ describe("describeRunCache", () => {
       usages: [belowFloor, alsoBelowFloor],
     });
 
-    expect(report?.promptTokens).not.toBe(2_618 + 2_945);
+    expect(report?.promptTokens).not.toBe(300 + 450);
   });
 
   it("reports a hit when any call read from cache", () => {
@@ -270,7 +270,7 @@ describe("describeRunCache", () => {
   it("distinguishes an eligible miss from a below-threshold run", () => {
     const report = describeRunCache({
       model: "opus",
-      usages: [belowFloor, alsoBelowFloor],
+      usages: [usage({ inputTokens: 600 }), usage({ inputTokens: 700 })],
     });
 
     expect(report?.status).toBe("miss");

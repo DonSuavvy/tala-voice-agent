@@ -21,9 +21,9 @@ const MODELS: LogicalModel[] = ["haiku", "sonnet", "opus"];
 
 describe("model identity", () => {
   it.each([
-    ["haiku", "claude-haiku-4-5"],
-    ["sonnet", "claude-sonnet-5"],
-    ["opus", "claude-opus-5"],
+    ["haiku", "claude-haiku-5-5"],
+    ["sonnet", "claude-sonnet-5-5"],
+    ["opus", "claude-opus-5-5"],
   ] as const)("maps %s to the bare first-party id", (model, id) => {
     expect(anthropicProvider.modelId(model)).toBe(id);
   });
