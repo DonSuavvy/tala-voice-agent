@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { toStrictJsonSchema } from "../agent/registry";
 import type { InMemorySystems } from "../systems/in-memory";
+import { MINUTE_MS } from "../systems/time-units";
 import { CALL_STARTED_AT, JOSE, MARIA, testSystems, testToolContext } from "../testing/fixtures";
 
 import { changePlan } from "./change-plan";
@@ -19,9 +20,16 @@ import { verifyIdentity } from "./verify-identity";
  * her billing cycle runs to Thu, Nov 12.
  */
 
-function newCall(): { ctx: TalaToolContext; systems: InMemorySystems } {
+/**
+ * A call in which the caller last spoke at `lastSpoke`. Quotes here are made
+ * at the call's start, so by default the caller has answered since: a minute
+ * later.
+ */
+function newCall(
+  lastSpoke: Date | null = new Date(CALL_STARTED_AT.getTime() + MINUTE_MS),
+): { ctx: TalaToolContext; systems: InMemorySystems } {
   const systems = testSystems();
-  return { ctx: testToolContext(systems), systems };
+  return { ctx: testToolContext(systems, { lastCallerTurnAt: () => lastSpoke }), systems };
 }
 
 /** As the loop does it: parse with the tool's own schema, then run the handler. */
@@ -158,6 +166,39 @@ describe("change_plan — without the caller's confirmation", () => {
     expect(toStrictJsonSchema(changePlan.input).properties.customer_confirmed).toMatchObject({
       const: true,
     });
+  });
+});
+
+/**
+ * The caller's yes is a caller turn after the quote: a quote and a change in
+ * the same turn mean the caller never heard the price, whatever
+ * customer_confirmed says.
+ */
+describe("change_plan — without the caller answering the quote", () => {
+  const NO_ANSWER =
+    "Refused: the caller has not spoken since this quote was made, so they have not said yes " +
+    "to its price. Read the price back and wait for their answer before calling change_plan.";
+
+  it("refuses a change made in the same caller turn as its quote, and the plan stays the same", async () => {
+    const { ctx } = newCall(CALL_STARTED_AT);
+    await verifyAs(ctx, MARIA);
+    const quoteId = await quoteFor(ctx, MARIA.accountNumber, "kidlat-500");
+
+    await expect(
+      change(ctx, { account_number: MARIA.accountNumber, quote_id: quoteId, customer_confirmed: true }),
+    ).rejects.toThrow(NO_ANSWER);
+    expect(await planOf(ctx, MARIA.accountNumber)).toBe("Kidlat 300");
+  });
+
+  it("refuses a change before the caller has said anything at all", async () => {
+    const { ctx } = newCall(null);
+    await verifyAs(ctx, MARIA);
+    const quoteId = await quoteFor(ctx, MARIA.accountNumber, "kidlat-500");
+
+    await expect(
+      change(ctx, { account_number: MARIA.accountNumber, quote_id: quoteId, customer_confirmed: true }),
+    ).rejects.toThrow(NO_ANSWER);
+    expect(await planOf(ctx, MARIA.accountNumber)).toBe("Kidlat 300");
   });
 });
 

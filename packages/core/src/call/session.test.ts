@@ -902,6 +902,29 @@ describe("a call session — plan changes and help questions", () => {
     expect(resultFor(claude.requests, after)).toMatchObject({ plan: "Kidlat 300" });
   });
 
+  /** Quoted and changed in one model turn: the caller never heard the price, so no change. */
+  it("refuses a change made in the same turn as its quote, and the plan stays the same", async () => {
+    const quote = quoteFor("kidlat-500");
+    const change = toolUse("change_plan", {
+      account_number: MARIA.accountNumber,
+      quote_id: "QTE-2026-00001",
+      customer_confirmed: true,
+    });
+    const after = overview();
+    const { session, claude } = newCall([
+      turn([text("Sandali lang po, let me verify your account."), verify(MARIA)]),
+      turn([text("Verified na po. Upgrading you now."), quote, change]),
+      turn([text("Let me check your account."), after]),
+      turn([text("Your plan is unchanged po.")]),
+    ]);
+    session.start();
+
+    await session.callerSaid(`Upgrade po ako sa Kidlat 500. ${MARIA.accountNumber}, ${MARIA.mobileLast4}.`);
+
+    expect(() => resultFor(claude.requests, change)).toThrow(/has not spoken since this quote was made/);
+    expect(resultFor(claude.requests, after)).toMatchObject({ plan: "Kidlat 300" });
+  });
+
   it("answers a help question from the articles, with no verification", async () => {
     const search = toolUse("search_knowledge_base", { query: "red LOS light" });
     const { session, claude, events } = newCall([
