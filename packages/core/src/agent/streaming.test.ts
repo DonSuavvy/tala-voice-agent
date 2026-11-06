@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 
 import type { AssistantTurn, MessageCreateParams } from "./loop";
+import { anthropicProvider } from "./provider";
 import { streamingMessageCreator } from "./streaming";
 
 /**
@@ -34,6 +35,7 @@ type Step = StreamEvent | typeof PAUSE;
 
 function scriptedTransport(script: Step[]) {
   const requests: unknown[] = [];
+  const headers: Headers[] = [];
   let markPaused: () => void = () => {};
   const paused = new Promise<void>((resolve) => {
     markPaused = resolve;
@@ -45,6 +47,7 @@ function scriptedTransport(script: Step[]) {
     // The SDK sends the request body as a JSON string.
     const sent = init?.body;
     requests.push(typeof sent === "string" ? JSON.parse(sent) : sent);
+    headers.push(new Headers(init?.headers));
     const steps = [...script];
     const signal = init?.signal;
 
@@ -91,7 +94,7 @@ function scriptedTransport(script: Step[]) {
     });
   };
 
-  return { fetch, requests, paused, resume: () => resume() };
+  return { fetch, requests, headers, paused, resume: () => resume() };
 }
 
 function clientOver(transport: { fetch: ReturnType<typeof scriptedTransport>["fetch"] }) {
@@ -384,6 +387,51 @@ describe("streamingMessageCreator — a turn that completes", () => {
     await expect(
       create(PARAMS, { signal: new AbortController().signal }),
     ).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Server-side refusal fallback: the request                                  */
+/* -------------------------------------------------------------------------- */
+
+describe("streamingMessageCreator — asking for server-side refusal fallback", () => {
+  const completes = (): Step[] => [
+    messageStart(),
+    startText(0),
+    textDelta(0, "Opo."),
+    stopBlock(0),
+    messageDelta("end_turn", 5),
+    messageStop(),
+  ];
+
+  it.each(["sonnet", "opus"] as const)(
+    "sends fallbacks: \"default\" in the body and the beta in the header on %s",
+    async (model) => {
+      const transport = scriptedTransport(completes());
+
+      await streamingMessageCreator(clientOver(transport))({
+        ...PARAMS,
+        model: anthropicProvider.modelId(model),
+      });
+
+      expect(transport.requests[0]).toMatchObject({ fallbacks: "default" });
+      // The beta travels as a header, never in the body.
+      expect(transport.requests[0]).not.toHaveProperty("betas");
+      expect(transport.headers[0].get("anthropic-beta")).toBe("server-side-fallback-2026-07-01");
+    },
+  );
+
+  it("sends neither on haiku", async () => {
+    const transport = scriptedTransport(completes());
+
+    await streamingMessageCreator(clientOver(transport))({
+      ...PARAMS,
+      model: anthropicProvider.modelId("haiku"),
+    });
+
+    expect(transport.requests[0]).not.toHaveProperty("fallbacks");
+    expect(transport.requests[0]).not.toHaveProperty("betas");
+    expect(transport.headers[0].get("anthropic-beta")).toBeNull();
   });
 });
 

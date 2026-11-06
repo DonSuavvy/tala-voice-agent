@@ -5,6 +5,7 @@ import {
   anthropicProvider,
   createClient,
   providerFromEnv,
+  refusalFallbackFor,
   type LogicalModel,
 } from "./provider";
 
@@ -50,6 +51,38 @@ describe("rate cards carry their provenance", () => {
     expect(anthropicProvider.rateCard(model)).toBe(
       ANTHROPIC_RATES[anthropicProvider.modelId(model) as keyof typeof ANTHROPIC_RATES],
     );
+  });
+});
+
+/**
+ * When a safety classifier declines a turn, the API can re-run it on a
+ * fallback model inside the same call, so a false positive does not cost the
+ * caller the call. The opt-in is per model and decided here, by wire id,
+ * because the streaming creator only ever sees the wire id.
+ *
+ * The claude-api skill: `fallbacks: "default"` takes the
+ * `server-side-fallback-2026-07-01` beta (the array form's `-2026-06-01`
+ * header 400s with it); Sonnet 5.5 accepts only the "default" form; Haiku 5.5
+ * has no server-side fallback, so its requests do not send it.
+ */
+describe("server-side refusal fallback", () => {
+  it.each(["sonnet", "opus"] as const)(
+    "opts %s in with fallbacks: \"default\" and the 2026-07-01 beta",
+    (model) => {
+      expect(refusalFallbackFor(anthropicProvider.modelId(model))).toEqual({
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+      });
+    },
+  );
+
+  it("never opts haiku in: Haiku 5.5 has no server-side fallback", () => {
+    expect(refusalFallbackFor(anthropicProvider.modelId("haiku"))).toBeNull();
+  });
+
+  it("opts in no model id it has no mapping for", () => {
+    expect(refusalFallbackFor("claude-opus-5")).toBeNull();
+    expect(refusalFallbackFor("toString")).toBeNull();
   });
 });
 
