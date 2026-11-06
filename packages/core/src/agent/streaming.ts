@@ -88,6 +88,9 @@ function interruptedTurn(
     stop_reason: "interrupted",
     stop_details: null,
     usage: snapshot ? { ...snapshot.usage } : { ...NO_USAGE },
+    // Who was writing, so the turn is priced at that model's card. After a
+    // fallback block the SDK names the fallback model here.
+    ...(snapshot ? { model: snapshot.model } : {}),
   };
   return turn as unknown as AssistantTurn;
 }

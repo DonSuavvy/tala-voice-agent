@@ -38,7 +38,9 @@
 import { checkBudget, type BudgetConfig, type BudgetRefusal } from "./budget";
 import type { SystemBlock } from "./cache";
 import {
-  costOf,
+  costOfTurn,
+  UNKNOWN_MODEL_CEILING,
+  type AttemptUsage,
   type CacheTtl,
   type RateCard,
   type TokenUsage,
@@ -107,11 +109,19 @@ export interface AssistantTurn {
    * signal. `if (stop_details)` is the wrong test and misses refusals.
    */
   stop_details?: { type: string; category?: string | null } | null;
+  /**
+   * The model that produced the message, which a server-side refusal
+   * fallback can make a different one from the model requested. A turn
+   * without it (a scripted one) is priced as the requested model's.
+   */
+  model?: string;
   usage: {
     input_tokens: number;
     output_tokens: number;
     cache_creation_input_tokens?: number | null;
     cache_read_input_tokens?: number | null;
+    /** One entry per attempt; the source of truth for cost when present. */
+    iterations?: AttemptUsage[] | null;
   };
 }
 
@@ -183,7 +193,16 @@ export interface AgentLoopInput<C extends ToolContext = ToolContext> {
   createMessage: MessageCreator;
   /** The provider's wire id. Logical names are resolved in provider.ts. */
   model: string;
+  /** The requested model's card: the pre-flight's, and the default price. */
   rates: RateCard;
+  /**
+   * The card for a model a turn says served it, by wire id: the provider's
+   * `rateCardForModelId`. A turn is priced by the model(s) that served it,
+   * which a server-side refusal fallback makes more than the one requested.
+   * Without it, the requested model is priced at `rates` and any other at
+   * `UNKNOWN_MODEL_CEILING`, so a turn is never priced below its cost.
+   */
+  rateCardFor?: (modelId: string | null) => RateCard;
   /** Pass `cachedSystem(prompt)` to mark the prefix cacheable. */
   system: string | SystemBlock[];
   messages: MessageParam[];
@@ -358,15 +377,6 @@ const EMPTY_TURN_USAGE: AssistantTurn["usage"] = {
   cache_read_input_tokens: 0,
 };
 
-function toTokenUsage(u: AssistantTurn["usage"]): TokenUsage {
-  return {
-    inputTokens: u.input_tokens,
-    outputTokens: u.output_tokens,
-    cacheCreationInputTokens: u.cache_creation_input_tokens ?? 0,
-    cacheReadInputTokens: u.cache_read_input_tokens ?? 0,
-  };
-}
-
 function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return {
     inputTokens: a.inputTokens + b.inputTokens,
@@ -436,6 +446,8 @@ export async function runAgentLoop<C extends ToolContext>(
     strict: input.strictTools ?? false,
   });
   const rateVerified = rates.verifiedOn !== null;
+  const rateCardFor =
+    input.rateCardFor ?? ((id: string | null) => (id === model ? rates : UNKNOWN_MODEL_CEILING));
 
   const messages: MessageParam[] = [...input.messages];
   const decisions = new Map(
@@ -655,8 +667,12 @@ export async function runAgentLoop<C extends ToolContext>(
         return { ...base(), status: "failed", error: errorText(error) };
       }
 
-      const turnUsage = toTokenUsage(assistant.usage);
-      const cost = costOf(rates, turnUsage, { cacheTtl: input.cacheTtl });
+      // Priced by the model(s) that served the turn, which a server-side
+      // refusal fallback can make other than the one requested.
+      const cost = costOfTurn(assistant.usage, assistant.model ?? model, rateCardFor, {
+        cacheTtl: input.cacheTtl,
+      });
+      const turnUsage = cost.usage;
       const cutShort = assistant.stop_reason === "interrupted";
       // A turn the caller cut short reports only what had streamed by then,
       // which undercounts its output. The pre-flight estimate is the floor,

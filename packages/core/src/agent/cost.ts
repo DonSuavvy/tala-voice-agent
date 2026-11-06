@@ -21,7 +21,11 @@
  * 0.1x everywhere), and Haiku 5.5 has a second rate card for long prompts.
  */
 
-/** The three models Tala runs. Named logically everywhere but `provider.ts`. */
+/**
+ * The three models Tala runs. Named logically everywhere but `provider.ts`.
+ * A turn can be served by another model (a server-side refusal fallback);
+ * that one is priced at `UNKNOWN_MODEL_CEILING`.
+ */
 export type ModelId = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
 
 /** Which cache TTL a write was billed at. 5 minutes is the API default. */
@@ -160,6 +164,30 @@ export const ANTHROPIC_RATES: Readonly<Record<ModelId, RateCard>> = {
 };
 
 /**
+ * What a model Tala has no card for is booked at: a ceiling, never a guess.
+ *
+ * A server-side refusal fallback can serve a turn on a model Tala does not
+ * run (Opus 5.5's fallbacks are Opus 5 and Opus 4.8), and pricing it at a
+ * cheaper card Tala happens to know would under-count, which the spend guard
+ * must never do (ADR 4). So it is booked at the dearest card in the
+ * claude-api skill's model table, Claude Fable 5.1's $10 in and $50 out,
+ * with cache writes at the usual multiples of input and cache reads at the
+ * full input price. `verifiedOn: null`: what it prices is an estimate.
+ */
+export const UNKNOWN_MODEL_CEILING: RateCard = rateCard(
+  10,
+  50,
+  {
+    verifiedOn: null,
+    source:
+      "ceiling for a model with no card of its own: Claude Fable 5.1's rates " +
+      "from the claude-api skill's model table (cached 2026-10-06), cache " +
+      "reads at the full input rate",
+  },
+  { cacheReadDivisor: 1 },
+);
+
+/**
  * The token counts from one API response.
  *
  * Field names mirror the SDK's `usage` object in camelCase. All four are
@@ -254,6 +282,98 @@ export function costOf(
     estimated: rates.verifiedOn === null,
     longPrompt,
   };
+}
+
+/** One attempt's usage, as a response's `usage.iterations` reports it. */
+export interface AttemptUsage {
+  /** `message` for an attempt that declined, `fallback_message` for the one that served. */
+  type: string;
+  /** The model that ran the attempt. May be null on a `message` entry. */
+  model?: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+/** A response's `usage`, wire-shaped, as the SDK hands it over. */
+export interface TurnUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  /**
+   * One entry per attempt when more than one model may have run, as with
+   * server-side refusal fallback. When present, it is the source of truth:
+   * the top-level counts cover only the attempt that produced the message.
+   */
+  iterations?: AttemptUsage[] | null;
+}
+
+/** A turn's cost, and the token counts it was priced from. */
+export interface TurnCost extends CostBreakdown {
+  /** Summed over every attempt, so the counts match the cost. */
+  usage: TokenUsage;
+}
+
+function tokenUsageOf(usage: Omit<AttemptUsage, "type" | "model">): TokenUsage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheCreationInputTokens: usage.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: usage.cache_read_input_tokens ?? 0,
+  };
+}
+
+/**
+ * Price one model turn by the model(s) that served it, not the one requested.
+ *
+ * With `usage.iterations`, each attempt is priced at its own model's card
+ * and the results summed: an attempt that declined mid-stream bills at
+ * normal rates and the fallback at its own model's (claude-api skill,
+ * refusal section, "Billing"). Without them, or with an empty list, the turn
+ * is priced at `servedBy`, the response's `model`.
+ *
+ * `rateCardFor` is the provider's: it maps a wire id to a card, and a model
+ * it has no card for, or a missing one, to `UNKNOWN_MODEL_CEILING`. This
+ * module still owns only arithmetic.
+ */
+export function costOfTurn(
+  usage: TurnUsage,
+  servedBy: string | null,
+  rateCardFor: (modelId: string | null) => RateCard,
+  options: { cacheTtl?: CacheTtl } = {},
+): TurnCost {
+  const attempts =
+    usage.iterations && usage.iterations.length > 0
+      ? usage.iterations.map((a) => ({ rates: rateCardFor(a.model ?? null), tokens: tokenUsageOf(a) }))
+      : [{ rates: rateCardFor(servedBy), tokens: tokenUsageOf(usage) }];
+
+  const total: TurnCost = {
+    inputNanos: 0,
+    outputNanos: 0,
+    cacheReadNanos: 0,
+    cacheWriteNanos: 0,
+    totalNanos: 0,
+    estimated: false,
+    longPrompt: false,
+    usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+  };
+  for (const { rates, tokens } of attempts) {
+    const cost = costOf(rates, tokens, options);
+    total.inputNanos += cost.inputNanos;
+    total.outputNanos += cost.outputNanos;
+    total.cacheReadNanos += cost.cacheReadNanos;
+    total.cacheWriteNanos += cost.cacheWriteNanos;
+    total.totalNanos += cost.totalNanos;
+    total.estimated ||= cost.estimated;
+    total.longPrompt ||= cost.longPrompt;
+    total.usage.inputTokens += tokens.inputTokens;
+    total.usage.outputTokens += tokens.outputTokens;
+    total.usage.cacheCreationInputTokens += tokens.cacheCreationInputTokens;
+    total.usage.cacheReadInputTokens += tokens.cacheReadInputTokens;
+  }
+  return total;
 }
 
 /**

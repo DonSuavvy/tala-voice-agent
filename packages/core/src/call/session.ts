@@ -545,6 +545,9 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       createMessage: speakingCreator,
       model: pin.modelId,
       rates: provider.rateCard(model),
+      // A turn is priced by the model that served it, which a server-side
+      // refusal fallback can make other than the one pinned.
+      rateCardFor: (modelId) => provider.rateCardForModelId(modelId),
       system,
       messages: [...history, { role: "user", content: words }],
       toolContext: {

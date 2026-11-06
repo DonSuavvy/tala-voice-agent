@@ -13,11 +13,20 @@
  * (`haiku`, `sonnet`, `opus`), so a model upgrade is a change to one table.
  *
  * **The rate card.** Pricing is looked up through the provider, so cost
- * accounting owns only arithmetic (`cost.ts`).
+ * accounting owns only arithmetic (`cost.ts`). That includes the way back,
+ * from the wire id a response names to its card.
+ *
+ * **Server-side refusal fallback.** Which models ask for it, and the request
+ * fields that do, are decided here too, by wire id.
  */
 import Anthropic from "@anthropic-ai/sdk";
 
-import { ANTHROPIC_RATES, type ModelId, type RateCard } from "./cost";
+import {
+  ANTHROPIC_RATES,
+  UNKNOWN_MODEL_CEILING,
+  type ModelId,
+  type RateCard,
+} from "./cost";
 
 export type ProviderId = "anthropic";
 
@@ -83,6 +92,13 @@ export interface Provider {
   /** The id the API expects for a logical model. */
   modelId(model: LogicalModel): string;
   rateCard(model: LogicalModel): RateCard;
+  /**
+   * The card for the model a response says served it, by wire id: the way
+   * back from `modelId`. With server-side fallback that need not be the
+   * model requested. A model with no card here, or a missing id, gets
+   * `UNKNOWN_MODEL_CEILING`, so a turn is never priced below what it cost.
+   */
+  rateCardForModelId(modelId: string | null): RateCard;
 }
 
 /**
@@ -103,6 +119,10 @@ export const anthropicProvider: Provider = {
   id: "anthropic",
   modelId: (model) => requireMapping(model),
   rateCard: (model) => ANTHROPIC_RATES[requireMapping(model)],
+  rateCardForModelId: (modelId) => {
+    const model = modelId === null ? null : logicalModelOf(modelId);
+    return model === null ? UNKNOWN_MODEL_CEILING : ANTHROPIC_RATES[FIRST_PARTY_ID[model]];
+  },
 };
 
 /**
