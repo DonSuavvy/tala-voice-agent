@@ -46,7 +46,7 @@ describe("loadPack", () => {
       pack.sop.version = "v8";
     }).toThrow(TypeError);
 
-    expect(() => createInMemorySystems(pack.world, CALL_STARTED_AT)).not.toThrow();
+    expect(() => createInMemorySystems(pack.world, CALL_STARTED_AT, "Asia/Manila")).not.toThrow();
 
     const copy = structuredClone(pack.world);
     copy.accounts[0].planName = "Kidlat 1000";

@@ -23,7 +23,7 @@ function newContext(): TalaToolContext {
     callId: "call_1",
     now: CALL_STARTED_AT,
     data: {
-      systems: createInMemorySystems(testWorld(), CALL_STARTED_AT),
+      systems: createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila"),
       identity: initialIdentityState(),
       company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
     },

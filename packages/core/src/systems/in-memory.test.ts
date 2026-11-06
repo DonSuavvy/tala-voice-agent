@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import { createInMemorySystems } from "./in-memory";
 import type { SeedWorld } from "./seed-world";
 
+/** 2:00 PM, Fri, Nov 6 in Manila. */
 const CALL_STARTED_AT = new Date("2026-11-06T06:00:00Z");
+/** The company's time zone, which technician slots are stated in. */
+const MANILA = "Asia/Manila";
 
 /**
  * Two barangays; Batasan Hills has a fiber cut, Commonwealth has none.
  * Maria owes 1,299 pesos, past due, with a disconnection scheduled, and her
- * GCash payment from yesterday has not posted. Jun owes nothing.
+ * GCash payment from yesterday has not posted. Jun owes nothing. A technician
+ * can visit Batasan Hills on the two days after the call, Commonwealth on one.
  */
 function seed(): SeedWorld {
   return {
@@ -116,14 +120,19 @@ function seed(): SeedWorld {
         afterReboot: { status: "online", receivedPowerDbm: -19.4, fault: null, rebootMayClear: false },
       },
     ],
-    technicianSlots: [],
+    // Out of order on purpose: the world lists them soonest first.
+    technicianSlots: [
+      { id: "batasan-hills-2", barangayId: "batasan-hills", daysAfterCall: 2, startHour: 13, lengthHours: 3 },
+      { id: "commonwealth-1", barangayId: "commonwealth", daysAfterCall: 1, startHour: 9, lengthHours: 3 },
+      { id: "batasan-hills-1", barangayId: "batasan-hills", daysAfterCall: 1, startHour: 9, lengthHours: 3 },
+    ],
   };
 }
 
 describe("createInMemorySystems", () => {
   describe("accounts.findAccount", () => {
     it("returns the account with its service area resolved", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.accounts.findAccount("1234567890")).toEqual({
         accountNumber: "1234567890",
         holderName: "Maria Santos",
@@ -138,14 +147,14 @@ describe("createInMemorySystems", () => {
       });
     });
     it("returns null for an unknown number and for a near miss", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.accounts.findAccount("9999999999")).toBeNull();
       expect(await systems.accounts.findAccount("123456789")).toBeNull();
       expect(await systems.accounts.findAccount("1234567890 ")).toBeNull();
     });
 
     it("hands back a copy: mutating it changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const first = await systems.accounts.findAccount("1234567890");
       first!.holderName = "Someone Else";
       first!.serviceArea.city = "Manila";
@@ -157,14 +166,14 @@ describe("createInMemorySystems", () => {
     it("rejects, rather than serving a half record, when a seed skipped the schema and dangles", async () => {
       const world = seed();
       world.accounts[0].barangayId = "payatas";
-      const systems = createInMemorySystems(world, CALL_STARTED_AT);
+      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
       await expect(systems.accounts.findAccount("1234567890")).rejects.toThrow(/payatas/);
     });
 
     it("gives each call a fresh world: two systems from one seed share nothing", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT);
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
       shared.accounts[0].holderName = "Edited After Creation";
       shared.barangays[0].name = "Edited Barangay";
       for (const systems of [one, two]) {
@@ -177,7 +186,7 @@ describe("createInMemorySystems", () => {
 
   describe("network.outagesAffecting", () => {
     it("anchors the relative times to the call's start", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.network.outagesAffecting("batasan-hills")).toEqual([
         {
           reference: "OUT-2026-0412",
@@ -199,7 +208,7 @@ describe("createInMemorySystems", () => {
         { ...template, reference: "TIE-B", startedMinutesBeforeCall: 300 },
         { ...template, reference: "ELSEWHERE", startedMinutesBeforeCall: 5000, barangayIds: ["commonwealth"] },
       ];
-      const systems = createInMemorySystems(world, CALL_STARTED_AT);
+      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
       const refs = (await systems.network.outagesAffecting("batasan-hills")).map((o) => o.reference);
       expect(refs).toEqual(["OLDEST", "TIE-A", "TIE-B", "RECENT"]);
     });
@@ -207,14 +216,14 @@ describe("createInMemorySystems", () => {
     it("reports a null restoration time when the network team has none", async () => {
       const world = seed();
       world.outages[0].restorationMinutesAfterCall = null;
-      const systems = createInMemorySystems(world, CALL_STARTED_AT);
+      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
       const [outage] = await systems.network.outagesAffecting("batasan-hills");
       expect(outage.estimatedRestorationAt).toBeNull();
       expect(outage.startedAt).toEqual(new Date("2026-11-06T03:30:00Z"));
     });
 
     it("returns an empty list for a barangay with no outage and for an unknown one", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.network.outagesAffecting("commonwealth")).toEqual([]);
       expect(await systems.network.outagesAffecting("atlantis")).toEqual([]);
     });
@@ -222,13 +231,13 @@ describe("createInMemorySystems", () => {
     it("lists a multi-barangay outage under each of its barangays", async () => {
       const world = seed();
       world.outages[0].barangayIds = ["batasan-hills", "commonwealth"];
-      const systems = createInMemorySystems(world, CALL_STARTED_AT);
+      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
       expect(await systems.network.outagesAffecting("commonwealth")).toHaveLength(1);
       expect(await systems.network.outagesAffecting("batasan-hills")).toHaveLength(1);
     });
 
     it("hands back copies: mutating a result changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const [first] = await systems.network.outagesAffecting("batasan-hills");
       first.cause = "tampered";
       first.barangayIds.push("commonwealth");
@@ -242,9 +251,9 @@ describe("createInMemorySystems", () => {
 
     it("does not let two calls from one seed see each other's world or the seed's later edits", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT);
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
       shared.outages[0].cause = "edited after creation";
-      const two = createInMemorySystems(shared, CALL_STARTED_AT);
+      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
       expect((await one.network.outagesAffecting("batasan-hills"))[0].cause).toBe(
         "fiber cut along Batasan Road from road works",
       );
@@ -253,7 +262,7 @@ describe("createInMemorySystems", () => {
 
     it("follows the call's start, not the wall clock", async () => {
       const later = new Date("2031-02-14T22:15:00Z");
-      const systems = createInMemorySystems(seed(), later);
+      const systems = createInMemorySystems(seed(), later, MANILA);
       const [outage] = await systems.network.outagesAffecting("batasan-hills");
       expect(outage.startedAt).toEqual(new Date("2031-02-14T19:45:00Z"));
       expect(outage.estimatedRestorationAt).toEqual(new Date("2031-02-14T23:45:00Z"));
@@ -267,7 +276,7 @@ describe("createInMemorySystems", () => {
    */
   describe("network.diagnose and network.rebootModem", () => {
     it("diagnoses a modem as the seed states it, last seen relative to the call's start", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.network.diagnose("1234567890")).toEqual({
         modemStatus: "degraded",
         receivedPowerDbm: -28.4,
@@ -278,13 +287,13 @@ describe("createInMemorySystems", () => {
     });
 
     it("returns null for an account with no modem on record, to diagnose or to reboot", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.network.diagnose("9999999999")).toBeNull();
       expect(await systems.network.rebootModem("9999999999", CALL_STARTED_AT)).toBeNull();
     });
 
     it("says how long a restart takes, then reads the modem as it came back, with the fault cleared", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const askedAt = new Date("2026-11-06T06:03:00Z");
 
       expect(await systems.network.rebootModem("2234567890", askedAt)).toEqual({ restartSeconds: 60 });
@@ -298,7 +307,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("still reads a fault the reboot does not clear once the modem is back", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const askedAt = new Date("2026-11-06T06:03:00Z");
 
       expect(await systems.network.rebootModem("1234567890", askedAt)).toEqual({ restartSeconds: 90 });
@@ -312,13 +321,13 @@ describe("createInMemorySystems", () => {
     });
 
     it("reboots only the account it is asked to", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       await systems.network.rebootModem("2234567890", CALL_STARTED_AT);
       expect((await systems.network.diagnose("1234567890"))?.receivedPowerDbm).toBe(-28.4);
     });
 
     it("hands back copies: mutating a diagnosis changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const first = await systems.network.diagnose("1234567890");
       first!.fault = "tampered";
       first!.lastSeenAt.setUTCFullYear(1999);
@@ -329,8 +338,8 @@ describe("createInMemorySystems", () => {
 
     it("keeps a reboot on one call out of another call from the same seed", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT);
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
       await one.network.rebootModem("2234567890", CALL_STARTED_AT);
       expect((await two.network.diagnose("2234567890"))?.modemStatus).toBe("degraded");
     });
@@ -338,7 +347,7 @@ describe("createInMemorySystems", () => {
 
   describe("billing.balanceOf", () => {
     it("anchors the due date and the disconnection to the call's start", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.balanceOf("1234567890")).toEqual({
         amountDueMinor: 129_900,
         dueAt: new Date("2026-10-27T06:00:00Z"),
@@ -347,7 +356,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("reports nulls for an account that owes nothing", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.balanceOf("2234567890")).toEqual({
         amountDueMinor: 0,
         dueAt: null,
@@ -356,12 +365,12 @@ describe("createInMemorySystems", () => {
     });
 
     it("returns null for an account with no balance on record", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.balanceOf("9999999999")).toBeNull();
     });
 
     it("hands back a copy: mutating it changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const first = await systems.billing.balanceOf("1234567890");
       first!.amountDueMinor = 0;
       first!.disconnectionAt!.setUTCFullYear(1999);
@@ -375,7 +384,7 @@ describe("createInMemorySystems", () => {
 
   describe("billing.billsFor and billing.paymentsFor", () => {
     it("lists only this account's bills, newest first", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.billsFor("1234567890")).toEqual([
         { reference: "SOA-2610-7890", amountMinor: 129_900, issuedAt: new Date("2026-10-12T06:00:00Z") },
         { reference: "SOA-2609-7890", amountMinor: 129_900, issuedAt: new Date("2026-10-07T06:00:00Z") },
@@ -383,7 +392,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("lists only this account's payments, newest first, with whether each has posted", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.paymentsFor("1234567890")).toEqual([
         {
           reference: "1234567890123",
@@ -405,19 +414,19 @@ describe("createInMemorySystems", () => {
     it("keeps seed order for equal times", async () => {
       const world = seed();
       world.payments[0].paidMinutesBeforeCall = 1_440;
-      const systems = createInMemorySystems(world, CALL_STARTED_AT);
+      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
       const refs = (await systems.billing.paymentsFor("1234567890")).map((p) => p.reference);
       expect(refs).toEqual(["BNK20261001", "1234567890123"]);
     });
 
     it("returns empty lists for an unknown account", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.billsFor("9999999999")).toEqual([]);
       expect(await systems.billing.paymentsFor("9999999999")).toEqual([]);
     });
 
     it("hands back copies: mutating a result changes nothing stored", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       const [bill] = await systems.billing.billsFor("1234567890");
       bill.amountMinor = 1;
       bill.issuedAt.setUTCFullYear(1999);
@@ -437,7 +446,7 @@ describe("createInMemorySystems", () => {
 
   describe("billing.findPayment", () => {
     it("finds a payment by its exact reference on the account it was made to", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.findPayment("1234567890", "1234567890123")).toEqual({
         reference: "1234567890123",
         channel: "gcash",
@@ -448,13 +457,13 @@ describe("createInMemorySystems", () => {
     });
 
     it("does not find another account's payment", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.findPayment("2234567890", "1234567890123")).toBeNull();
       expect(await systems.billing.findPayment("1234567890", "MAYA7K2Q9")).toBeNull();
     });
 
     it("returns null for an unknown reference and for a near miss", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.billing.findPayment("1234567890", "9999999999999")).toBeNull();
       expect(await systems.billing.findPayment("1234567890", "123456789012")).toBeNull();
       expect(await systems.billing.findPayment("1234567890", "1234 567890123")).toBeNull();
@@ -469,7 +478,7 @@ describe("createInMemorySystems", () => {
     } as const;
 
     it("numbers the call's tickets in order, in the call's year", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       expect(await systems.tickets.createTicket(BILLING_TICKET)).toEqual({ reference: "TKT-2026-00001" });
       expect(await systems.tickets.createTicket({ ...BILLING_TICKET, category: "other" })).toEqual({
         reference: "TKT-2026-00002",
@@ -477,7 +486,7 @@ describe("createInMemorySystems", () => {
     });
 
     it("keeps what was opened, oldest first, as copies", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       await systems.tickets.createTicket(BILLING_TICKET);
       const [opened] = systems.openedTickets();
       opened.notes = "tampered";
@@ -486,17 +495,143 @@ describe("createInMemorySystems", () => {
 
     it("starts each call's numbering afresh, and follows the call's start", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT);
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
       await one.tickets.createTicket(BILLING_TICKET);
-      const two = createInMemorySystems(shared, new Date("2031-02-14T22:15:00Z"));
+      const two = createInMemorySystems(shared, new Date("2031-02-14T22:15:00Z"), MANILA);
       expect(await two.tickets.createTicket(BILLING_TICKET)).toEqual({ reference: "TKT-2031-00001" });
       expect(two.openedTickets()).toHaveLength(1);
     });
   });
 
+  describe("tickets.findTicket", () => {
+    const CONNECTION_TICKET = {
+      accountNumber: "1234567890",
+      category: "connection",
+      notes: "Signal loss on the line; a remote reboot did not clear it.",
+    } as const;
+
+    it("finds a ticket opened on this call by its exact reference", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET);
+
+      expect(await systems.tickets.findTicket("1234567890", reference)).toEqual({
+        reference: "TKT-2026-00001",
+        category: "connection",
+        notes: "Signal loss on the line; a remote reboot did not clear it.",
+      });
+    });
+
+    it("does not find another account's ticket, or a reference never given", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET);
+
+      expect(await systems.tickets.findTicket("2234567890", reference)).toBeNull();
+      expect(await systems.tickets.findTicket("1234567890", "TKT-2026-00002")).toBeNull();
+    });
+  });
+
+  /**
+   * The technician calendar, stated in the seed by the day after the call's
+   * local date, and the visits booked from it.
+   */
+  describe("fieldService", () => {
+    const VISIT = {
+      accountNumber: "1234567890",
+      slotId: "batasan-hills-1",
+      ticketReference: "TKT-2026-00001",
+    };
+
+    it("lists a barangay's open slots, soonest first, in the company's time zone", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+
+      expect(await systems.fieldService.availableSlots("batasan-hills")).toEqual([
+        {
+          slotId: "batasan-hills-1",
+          barangayId: "batasan-hills",
+          // 9:00 AM to 12:00 PM, Sat, Nov 7 in Manila.
+          startsAt: new Date("2026-11-07T01:00:00Z"),
+          endsAt: new Date("2026-11-07T04:00:00Z"),
+        },
+        {
+          slotId: "batasan-hills-2",
+          barangayId: "batasan-hills",
+          // 1:00 PM to 4:00 PM, Sun, Nov 8 in Manila.
+          startsAt: new Date("2026-11-08T05:00:00Z"),
+          endsAt: new Date("2026-11-08T08:00:00Z"),
+        },
+      ]);
+    });
+
+    it("anchors the slots to the call's date in the time zone it is given", async () => {
+      // 1:00 AM, Fri, Nov 6 in New York: 9:00 AM the next day is 2:00 PM UTC.
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, "America/New_York");
+
+      const [first] = await systems.fieldService.availableSlots("commonwealth");
+      expect(first.startsAt).toEqual(new Date("2026-11-07T14:00:00Z"));
+    });
+
+    it("returns an empty list for a barangay with no slots and for an unknown one", async () => {
+      const world = seed();
+      world.technicianSlots = world.technicianSlots.filter((s) => s.barangayId !== "commonwealth");
+      const systems = createInMemorySystems(world, CALL_STARTED_AT, MANILA);
+
+      expect(await systems.fieldService.availableSlots("commonwealth")).toEqual([]);
+      expect(await systems.fieldService.availableSlots("atlantis")).toEqual([]);
+    });
+
+    it("books a slot for its ticket, numbers the call's visits, and takes the slot off the list", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+
+      expect(await systems.fieldService.bookVisit(VISIT)).toEqual({ reference: "VIS-2026-00001" });
+      expect(
+        await systems.fieldService.bookVisit({ ...VISIT, slotId: "batasan-hills-2" }),
+      ).toEqual({ reference: "VIS-2026-00002" });
+      expect(systems.bookedVisits()).toEqual([
+        { reference: "VIS-2026-00001", ...VISIT },
+        { reference: "VIS-2026-00002", ...VISIT, slotId: "batasan-hills-2" },
+      ]);
+      expect(await systems.fieldService.availableSlots("batasan-hills")).toEqual([]);
+    });
+
+    it("refuses a slot already booked or unknown, so two visits never share one", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      await systems.fieldService.bookVisit(VISIT);
+
+      await expect(systems.fieldService.bookVisit(VISIT)).rejects.toThrow(
+        'technician slot "batasan-hills-1" is not available',
+      );
+      await expect(
+        systems.fieldService.bookVisit({ ...VISIT, slotId: "atlantis-1" }),
+      ).rejects.toThrow('technician slot "atlantis-1" is not available');
+      expect(systems.bookedVisits()).toHaveLength(1);
+    });
+
+    it("hands back copies: mutating a slot or a booking changes nothing stored", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const [slot] = await systems.fieldService.availableSlots("batasan-hills");
+      slot.startsAt.setUTCFullYear(1999);
+      const [again] = await systems.fieldService.availableSlots("batasan-hills");
+      expect(again.startsAt).toEqual(new Date("2026-11-07T01:00:00Z"));
+
+      await systems.fieldService.bookVisit(VISIT);
+      systems.bookedVisits()[0].ticketReference = "tampered";
+      expect(systems.bookedVisits()[0].ticketReference).toBe("TKT-2026-00001");
+    });
+
+    it("keeps one call's bookings out of another call from the same seed", async () => {
+      const shared = seed();
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      await one.fieldService.bookVisit(VISIT);
+
+      expect(two.bookedVisits()).toEqual([]);
+      expect(await two.fieldService.availableSlots("batasan-hills")).toHaveLength(2);
+    });
+  });
+
   describe("sms.send", () => {
     it("puts the text in the outbox, addressed as given", async () => {
-      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
       await systems.sms.send({ to: "+639175550101", message: "Your ticket is TKT-2026-00001." });
       expect(systems.outbox()).toEqual([
         { to: "+639175550101", message: "Your ticket is TKT-2026-00001." },
@@ -505,8 +640,8 @@ describe("createInMemorySystems", () => {
 
     it("hands back copies, and gives each call its own outbox", async () => {
       const shared = seed();
-      const one = createInMemorySystems(shared, CALL_STARTED_AT);
-      const two = createInMemorySystems(shared, CALL_STARTED_AT);
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
       await one.sms.send({ to: "+639175550101", message: "Hello po." });
       one.outbox()[0].to = "+639990000000";
       expect(one.outbox()).toEqual([{ to: "+639175550101", message: "Hello po." }]);

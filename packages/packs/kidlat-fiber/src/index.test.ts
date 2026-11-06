@@ -56,7 +56,7 @@ describe("the Kidlat Fiber pack", () => {
 
   it("has scenario 1's world: a fiber cut in Batasan Hills with a restoration time", async () => {
     const { world } = loadKidlatFiber();
-    const systems = createInMemorySystems(world, new Date("2026-11-06T05:00:00Z"));
+    const systems = createInMemorySystems(world, new Date("2026-11-06T05:00:00Z"), "Asia/Manila");
 
     const maria = await systems.accounts.findAccount("8012345601");
     const outages = await systems.network.outagesAffecting("batasan-hills");
@@ -79,7 +79,7 @@ describe("the Kidlat Fiber pack", () => {
     const GCASH_REFERENCE = "1234567890123";
 
     function systems() {
-      return createInMemorySystems(loadKidlatFiber().world, CALL_STARTED_AT);
+      return createInMemorySystems(loadKidlatFiber().world, CALL_STARTED_AT, "Asia/Manila");
     }
 
     it("has Jose's account, with his registered mobile ending 0102", async () => {

@@ -18,7 +18,7 @@ import { verifyIdentity } from "./verify-identity";
  */
 
 function newCall(): { ctx: TalaToolContext; systems: InMemorySystems } {
-  const systems = createInMemorySystems(testWorld(), CALL_STARTED_AT);
+  const systems = createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila");
   const ctx: TalaToolContext = {
     workspaceId: "test-isp",
     runId: "call_1",
