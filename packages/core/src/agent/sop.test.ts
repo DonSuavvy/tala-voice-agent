@@ -110,6 +110,19 @@ describe("compileSop", () => {
     expect(() => compile("{{credit.nonsense}}")).toThrow(/credit\.maxCredit/);
   });
 
+  /**
+   * The renderers are a plain object, so a plain lookup also finds what
+   * Object.prototype supplies. `{{toString}}` would then render as
+   * "[object Object]" instead of failing, which is a figure the model reads
+   * and nobody wrote. The same bug class as OpsPilot's FAILURES #18.
+   */
+  it.each(["toString", "constructor", "valueOf", "hasOwnProperty", "__proto__"])(
+    "treats {{%s}} as unknown, not as an inherited member",
+    (name) => {
+      expect(() => compile(`figure: {{${name}}}`)).toThrow(UnknownPlaceholderError);
+    },
+  );
+
   /** The vocabulary is the pack's. Another pack's placeholder is unknown here. */
   it("knows only the placeholders the pack supplies", () => {
     expect(() => compile("window {{refund.windowDays}} days")).toThrow(
