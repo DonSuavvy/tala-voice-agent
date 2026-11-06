@@ -101,11 +101,14 @@ export function compileSop<P>({
   renderers,
 }: CompileSopInput<P>): string {
   return bodyMarkdown.replace(PLACEHOLDER, (_match, name: string) => {
-    const render = renderers[name];
-    if (!render) {
+    // `Object.hasOwn`, not a plain lookup. `renderers["toString"]` finds
+    // Object.prototype's method, which rendered "[object Undefined]" into the
+    // prompt instead of failing. Tala FAILURES entry 1; the same bug class as
+    // OpsPilot's FAILURES #18.
+    if (!Object.hasOwn(renderers, name)) {
       throw new UnknownPlaceholderError(name, sopPlaceholders(renderers));
     }
-    return render(policyConfig);
+    return renderers[name]!(policyConfig);
   });
 }
 
