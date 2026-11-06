@@ -25,7 +25,10 @@
  * turn back to them; a silent one is dropped and the model asked again,
  * because dead air is not an answer. The terminal tool completes the run only
  * as the sole call in its turn, so nothing runs after the outcome is decided
- * and no result is cut off before the caller hears it. What it does not own:
+ * and no result is cut off before the caller hears it. A caller who talks
+ * over Tala ends the turn `interrupted` at the next safe point: what can stay
+ * in the conversation stays, every tool call not run is answered "Not run",
+ * and the call is booked at no less than its estimate. What it does not own:
  * the database, HTTP, the wall clock, or pricing. Those arrive as arguments,
  * which is what keeps this testable without a database and deterministic in
  * the eval suite.
@@ -236,6 +239,20 @@ export interface AgentLoopInput<C extends ToolContext = ToolContext> {
   /** Injected like `now` everywhere else here — never `Date.now()`. */
   clock: () => Date;
   emit: (span: SpanEvent) => void | Promise<void>;
+  /**
+   * Aborted when the caller talks over Tala. Passed to every model call, and
+   * checked again before each tool runs and before the next model call. The
+   * run then ends `interrupted`: see the loop's handling below.
+   */
+  signal?: AbortSignal;
+  /**
+   * Each piece of Tala's text as the model writes it, passed to every model
+   * call. Like `emit`, it must not throw: the creator calls it from inside
+   * the stream, where a throw fails a call that was paid for. The call
+   * session routes it through the one wrapper that holds a subscriber's
+   * error until the turn is booked.
+   */
+  onTextDelta?: (text: string) => void;
 }
 
 /** The human's answer, carried from the approvals row into a resumed loop. */
@@ -258,6 +275,7 @@ export interface ResumeDecision {
 export const AGENT_LOOP_STATUSES = [
   "completed",
   "awaiting_caller",
+  "interrupted",
   "paused_for_approval",
   "refused",
   "failed",
@@ -311,6 +329,13 @@ const DEFAULT_MAX_TOKENS = 8_192;
  */
 export const SILENT_TURN_NOTICE =
   "(The caller heard nothing. Answer them out loud, or call a tool.)";
+
+/**
+ * The result of every tool call the loop did not run because the caller
+ * interrupted. Each tool_use needs a tool_result in the next user message, or
+ * the API rejects the next request; this one tells the model why.
+ */
+export const NOT_RUN_INTERRUPTED = "Not run: the caller interrupted.";
 
 const EMPTY_USAGE: TokenUsage = {
   inputTokens: 0,
@@ -392,7 +417,11 @@ export async function runAgentLoop<C extends ToolContext>(
     estimatedCallNanos,
     clock,
     emit,
+    signal,
+    onTextDelta,
   } = input;
+
+  const callerInterrupted = (): boolean => signal?.aborted === true;
 
   const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -437,6 +466,30 @@ export async function runAgentLoop<C extends ToolContext>(
       endedAt,
       latencyMs: endedAt.getTime() - s.startedAt.getTime(),
     });
+  };
+
+  /**
+   * The answer to a tool call the caller's interruption stopped from running.
+   * Its span says so, as a span does for every other call refused a run.
+   */
+  const notRun = async (call: ToolUseBlock): Promise<ToolResultBlock> => {
+    await span({
+      type: "tool_exec",
+      name: call.name,
+      input: call.input,
+      output: { error: NOT_RUN_INTERRUPTED },
+      isError: true,
+      usage: null,
+      costNanos: 0,
+      estimated,
+      startedAt: clock(),
+    });
+    return {
+      type: "tool_result",
+      tool_use_id: call.id,
+      content: NOT_RUN_INTERRUPTED,
+      is_error: true,
+    };
   };
 
   /**
@@ -503,6 +556,13 @@ export async function runAgentLoop<C extends ToolContext>(
   }
 
   while (iterations < maxIterations) {
+    // The caller is already talking, so no model call starts. A resumed turn
+    // is the exception: it is already on `messages` and still owes every call
+    // a result, which the dispatch below gives as "Not run".
+    if (pendingContent === null && callerInterrupted()) {
+      return { ...base(), status: "interrupted" };
+    }
+
     // Pre-flight, every call, against the baseline *plus* what this run has
     // already spent. Checking once at the top from a figure read before the
     // loop started would let twelve iterations spend twelve times the amount
@@ -563,13 +623,16 @@ export async function runAgentLoop<C extends ToolContext>(
     } else {
       const llmStartedAt = clock();
       try {
-        assistant = await createMessage({
-          model,
-          max_tokens: maxTokens,
-          system,
-          messages,
-          tools,
-        });
+        assistant = await createMessage(
+          {
+            model,
+            max_tokens: maxTokens,
+            system,
+            messages,
+            tools,
+          },
+          { signal, onTextDelta },
+        );
       } catch (error) {
         await span({
           type: "llm_call",
@@ -587,9 +650,18 @@ export async function runAgentLoop<C extends ToolContext>(
 
       const turnUsage = toTokenUsage(assistant.usage);
       const cost = costOf(rates, turnUsage, { cacheTtl: input.cacheTtl });
+      const cutShort = assistant.stop_reason === "interrupted";
+      // A turn the caller cut short reports only what had streamed by then,
+      // which undercounts its output. The pre-flight estimate is the floor,
+      // so an interruption can never book less than the guard assumed, and
+      // the figure is marked estimated whichever way it went.
+      const callNanos = cutShort
+        ? Math.max(cost.totalNanos, estimatedCallNanos)
+        : cost.totalNanos;
+      const callEstimated = cutShort || cost.estimated;
       totals = addUsage(totals, turnUsage);
-      accruedNanos += cost.totalNanos;
-      estimated = estimated || cost.estimated;
+      accruedNanos += callNanos;
+      estimated = estimated || callEstimated;
 
       await span({
         type: "llm_call",
@@ -601,8 +673,8 @@ export async function runAgentLoop<C extends ToolContext>(
         },
         isError: false,
         usage: turnUsage,
-        costNanos: cost.totalNanos,
-        estimated: cost.estimated,
+        costNanos: callNanos,
+        estimated: callEstimated,
         startedAt: llmStartedAt,
       });
 
@@ -616,6 +688,24 @@ export async function runAgentLoop<C extends ToolContext>(
           refusal: { category: assistant.stop_details?.category ?? null },
           error: "model refused the request",
         };
+      }
+
+      // What streamed before the caller talked over Tala. It stays only if
+      // it holds something to keep: words she said, or a finished tool call.
+      // A thinking block alone is dropped, and since it was never sent back
+      // that edits nothing the model has seen. No tool runs, and every call
+      // in the turn is answered, so the next request is valid.
+      if (cutShort) {
+        const calls = assistant.content.filter(isToolUse);
+        if (calls.length > 0 || assistant.content.some(isSpoken)) {
+          messages.push({ role: "assistant", content: assistant.content });
+        }
+        if (calls.length > 0) {
+          const results: ToolResultBlock[] = [];
+          for (const call of calls) results.push(await notRun(call));
+          messages.push({ role: "user", content: results });
+        }
+        return { ...base(), status: "interrupted" };
       }
 
       messages.push({ role: "assistant", content: assistant.content });
@@ -632,8 +722,11 @@ export async function runAgentLoop<C extends ToolContext>(
       // so dropping it edits nothing the model has seen; its llm_call span
       // and cost stand. The notice counts toward maxIterations, so a model
       // that stays silent ends at the cap.
+      // A caller who has started talking is not asked to wait for another
+      // try, so an interrupted silent turn is dropped with no notice.
       if (!assistant.content.some(isSpoken)) {
         messages.pop();
+        if (callerInterrupted()) return { ...base(), status: "interrupted" };
         messages.push({ role: "user", content: SILENT_TURN_NOTICE });
         continue;
       }
@@ -641,8 +734,13 @@ export async function runAgentLoop<C extends ToolContext>(
       // listening, so the turn goes back to the caller. OpsPilot nudged the
       // model to keep going here, because a ticket had no one to wait for.
       // A *call* still ends only through the terminal tool: the call session
-      // keeps it open until `end_call` runs.
-      return { ...base(), status: "awaiting_caller" };
+      // keeps it open until `end_call` runs. If the caller talked over the
+      // reply, the turn ends `interrupted` instead, so the call session can
+      // keep only what they heard.
+      return {
+        ...base(),
+        status: callerInterrupted() ? "interrupted" : "awaiting_caller",
+      };
     }
 
     /**
@@ -666,7 +764,11 @@ export async function runAgentLoop<C extends ToolContext>(
      * again below when we do *not* pause is free and keeps span emission in
      * one place.
      */
-    const awaiting = await firstCallAwaitingApproval(toolUses);
+    // Nobody is asked to approve a call the caller has already talked over:
+    // the dispatch below answers it "Not run" with the rest.
+    const awaiting = callerInterrupted()
+      ? null
+      : await firstCallAwaitingApproval(toolUses);
     if (awaiting) {
       await span({
         type: "approval_wait",
@@ -704,6 +806,14 @@ export async function runAgentLoop<C extends ToolContext>(
     const terminalMustWait = toolUses.length > 1;
 
     for (const call of toolUses) {
+      // Checked before each call, not once per turn: a tool already running
+      // when the caller talks finishes and keeps its real result, and only
+      // the calls not yet started are skipped.
+      if (callerInterrupted()) {
+        results.push(await notRun(call));
+        continue;
+      }
+
       const startedAt = clock();
 
       if (terminalMustWait && call.name === terminalName) {
@@ -966,9 +1076,13 @@ export async function runAgentLoop<C extends ToolContext>(
     // of calling tools in parallel.
     messages.push({ role: "user", content: results });
 
+    // The terminal tool stands alone in its turn, so if it ran, nothing was
+    // skipped and the outcome is decided: an interruption that arrived while
+    // it ran does not reopen the call.
     if (sawTerminal) {
       return { ...base(), status: "completed", outcome: terminalOutcome };
     }
+    if (callerInterrupted()) return { ...base(), status: "interrupted" };
   }
 
   return {

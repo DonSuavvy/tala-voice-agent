@@ -320,6 +320,15 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       case "failed":
       case "budget_refused":
         return endBadly(result.status, result.error);
+      case "interrupted":
+        // The session passes the loop no signal yet, so nothing can interrupt
+        // a turn; interrupting Tala through the session is the rest of #6.
+        // Until then an interruption is a bug, said plainly.
+        return endBadly(
+          "failed",
+          "call session: the turn was interrupted, and the session does not " +
+            "handle interruptions yet (#6)",
+        );
       case "paused_for_approval":
         // No tool in #5 is confirm-write, so nothing can pause. In-call
         // approvals are #13; until then a pause is a bug, said plainly.
