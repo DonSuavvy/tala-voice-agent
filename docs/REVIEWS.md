@@ -302,7 +302,7 @@ were made by the orchestrator, the grader test-first.
 |---|---|---|---|
 | R4-01 | Standards | The grader's rubric hard-codes tone as "warm, calm and natural", with "cold, curt or robotic" as the worst, against DESIGN §11's "against the company pack's own rules" | Fixed `d2a39e6` `24f2105` |
 | R4-02 | Spec | "Leave out details they did not ask for" read as dropping the outage cause: the grade on `a6b1c18` called it "extra detail the caller didn't need" | Fixed `20cbf1c` |
-| R4-03 | Spec | Rounding an estimated time up to the quarter hour: not asked for, bends "never invent times", and only the prose enforces it | Fixed `20cbf1c`: dropped. See "After the fixes" |
+| R4-03 | Spec | Rounding an estimated time up to the quarter hour: not asked for, bends "never invent times", and only the prose enforces it | Fixed `20cbf1c`: dropped. See "After the fixes": the rule likely came from PR #28's comment, and #36 rounds in code instead (`cffb18c`) |
 | R4-04 | Standards | No FAILURES entry for the regression tuning caught (the first brisk wording hung up silently in 3 of 6 calls) | Fixed `fa1e82c` (FAILURES 15) |
 | R4-05 | Standards | The PR's evidence table rests on three scripted callers that were never committed | Left: a tuning aid; the spec's simulated callers (about 13) are where such callers belong |
 | R4-06 | Standards | The rounding rule types a figure ("quarter hour") into the SOP and says "estimated time", not the glossary's term | Fixed with R4-03 |
@@ -339,3 +339,38 @@ suggested it; it was not an ask from the owner. #36 moves the rounding into
 - The tool's exact time in the eval run: reports do not keep tool results, so
   "10:46 or 10:47 PM" is inferred from the run's start and the seed.
 - The PR's results with the three extra callers (R4-05).
+
+## Round 5 — 2026-11-06 — ticket #36, restoration times rounded up
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #36 asks?
+
+**Headline:** no hard violations. One real finding: the new SOP sentence
+("say it exactly as the tool gave it") clashed with the rule above it ("when
+the day is today, say only the time"), and the eval showed Tala saying "today
+at 11:30 PM" (R5-01). 7 findings: 4 fixed, 3 left. Tests 740 → 750.
+
+**Method:** the mattpocock `code-review` skill. Two independent Sonnet agents
+that had not written the change, in parallel on `main...feat/restoration-rounding`
+at `12beeda`: Standards (CLAUDE.md, GLOSSARY, DESIGN §5 and §11, the ADRs,
+and the Fowler smells) and Spec (#36 line by line, REVIEWS round 4, spec
+story 11, the committed eval report). Sonnet, not Opus, for a 23-line change.
+The orchestrator proved the RED itself (8 tests fail against main) before
+committing it.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R5-01 | Spec | "Exactly as the tool gave it" clashed with "when the day is today, say only the time" | Fixed: the SOP now says to keep the minutes and not round again |
+| R5-02 | Spec | The R4-03 table row did not get the line about where the rule came from | Fixed: the row says so and points at #36 |
+| R5-03 | Standards | The test's `describe` doc comment sat above the `OutageResult` interface | Fixed: moved |
+| R5-04 | Standards | No FAILURES entry for the model rounding times down | Fixed: FAILURES 16 |
+| R5-05 | Standards | Possible Duplicated Code: nine `new Date(...).toISOString()` assertions | Left: they read plainly, one case per line |
+| R5-06 | Standards | "Quarter hour" is not a glossary term | Left: a plain unit, not a domain term |
+| R5-07 | Spec | DESIGN §5 gained a line the ticket did not list | Left: the design record should say where rounding happens |
+
+### Not verified
+
+- Month and year ends: they follow from the `Date` arithmetic, and no test
+  names them.

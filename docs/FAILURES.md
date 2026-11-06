@@ -480,3 +480,32 @@ and were not kept (review round 4, R4-05).
 
 **Lesson:** an instruction to say less needs a check on what must still be
 said, run against terse callers too.
+
+## 16. Tala said restoration times earlier than the estimate — 2026-11-06
+
+**Severity: medium.** A caller told "around 10:45" plans around a time the
+network team never gave, and hears the promise broken.
+
+**Caught by:** twice, before anyone wrote it down. PR #28's first look at the
+three models: Sonnet and Haiku said 6:35 PM as "alas-sais y medya" (half
+past six). Then the eval after review round 4: the tool said about 10:47 PM
+and Tala said "around 10:45 tonight".
+
+Tools gave the exact estimate, and the SOP asked Tala to say times the way
+people say them aloud, "around 4 PM". Saying a time aloud rounds it, and the
+model rounded to the nearest mark, down as often as up. #31 tried an SOP rule
+to round up; review round 4 dropped it, because the model did the arithmetic
+with nothing to check it.
+
+**What made it dangerous:** every check passed. The gate checks that an
+outage is reported, not what time is said, and the time was close enough to
+read as right.
+
+**Fix:** `check_area_outage` rounds the estimate up to the next quarter hour
+(`roundUpToQuarterHour`, pure, on the UTC instant), so the time the model
+reads out is never earlier than the estimate, and the SOP tells Tala not to
+round it again. RED `e76f728`, GREEN `cffb18c`. In the next eval the tool
+said 11:30 PM for 11:17 PM, and Tala said "11:30 PM".
+
+**Lesson:** a figure the caller must not hear wrong is prepared in code; the
+model only reads it out.

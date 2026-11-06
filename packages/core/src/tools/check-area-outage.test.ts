@@ -156,18 +156,18 @@ describe("check_area_outage — the verified caller's area", () => {
   });
 });
 
-/**
- * The model says a restoration time aloud and rounds it itself, sometimes down,
- * which promises service back earlier than estimated (#36). The tool rounds it
- * up to the next quarter hour so the model only reads it out. The call starts
- * at 1:00 PM Manila, so 461 minutes after it is 8:41 PM.
- */
 /** The result shape the handler returns, which the tool type leaves as unknown. */
 interface OutageResult {
   checked_at: string;
   outages: { started: string; estimated_restoration: string | null }[];
 }
 
+/**
+ * The model says a restoration time aloud and rounds it itself, sometimes down,
+ * which promises service back earlier than estimated (#36). The tool rounds it
+ * up to the next quarter hour so the model only reads it out. The call starts
+ * at 1:00 PM Manila, so 461 minutes after it is 8:41 PM.
+ */
 describe("check_area_outage — restoration times are rounded up to the quarter hour", () => {
   async function restorationFor(minutesAfterCall: number | null): Promise<string | null> {
     const world = testWorld();
