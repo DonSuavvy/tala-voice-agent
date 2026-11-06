@@ -60,7 +60,8 @@ type Issue = { path: (string | number)[]; message: string };
 
 /** The article in one file, or the problems that stop it being read. */
 function parseArticle({ file, markdown }: HelpFile): HelpArticle | Issue[] {
-  const parts = FRONT_MATTER.exec(markdown);
+  // A byte-order mark, which some editors write first, is not part of the text.
+  const parts = FRONT_MATTER.exec(markdown.replace(/^\uFEFF/, ""));
   if (!parts) {
     return [{ path: [], message: `${file} does not start with a "---" front-matter header` }];
   }
