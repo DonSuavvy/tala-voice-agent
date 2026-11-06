@@ -68,9 +68,10 @@ export function pricePlanChange(request: PlanChangeRequest): PlanChangePrice {
     };
   }
 
-  // In BigInt, so nothing is lost: a price difference times the milliseconds
-  // left in a month can pass 2^53. For a positive x / y, floor((2x + y) / 2y)
-  // is x / y rounded half up.
+  // In BigInt, so nothing is lost. Even under the catalog's price cap
+  // (10^8 minor units), a price difference times the milliseconds
+  // left in a month (up to about 2.7 x 10^9) passes 2^53. For a positive x / y,
+  // floor((2x + y) / 2y) is x / y rounded half up.
   const difference = BigInt(next.monthlyPriceMinor - current.monthlyPriceMinor);
   const left = BigInt(endsAt - at);
   const length = BigInt(endsAt - startsAt);

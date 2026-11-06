@@ -14,6 +14,14 @@ import { z } from "zod";
 
 import type { SopRenderers } from "../agent/sop";
 
+/**
+ * Absolute caps, because a well-formed catalog can still be absurd (ADR 1:
+ * a pack's schema bounds every figure absolutely). A price is at most a
+ * million pesos a month in minor units, and a speed at most 10,000 Mbps.
+ */
+const MAX_MONTHLY_PRICE_MINOR = 100_000_000;
+const MAX_DOWNLOAD_MBPS = 10_000;
+
 const planSchema = z
   .object({
     /** A stable slug, e.g. `kidlat-500`. */
@@ -21,9 +29,9 @@ const planSchema = z
     /** As the caller knows it, e.g. `Kidlat 500`. Accounts name their plan by it. */
     name: z.string().min(1),
     /** The download speed, in Mbps. */
-    downloadMbps: z.number().int().positive(),
+    downloadMbps: z.number().int().positive().max(MAX_DOWNLOAD_MBPS),
     /** The price of a month of service, in minor units (centavos for PHP). */
-    monthlyPriceMinor: z.number().int().positive(),
+    monthlyPriceMinor: z.number().int().positive().max(MAX_MONTHLY_PRICE_MINOR),
   })
   .strict();
 
