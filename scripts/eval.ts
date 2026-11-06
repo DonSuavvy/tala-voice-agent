@@ -28,8 +28,8 @@
  */
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -152,6 +152,18 @@ function git(...args: string[]): string {
  */
 const gitStatus = () => git("status", "--porcelain", "--", ".", ":(exclude)packages/evals/reports");
 
+/**
+ * In GitHub Actions, names this run's report as the step's `report` output, so
+ * the workflow uploads exactly this file. The checkout holds committed reports
+ * too, and a run that dies before writing one names none. The path is relative
+ * to the repository root, with forward slashes, as upload-artifact reads it.
+ */
+function tellWorkflow(file: string): void {
+  const output = process.env.GITHUB_OUTPUT;
+  if (!output) return;
+  appendFileSync(output, `report=${relative(REPO_ROOT, file).split(sep).join("/")}\n`);
+}
+
 async function main(): Promise<number> {
   loadEnv();
   const { model, only } = parseOptions();
@@ -253,6 +265,7 @@ async function main(): Promise<number> {
   mkdirSync(REPORTS_DIR, { recursive: true });
   const file = join(REPORTS_DIR, reportFileName(ranAt, model));
   writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
+  tellWorkflow(file);
 
   const failed = rows.filter((r) => !r.passed).length;
   console.log("");
