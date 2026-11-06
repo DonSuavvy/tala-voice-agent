@@ -1,0 +1,228 @@
+import { describe, expect, it } from "vitest";
+
+import { formatCaseResult, formatCost, formatDiff, parseReport, type DiffableReport } from "./format";
+import type { CaseReportRow, CostLine } from "./report";
+import type { Assertion, CaseResultRow } from "./types";
+
+/**
+ * What the runner prints and what `eval:diff` prints. Pure functions of a
+ * report, so every line is pinned here as a literal.
+ */
+
+const line = (nanos: number, usd: string, estimated = false): CostLine => ({ nanos, usd, estimated });
+
+const COST = {
+  tala: line(4_000_000, "0.004000"),
+  caller: line(750_000, "0.000750"),
+  grader: line(200_000, "0.000200"),
+  total: line(4_950_000, "0.004950"),
+};
+
+function reportRow(over: Partial<CaseReportRow> = {}): CaseReportRow {
+  return {
+    slug: "scenario-1-outage",
+    title: "Batasan Hills outage",
+    passed: true,
+    assertions: [],
+    failureReason: null,
+    costUsd: "0.004950",
+    latencyMs: 4_200,
+    agentRunId: "call_1",
+    cost: COST,
+    caller: { stoppedBy: "call_ended", turns: 3, error: null },
+    advisory: {
+      grade: { tone: 4, taglish: 5, politeness: 5, notes: "Warm and brief." },
+      reason: null,
+    },
+    transcript: [],
+    ...over,
+  };
+}
+
+describe("formatCaseResult", () => {
+  it("prints the gate result first, then the advisory grade beside it", () => {
+    expect(formatCaseResult(reportRow())).toBe(
+      "PASS  scenario-1-outage: Batasan Hills outage ($0.004950)\n" +
+        "      advisory grade: tone 4, taglish 5, politeness 5. Warm and brief.",
+    );
+  });
+
+  it("prints why a case failed, and why there is no grade", () => {
+    expect(
+      formatCaseResult(
+        reportRow({
+          passed: false,
+          failureReason: 'expected the call to end with "end_call", got "not_ended"',
+          advisory: { grade: null, reason: "the grader's model refused" },
+        }),
+      ),
+    ).toBe(
+      "FAIL  scenario-1-outage: Batasan Hills outage ($0.004950)\n" +
+        '      expected the call to end with "end_call", got "not_ended"\n' +
+        "      advisory grade: none (the grader's model refused)",
+    );
+  });
+});
+
+describe("formatCost", () => {
+  it("prints the run's actual cost, split three ways", () => {
+    expect(formatCost(COST)).toBe(
+      "cost: $0.004950 (Tala $0.004000, caller $0.000750, grader $0.000200)",
+    );
+  });
+
+  it("says when the cost includes estimates", () => {
+    expect(
+      formatCost({ ...COST, tala: line(4_000_000, "0.004000", true), total: line(4_950_000, "0.004950", true) }),
+    ).toBe(
+      "cost: $0.004950 (Tala $0.004000, caller $0.000750, grader $0.000200), includes estimates",
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+function assertion(name: string, passed: boolean, actual: unknown, detail?: string): Assertion {
+  return { name, expected: null, actual, passed, ...(detail ? { detail } : {}) };
+}
+
+function resultRow(slug: string, passed: boolean, assertions: Assertion[]): CaseResultRow {
+  return {
+    slug,
+    title: `Case ${slug}`,
+    passed,
+    assertions,
+    failureReason: passed ? null : (assertions.find((a) => !a.passed)?.detail ?? null),
+    costUsd: "0.001000",
+    latencyMs: 1,
+    agentRunId: null,
+  };
+}
+
+const PIN = {
+  packId: "kidlat-fiber",
+  sopVersion: "v1",
+  promptVersion: "1a2b3c4d5e6f",
+  policyVersion: "0f9e8d7c6b5a",
+  model: "sonnet",
+  modelId: "model-id-for-sonnet",
+  gitSha: "3913f4a0000000000000000000000000000000ab",
+};
+
+const BEFORE: DiffableReport = {
+  ranAt: "2026-11-06T08:30:05.123Z",
+  pin: PIN,
+  cases: [
+    resultRow("a-regresses", true, [assertion("toolsCalled:check_area_outage", true, 1)]),
+    resultRow("b-fixed", false, [
+      assertion("endedBy", false, "not_ended", 'expected the call to end with "end_call", got "not_ended"'),
+    ]),
+    resultRow("c-same", true, [assertion("maxModelCalls", true, 4)]),
+    resultRow("d-removed", true, []),
+  ],
+};
+
+const AFTER: DiffableReport = {
+  ranAt: "2026-11-06T09:00:00.000Z",
+  pin: { ...PIN, promptVersion: "aaaaaaaaaaaa", gitSha: "51fd0e1000000000000000000000000000000000" },
+  cases: [
+    resultRow("a-regresses", false, [
+      assertion(
+        "toolsCalled:check_area_outage",
+        false,
+        0,
+        'expected "check_area_outage" to run, but it never did',
+      ),
+      assertion("speaksBeforeEveryToolCall", true, []),
+    ]),
+    resultRow("b-fixed", true, [assertion("endedBy", true, "end_call")]),
+    resultRow("c-same", true, [assertion("maxModelCalls", true, 5)]),
+    resultRow("e-added", false, [assertion("endedBy", false, "failed", "x")]),
+  ],
+};
+
+describe("formatDiff", () => {
+  it("prints both pins, what changed between them, and the five buckets", () => {
+    expect(formatDiff(BEFORE, AFTER)).toBe(
+      [
+        "before: 2026-11-06T08:30:05.123Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git 3913f4a",
+        "after:  2026-11-06T09:00:00.000Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt aaaaaaaaaaaa  policy 0f9e8d7c6b5a  git 51fd0e1",
+        "pin changes: prompt, git",
+        "",
+        "regressed (1)",
+        "  a-regresses: Case a-regresses",
+        '    toolsCalled:check_area_outage: passed -> failed (expected "check_area_outage" to run, but it never did)',
+        "    + speaksBeforeEveryToolCall: passed",
+        "fixed (1)",
+        "  b-fixed: Case b-fixed",
+        "    endedBy: failed -> passed",
+        "added (1)",
+        "  e-added: Case e-added (failed)",
+        "removed (1)",
+        "  d-removed: Case d-removed (passed)",
+        "unchanged (1)",
+        "  c-same: Case c-same (still passing)",
+        "    maxModelCalls: still passed, actual 4 -> 5",
+      ].join("\n"),
+    );
+  });
+
+  it("says when the pins are the same, and when a bucket is empty", () => {
+    const same: DiffableReport = { ...BEFORE, ranAt: "2026-11-06T10:00:00.000Z" };
+
+    expect(formatDiff(BEFORE, same)).toBe(
+      [
+        "before: 2026-11-06T08:30:05.123Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git 3913f4a",
+        "after:  2026-11-06T10:00:00.000Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git 3913f4a",
+        "pin changes: none",
+        "",
+        "regressed (0)",
+        "fixed (0)",
+        "added (0)",
+        "removed (0)",
+        "unchanged (4)",
+        "  a-regresses: Case a-regresses (still passing)",
+        "  b-fixed: Case b-fixed (still failing)",
+        "  c-same: Case c-same (still passing)",
+        "  d-removed: Case d-removed (still passing)",
+      ].join("\n"),
+    );
+  });
+
+  it("shows an assertion a case dropped, and an unknown git commit", () => {
+    const before: DiffableReport = {
+      ...BEFORE,
+      pin: { ...PIN, gitSha: null },
+      cases: [resultRow("c-same", true, [assertion("maxModelCalls", true, 4)])],
+    };
+    const after: DiffableReport = {
+      ...BEFORE,
+      pin: { ...PIN, gitSha: null },
+      cases: [resultRow("c-same", true, [])],
+    };
+
+    expect(formatDiff(before, after).split("\n").slice(0, 1)).toEqual([
+      "before: 2026-11-06T08:30:05.123Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git unknown",
+    ]);
+    expect(formatDiff(before, after).split("\n").slice(-2)).toEqual([
+      "  c-same: Case c-same (still passing)",
+      "    - maxModelCalls (was passed)",
+    ]);
+  });
+});
+
+describe("parseReport", () => {
+  it("reads what the diff needs from a report file's JSON", () => {
+    const fileJson = JSON.parse(
+      JSON.stringify({ format: 1, masking: "none (#10)", ...BEFORE, cost: {}, models: {} }),
+    ) as unknown;
+
+    expect(parseReport(fileJson, "before.json")).toEqual(BEFORE);
+  });
+
+  it("rejects anything else, naming the file and every problem", () => {
+    expect(() => parseReport({ format: 2, pin: {} }, "notes.json")).toThrow(
+      /^notes\.json is not an eval report: format: .+; ranAt: .+; pin\.packId: .+/,
+    );
+  });
+});
