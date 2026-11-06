@@ -53,10 +53,15 @@ describe("Kidlat Fiber's eval cases", () => {
   }
 
   /** The ticket's expectations for scenario 2 (#10), as literals. */
-  it("scenario 2 expects what the ticket says", () => {
+  it("scenario 2 expects what the ticket says, in order, with the payment unposted and a billing ticket", () => {
     expect(scenarioTwo().expect).toEqual({
       endedBy: "end_call",
       toolsCalled: ["verify_identity", "verify_payment", "create_trouble_ticket", "send_sms", "end_call"],
+      toolsCalledInOrder: ["verify_identity", "verify_payment", "create_trouble_ticket", "send_sms", "end_call"],
+      toolResults: [
+        { tool: "verify_payment", result: { found: true, posted: false } },
+        { tool: "create_trouble_ticket", input: { category: "billing" } },
+      ],
       disposition: { outcome: "resolved", topic: "payment" },
       noAccountDataBeforeVerification: true,
       speaksBeforeEveryToolCall: true,
