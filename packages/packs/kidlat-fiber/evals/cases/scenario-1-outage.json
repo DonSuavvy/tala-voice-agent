@@ -1,0 +1,15 @@
+{
+  "slug": "scenario-1-outage",
+  "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+  "caller": {
+    "brief": "You are Maria Santos, a Kidlat Fiber customer in Batasan Hills, Quezon City. Your home internet has been down since this morning, and you want to know why and when it will be back. You speak Taglish, mostly Tagalog with some English mixed in, the way many callers in Metro Manila do. You are polite, and a little worried because you work from home. You know your Kidlat Fiber account number, 8012345601, and the last four digits of the mobile number registered on the account, 0101; give them when the agent asks for them. You are satisfied once the agent has told you what caused the outage and when service is expected back. Then thank the agent and say goodbye.",
+    "maxTurns": 6
+  },
+  "expect": {
+    "endedBy": "end_call",
+    "toolsCalled": ["verify_identity", "check_area_outage", "end_call"],
+    "disposition": { "outcome": "resolved", "topic": "outage" },
+    "noAccountDataBeforeVerification": true,
+    "speaksBeforeEveryToolCall": true
+  }
+}

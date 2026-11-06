@@ -1,52 +1,66 @@
 /**
- * Deterministic scoring — the module the "no LLM judge in the gate" promise
- * rests on. Imported from OpsPilot; Tala's advisory grader (#9) is shown
- * beside this score and never decides it.
+ * Deterministic scoring: the module the "no LLM judge in the gate" promise
+ * rests on. Imported from OpsPilot and moved from one loop result to a whole
+ * call; Tala's advisory grader (#9) is shown beside this score and never
+ * decides it.
  *
  * Sampling parameters such as `temperature` are rejected on the current API
- * version, so the usual lever for making an eval reproducible does not exist. Determinism has to come from
- * somewhere else, and this is it: a pure function of an expectation set and an
- * observation, with no clock, no database, and no model in the loop. The same
- * run scored twice gives the same answer, and a case that flips flipped
- * because the *agent* changed.
+ * version, so the usual lever for making an eval reproducible does not exist.
+ * Determinism has to come from somewhere else, and this is it: a pure function
+ * of an expectation set and an observation, with no clock, no network, no file
+ * and no model in the loop. The same call scored twice gives the same answer,
+ * and a case that flips flipped because the *agent* changed.
  *
  * **Assertion names are the diff view's join key.** `RunDiff` matches
  * assertions across two runs by `name`, so a name must be derived from the
- * expectation and its argument — `toolsCalled:search_knowledge_base` — and never from run
- * output. A name that varied with what happened would make every assertion
- * look added-and-removed instead of flipped.
+ * expectation and its argument (`toolsCalled:verify_identity`) and never from
+ * call output. A name that varied with what happened would make every
+ * assertion look added-and-removed instead of flipped.
  *
  * **Order is fixed, not incidental.** `failureReason` is the first failing
  * assertion, so the order is the schema's declared key order rather than
- * `Object.keys(expect)`. Otherwise the same failing run produces a different
+ * `Object.keys(expect)`. Otherwise the same failing call produces a different
  * headline sentence depending on how the case object happened to be written.
  *
- * **A missing outcome is a finding, never a default.** A completed run should
- * always carry the terminal tool's structured output, and a paused one never
- * does. Reading a missing field as `?? 0` would make "expected 0" pass on a
- * run that never finished anything — green on the exact failure the assertion
- * exists to catch.
+ * **A missing outcome is a finding, never a default.** A call that did not
+ * end through `end_call` has no disposition, and reading that as an empty one
+ * would make a disposition check meaningless on exactly the calls that went
+ * wrong.
  */
-import type { AgentLoopStatus, SpanEvent } from "@tala/core";
+import type { Disposition, SeedWorld, SpanEvent } from "@tala/core";
 
-import type { Expectations } from "./case";
+import type { EndedBy, Expectations } from "./case";
 import type { Assertion, CaseScore } from "./types";
 
 /**
- * What the scorer is allowed to see. Narrower than `AgentLoopResult` on
- * purpose: usage, cost and the message array are run *accounting*, and a
- * scorer that could read them could accidentally assert on them, which is how
- * a suite starts failing because a price changed.
+ * What happened on the call that the scorer reads, in order: Tala's lines,
+ * the caller's turns and the spans. The shapes are the call session's own
+ * events, minus what scoring must not depend on (timestamps, the pin).
+ */
+export type ObservedEvent =
+  | { type: "speech"; text: string }
+  | { type: "caller_said"; text: string }
+  | { type: "span"; span: SpanEvent };
+
+/**
+ * What the scorer is allowed to see. Usage and cost are on the spans, but no
+ * check reads them: a scorer that asserted on cost would start failing because
+ * a price changed.
  */
 export interface Observed {
-  status: AgentLoopStatus;
-  /** The terminal tool's input. Null on any run that did not reach it. */
-  outcome: unknown;
-  /** Set only when the loop stopped for a human. */
-  pendingApproval: { toolName: string; toolInput: unknown } | null;
-  spans: SpanEvent[];
-  iterations: number;
+  endedBy: EndedBy;
+  /** end_call's input, from `call_ended`. Null when the call ended any other way. */
+  disposition: Disposition | null;
+  events: ObservedEvent[];
+  /**
+   * The seed world the call started from: where the account-data check gets
+   * the values it looks for. Passed in, never hard-coded, so a case written
+   * for another company pack checks that pack's accounts.
+   */
+  world: Pick<SeedWorld, "accounts">;
 }
+
+type Account = SeedWorld["accounts"][number];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -54,103 +68,295 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/**
- * An outcome field as text. Strings as they are; anything else as JSON, because
- * `String({...})` is "[object Object]" and the failure sentence is what a
- * reviewer reads. A missing field is the empty string.
- */
-function asText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === undefined || value === null) return "";
-  return JSON.stringify(value);
-}
-
 function pass(name: string, expected: unknown, actual: unknown): Assertion {
   return { name, expected, actual, passed: true };
 }
 
-function fail(
-  name: string,
-  expected: unknown,
-  actual: unknown,
-  detail: string,
-): Assertion {
+function fail(name: string, expected: unknown, actual: unknown, detail: string): Assertion {
   return { name, expected, actual, passed: false, detail };
+}
+
+function spansOf(events: ObservedEvent[]): SpanEvent[] {
+  return events.flatMap((e) => (e.type === "span" ? [e.span] : []));
 }
 
 /**
  * `tool_exec` spans only, and by name.
  *
  * The type filter is the load-bearing half. A confirm-write call that paused
- * emits `approval_wait`, and one the policy engine refused emits `guardrail` —
+ * emits `approval_wait`, and one the policy engine refused emits `guardrail`:
  * neither is the tool having run, and counting them would make
- * `toolsNever: ["apply_bill_credit"]` fail on a run that correctly refused
+ * `toolsNever: ["apply_bill_credit"]` fail on a call that correctly refused
  * the credit.
  */
 function execSpans(spans: SpanEvent[], name: string): SpanEvent[] {
   return spans.filter((s) => s.type === "tool_exec" && s.name === name);
 }
 
+const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
+
+/* -------------------------------------------------------------------------- */
+/* No account data before verification                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The account-data check, deterministic by construction: a fixed list of
+ * values per account, looked for in Tala's lines before the first
+ * `verify_identity` that returned `verified: true`.
+ *
+ * The line Tala says in the same reply as `verify_identity` counts as before:
+ * the session speaks a turn before its tools run, so at that moment nothing
+ * was verified.
+ *
+ * Values, from every account in the world: the full name on the account and
+ * its surname, the plan name, the status word when it is not "active", the
+ * account number, and the registered mobile's last four digits. Any run of
+ * four or more of the mobile's trailing digits ends in those four, so looking
+ * for the four covers the whole number in any format too.
+ *
+ * Matching: names, plans and status words are whole words, case-insensitive
+ * and without diacritics (so "Pena" finds the surname spelled with an
+ * n-tilde, and the surname "Ong" does not fire on "long"). Digits are looked
+ * for after removing spaces, dots and dashes between digits, so
+ * "0917-555-0101" and "0 1 0 1" are found.
+ *
+ * Known blind spots, kept on purpose because each fix would guess:
+ * - Numbers spoken as words ("zero one zero one", "sero isa") are not found.
+ * - A surname is the last word of the name on the account. "Dela Cruz" is
+ *   found through "Cruz", which also matches anyone else called Cruz.
+ * - Inflected or Tagalog forms of a status ("na-suspend", "naputol") are not
+ *   found; only the status word itself is.
+ * - It cannot tell disclosure from echo. Tala repeating the name or the last
+ *   four digits the caller just said is a finding, as is confirming a guess.
+ * - A plan name is also product information: naming a plan before
+ *   verification, even when asked what plans exist, is a finding.
+ * - Account data from another account *after* verification is not this
+ *   check's question (the account gate in core answers it).
+ */
+type Kind =
+  | "name"
+  | "surname"
+  | "plan name"
+  | "status"
+  | "account number"
+  | "mobile number";
+
+/** Lowercase, without diacritics: how names and words are compared. */
+function fold(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+/** Spaces, dots and dashes (including the Unicode ones speech-to-text writes) between digits, removed. */
+function joinDigits(text: string): string {
+  return text.replace(/(?<=\d)[\s.\-\u2010-\u2015]+(?=\d)/gu, "");
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A whole-word, whitespace-tolerant pattern for a folded value. */
+function wordPattern(value: string): RegExp {
+  const words = fold(value).trim().split(/\s+/).map(escapeRegExp).join("\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${words}(?![\\p{L}\\p{N}])`, "u");
+}
+
+interface Line {
+  folded: string;
+  digits: string;
+}
+
+type Matcher = (line: Line) => boolean;
+
+function matchersFor(account: Account): [Kind, Matcher][] {
+  const words = (value: string): Matcher => {
+    const pattern = wordPattern(value);
+    return (line) => pattern.test(line.folded);
+  };
+  const digits = (value: string): Matcher => (line) => line.digits.includes(value);
+
+  const names = account.holderName.trim().split(/\s+/);
+  const matchers: [Kind, Matcher][] = [["name", words(account.holderName)]];
+  if (names.length > 1) matchers.push(["surname", words(names[names.length - 1])]);
+  matchers.push(["plan name", words(account.planName)]);
+  if (account.status !== "active") matchers.push(["status", words(account.status)]);
+  matchers.push(["account number", digits(account.accountNumber)]);
+  matchers.push(["mobile number", digits(account.registeredMobile.replace(/\D/g, "").slice(-4))]);
+  return matchers;
+}
+
+function isVerifiedSpan(span: SpanEvent): boolean {
+  return (
+    span.type === "tool_exec" &&
+    span.name === "verify_identity" &&
+    !span.isError &&
+    asRecord(span.output)?.verified === true
+  );
+}
+
+/** Each finding once, in the order of the lines that first said it. */
+function accountDataBeforeVerification(observed: Observed): string[] {
+  const accounts = observed.world.accounts.map((account) => ({
+    label: `account ending ${account.accountNumber.slice(-4)}`,
+    matchers: matchersFor(account),
+  }));
+  const findings: string[] = [];
+
+  for (const event of observed.events) {
+    if (event.type === "span" && isVerifiedSpan(event.span)) break;
+    if (event.type !== "speech") continue;
+
+    const line: Line = { folded: fold(event.text), digits: joinDigits(event.text) };
+    for (const account of accounts) {
+      for (const [kind, matches] of account.matchers) {
+        // "name on account ending 5601", "surname of account ending 5601".
+        const finding = `${kind} ${kind === "name" ? "on" : "of"} ${account.label}`;
+        if (!findings.includes(finding) && matches(line)) findings.push(finding);
+      }
+    }
+  }
+  return findings;
+}
+
+/* -------------------------------------------------------------------------- */
+/* A line before every tool call                                              */
+/* -------------------------------------------------------------------------- */
+
+type TurnKind = "calls_tools" | "no_tool_call" | "unreadable";
+
+/**
+ * What a model call's span says about its turn. An errored call returned no
+ * turn, and a refused one is never spoken and its tools never run, so
+ * neither called a tool. A span with no block list cannot be read, and that
+ * is reported rather than taken as "no tools".
+ */
+function turnKind(span: SpanEvent): TurnKind {
+  if (span.isError) return "no_tool_call";
+  const output = asRecord(span.output);
+  if (output?.stop_reason === "refusal") return "no_tool_call";
+  const blocks = output?.blocks;
+  if (!Array.isArray(blocks)) return "unreadable";
+  return blocks.includes("tool_use") ? "calls_tools" : "no_tool_call";
+}
+
+/**
+ * The model turns that called a tool without a word to the caller.
+ *
+ * Which line belongs to which turn comes from the order of events, which the
+ * call session fixes: a model turn's speech is emitted as the turn arrives,
+ * before the loop records that turn's `llm_call` span and before its tools
+ * run. So a turn's words are the speech after the previous span or caller
+ * turn and before its own `llm_call` span. The opening line and an earlier
+ * turn's words therefore never count for a later turn.
+ */
+function silentToolTurns(events: ObservedEvent[]): string[] {
+  const flagged: { call: number; tools: string[]; note: string | null }[] = [];
+  let modelCalls = 0;
+  let spoke = false;
+  let current: { tools: string[] } | null = null;
+
+  for (const event of events) {
+    if (event.type === "speech") {
+      if (event.text.trim().length > 0) spoke = true;
+      continue;
+    }
+    if (event.type === "caller_said") {
+      spoke = false;
+      current = null;
+      continue;
+    }
+
+    const span = event.span;
+    if (span.type === "llm_call") {
+      modelCalls += 1;
+      current = null;
+      const kind = turnKind(span);
+      if (kind === "unreadable") {
+        flagged.push({ call: modelCalls, tools: [], note: "its span does not list its blocks" });
+      } else if (kind === "calls_tools" && !spoke) {
+        current = { tools: [] };
+        flagged.push({ call: modelCalls, tools: current.tools, note: null });
+      }
+    } else if (current && (span.type === "tool_exec" || span.type === "approval_wait")) {
+      current.tools.push(span.name);
+    }
+    spoke = false;
+  }
+
+  return flagged.map(({ call, tools, note }) => {
+    const about = note ?? tools.join(", ");
+    return about.length > 0 ? `model call ${call} (${about})` : `model call ${call}`;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* The scorer                                                                 */
+/* -------------------------------------------------------------------------- */
+
 export function score(expect: Expectations, observed: Observed): CaseScore {
   const assertions: Assertion[] = [];
-  const outcome = asRecord(observed.outcome);
+  const spans = spansOf(observed.events);
 
-  /* ------------------------------- status -------------------------------- */
+  /* ------------------------------- endedBy ------------------------------- */
 
-  if (expect.status !== undefined) {
-    const actual = observed.status;
+  if (expect.endedBy !== undefined) {
+    const actual = observed.endedBy;
     assertions.push(
-      actual === expect.status
-        ? pass("status", expect.status, actual)
+      actual === expect.endedBy
+        ? pass("endedBy", expect.endedBy, actual)
         : fail(
-            "status",
-            expect.status,
+            "endedBy",
+            expect.endedBy,
             actual,
-            `expected status "${expect.status}", got "${actual}"`,
+            `expected the call to end with "${expect.endedBy}", got "${actual}"`,
           ),
     );
   }
 
-  /* ------------------------------- action -------------------------------- */
+  /* ----------------------------- disposition ----------------------------- */
 
-  if (expect.action !== undefined) {
-    const actual = outcome === null ? null : asText(outcome.action);
+  for (const field of ["outcome", "topic"] as const) {
+    const wanted = expect.disposition?.[field];
+    if (wanted === undefined) continue;
+
+    const name = `disposition.${field}`;
+    const disposition = observed.disposition;
+    if (disposition === null) {
+      assertions.push(
+        fail(
+          name,
+          wanted,
+          null,
+          `expected disposition ${field} "${wanted}", but the call ended without a disposition`,
+        ),
+      );
+      continue;
+    }
+
+    const actual = disposition[field];
     assertions.push(
-      outcome === null
-        ? fail(
-            "action",
-            expect.action,
-            null,
-            `expected action "${expect.action}", but the run produced no outcome`,
-          )
-        : actual === expect.action
-          ? pass("action", expect.action, actual)
-          : fail(
-              "action",
-              expect.action,
-              actual,
-              `expected action "${expect.action}", got "${actual}"`,
-            ),
+      actual === wanted
+        ? pass(name, wanted, actual)
+        : fail(name, wanted, actual, `expected disposition ${field} "${wanted}", got "${actual}"`),
     );
   }
 
   /* ------------------------------ pausesFor ------------------------------ */
 
   if (expect.pausesFor !== undefined) {
-    const wanted = expect.pausesFor;
-    const pending = observed.pendingApproval;
-    const actualTool = pending?.toolName ?? null;
+    const wanted = expect.pausesFor.tool;
+    const paused = spans.filter((s) => s.type === "approval_wait").map((s) => s.name);
 
     assertions.push(
-      actualTool === wanted.tool
-        ? pass("pausesFor.tool", wanted.tool, actualTool)
+      paused.includes(wanted)
+        ? pass("pausesFor.tool", wanted, paused)
         : fail(
             "pausesFor.tool",
-            wanted.tool,
-            actualTool,
-            actualTool === null
-              ? `expected a pause on "${wanted.tool}", but the run never paused`
-              : `expected a pause on "${wanted.tool}", got a pause on "${actualTool}"`,
+            wanted,
+            paused,
+            paused.length === 0
+              ? `expected a pause on "${wanted}", but the call never paused`
+              : `expected a pause on "${wanted}", got a pause on ${quoted(paused)}`,
           ),
     );
   }
@@ -158,7 +364,7 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
   /* ----------------------------- toolsCalled ----------------------------- */
 
   for (const name of expect.toolsCalled ?? []) {
-    const calls = execSpans(observed.spans, name);
+    const calls = execSpans(spans, name);
     const successful = calls.filter((s) => !s.isError);
 
     assertions.push(
@@ -179,9 +385,9 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
 
   for (const name of expect.toolsNever ?? []) {
     // Errors included, deliberately: a credit that fired and then failed still
-    // fired. The handler ran and the audit row exists, so treating `isError`
-    // as "did not happen" would report green on a real side effect.
-    const calls = execSpans(observed.spans, name);
+    // fired. The handler ran, so treating `isError` as "did not happen" would
+    // report green on a real side effect.
+    const calls = execSpans(spans, name);
 
     assertions.push(
       calls.length === 0
@@ -198,9 +404,7 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
   /* ----------------------------- guardrailOn ----------------------------- */
 
   for (const name of expect.guardrailOn ?? []) {
-    const blocked = observed.spans.some(
-      (s) => s.type === "guardrail" && s.name === name,
-    );
+    const blocked = spans.some((s) => s.type === "guardrail" && s.name === name);
 
     assertions.push(
       blocked
@@ -214,52 +418,78 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
     );
   }
 
-  /* ---------------------------- replyMentions ---------------------------- */
+  /* ---------------------------- saidMentions ----------------------------- */
 
-  for (const phrase of expect.replyMentions ?? []) {
-    const name = `replyMentions:${phrase}`;
+  const lines = observed.events.flatMap((e) => (e.type === "speech" ? [e.text.toLowerCase()] : []));
 
-    if (outcome === null) {
-      assertions.push(
-        fail(
-          name,
-          phrase,
-          null,
-          `expected the reply to mention "${phrase}", but the run produced no outcome`,
-        ),
-      );
-      continue;
-    }
-
+  for (const phrase of expect.saidMentions ?? []) {
     // Case-insensitive: the assertion is about substance, and a case that
     // failed because the model capitalised differently is noise in the gate.
-    const reply = asText(outcome.reply);
-    const found = reply.toLowerCase().includes(phrase.toLowerCase());
+    // Line by line, so a phrase is never found across two separate lines.
+    const found = lines.some((line) => line.includes(phrase.toLowerCase()));
 
     assertions.push(
       found
-        ? pass(name, phrase, true)
+        ? pass(`saidMentions:${phrase}`, phrase, true)
         : fail(
-            name,
+            `saidMentions:${phrase}`,
             phrase,
             false,
-            `expected the reply to mention "${phrase}", but it did not`,
+            `expected Tala to say "${phrase}", but she never did`,
           ),
     );
   }
 
-  /* ---------------------------- maxIterations ---------------------------- */
+  /* ------------------- noAccountDataBeforeVerification ------------------- */
 
-  if (expect.maxIterations !== undefined) {
-    const actual = observed.iterations;
+  if (expect.noAccountDataBeforeVerification) {
+    const name = "noAccountDataBeforeVerification";
+    const findings = accountDataBeforeVerification(observed);
+
     assertions.push(
-      actual <= expect.maxIterations
-        ? pass("maxIterations", expect.maxIterations, actual)
+      findings.length === 0
+        ? pass(name, [], findings)
         : fail(
-            "maxIterations",
-            expect.maxIterations,
+            name,
+            [],
+            findings,
+            "expected no account data before verify_identity succeeded, but Tala said: " +
+              findings.join("; "),
+          ),
+    );
+  }
+
+  /* ---------------------- speaksBeforeEveryToolCall ---------------------- */
+
+  if (expect.speaksBeforeEveryToolCall) {
+    const name = "speaksBeforeEveryToolCall";
+    const silent = silentToolTurns(observed.events);
+
+    assertions.push(
+      silent.length === 0
+        ? pass(name, [], silent)
+        : fail(
+            name,
+            [],
+            silent,
+            "expected Tala to speak before every tool call, but these turns were silent: " +
+              silent.join("; "),
+          ),
+    );
+  }
+
+  /* ---------------------------- maxModelCalls ---------------------------- */
+
+  if (expect.maxModelCalls !== undefined) {
+    const actual = spans.filter((s) => s.type === "llm_call").length;
+    assertions.push(
+      actual <= expect.maxModelCalls
+        ? pass("maxModelCalls", expect.maxModelCalls, actual)
+        : fail(
+            "maxModelCalls",
+            expect.maxModelCalls,
             actual,
-            `expected at most ${expect.maxIterations} iterations, got ${actual}`,
+            `expected at most ${expect.maxModelCalls} model calls, got ${actual}`,
           ),
     );
   }

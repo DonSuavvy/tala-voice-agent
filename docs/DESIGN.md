@@ -83,6 +83,7 @@ Every call is pinned to the SOP version it ran with. A bank or e-wallet would be
 - **Persona (Q11):** Tala is a professional, friendly and brisk Filipina customer-service rep: she gets to the point, leaves out details the caller didn't ask for, and asks at most one question at a time. She avoids "Naku" (too casual for a support line) and "Walang anuman" (stiff), saying "Sorry to hear that po" and "You're welcome po" instead. (Changed 2026-11-06 from "warm" after a tone review of live calls.)
   - She uses "po/opo" and speaks English-led Taglish: English sentences with Tagalog mixed in, the way Filipino call center agents talk. English-only callers get English; callers who speak only Tagalog or don't follow English get more Tagalog. (Changed 2026-11-06 after the first live calls, where mirroring a Taglish caller made her mostly Tagalog.)
   - She keeps replies to 1–2 sentences and says fillers while tools run ("Sandali lang po, let me check"). Short never means silent: there is a line before every tool call and a goodbye before she hangs up. (Added 2026-11-06: the first brisk wording made her skip both after terse caller lines.)
+  - If the model calls a tool without saying anything, the session says the pack's fixed filler line first; if it ends the call without a goodbye, the fixed closing line (ADR 5, 2026-11-06, pulled forward from #8 after the eval gate failed on a silent tool call).
   - She rounds estimated times up to the next quarter hour ("around 8:45 PM", not "around 8:41 PM"), never earlier.
 - **Opening line (Q21):** before anything else, Tala says she is an AI assistant and that the call is recorded for quality.
 - **Call limit (Q31):** 3 minutes on the public demo. Tala gives a 30-second warning and wraps up politely.
@@ -154,7 +155,7 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 **Claude integration (Q6, Q15, Q28):**
 - Official `@anthropic-ai/sdk` behind OpsPilot's `MessageCreator` seam.
 - Models are named logically (`haiku` / `sonnet` / `opus`); real model IDs appear only in the provider file.
-- Development defaults to Sonnet 5.5. The public demo uses the model the eval comparison picks. (Changed 2026-11-06 from Opus 5.5 at low effort: in the first live runs of scenario 1, three per model, Sonnet cost half as much as Opus, answered faster, and was the only model that said a line before every tool call in all three runs. Effort arrives with #6.)
+- Development defaults to Sonnet 5.5. The public demo uses the model the eval comparison picks. (Changed 2026-11-06 from Opus 5.5 at low effort: in the first live runs of scenario 1, three per model, Sonnet cost half as much as Opus, answered faster, and was the only model that said a line before every tool call in all three runs. Effort is chosen with the model in #20.)
 - Thinking blocks round-trip byte-identical, because the loop copies assistant content wholesale.
 - Server-side fallback on refusals, prompt caching, eager tool-input streaming, and zod parsing of every tool call before its handler runs.
 - After-call work uses structured output (zod schema).
@@ -228,6 +229,7 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 **Test seams (Q39):** as few as possible.
 - **Main seam:** Tala's call session in the core, driven by text. Caller turns go in; what Tala says, spans, approval requests and the `end_call` outcome come out. Unit tests, the terminal chat and the eval suite all use it.
 - **Fakes behind it:** only the ones OpsPilot already uses: a scripted `MessageCreator` instead of Claude, an in-memory Kidlat world instead of the business systems (the `OpsData` pattern), and an injected clock.
+  - One more, below the seam (#6): the streaming creator's own tests run the real SDK client over a fake `fetch` that serves scripted stream events, so the SDK's own stream assembly and abort handling are what get tested, with no network and a dummy key.
 - **Voice seam:** a voice-transport interface that LiveKit and the hand-built path both implement. Transcripts and interruptions go in; speech text comes out. Barge-in, the echo guard and fillers are tested against a fake transport.
 - **Console:** tested by feeding it recorded event streams from the main seam.
 
@@ -237,9 +239,11 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 - **Callers:** about 13 simulated callers, played by Claude Sonnet 5.5, talking to Tala as text through the same core. They cover the 6 demo scenarios plus harder ones: a scammer posing as the account holder, the angry tito, a Taglish lola, a topic-changer, someone who won't verify, and a Bisaya speaker.
 - **The pass/fail gate is deterministic only:**
   - OpsPilot's closed expectation schema: call status, tools called, tools never called, guardrails fired, disposition fields, phrases mentioned.
-  - Plus voice checks, e.g. "no account data before `verify_identity` succeeded".
-- **Advisory grader:** a Claude grader scores tone, Taglish and politeness. Its score is shown beside the gate and never fails a run.
+  - Plus voice checks: "no account data before `verify_identity` succeeded" and "Tala says a line before every tool call" (#9).
+  - The account-data check cannot tell Tala echoing what the caller said from Tala disclosing it, and exempting what the caller said first would also pass Tala confirming a guess. So the check stays strict, and the SOP says the same: until verification succeeds, Tala repeats none of the caller's name, account number or mobile digits (#9, 2026-11-06).
+- **Advisory grader:** a Claude grader scores tone, Taglish and politeness against the company pack's own "How you speak" rules. Its score is shown beside the gate and never fails a run.
 - **Pinned runs:** every run is pinned to the pack/SOP version, model, git SHA and prompt hash, and OpsPilot's diff view shows what regressed, was fixed or was added between two runs.
+  - The SOP version is the file's label (`v1`). Editing the SOP changes the prompt hash, not the SOP version, until a release bumps the label; the prompt hash is what tells two runs apart.
 - **CI gate:** the suite runs automatically on PRs that change prompts, the SOP, policies or tools, using the demo's model. It needs `ANTHROPIC_API_KEY` stored as a GitHub secret.
 - **Model comparison (Q28):** the same suite runs on Opus 5.5, Sonnet 5.5 and Haiku 5.5. The public demo uses the cheapest model that passes every check.
 - **Cost:** about $5 for a full run on Opus, less on cheaper models, and about $8 for the three-model comparison.

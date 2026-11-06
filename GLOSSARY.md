@@ -21,9 +21,19 @@ The fixed first line of every call, saying that Tala is an AI assistant and
 that the call is recorded.
 _Avoid_: greeting, intro
 
+**Line**:
+What Tala says in one go: the opening disclosure, one reply, or the fallback
+line.
+_Avoid_: utterance, message, response
+
 **Caller turn**:
 What the caller says before Tala replies, taken as one final transcript.
 _Avoid_: message, utterance
+
+**Interruption**:
+The caller cutting in while Tala is still saying a line. She stops, and the
+call remembers only the part of the line the caller heard.
+_Avoid_: abort, cancellation
 
 **Disposition**:
 How a call ended: whether the caller's concern was resolved, what the call was
@@ -39,6 +49,15 @@ _Avoid_: snapshot, version (alone)
 The fixed apology Tala says when a call has to end for any reason other than
 the call reaching its disposition.
 _Avoid_: error message
+
+**Filler line**:
+The fixed short line Tala says when she starts a check without having said
+anything, so the caller is never left in silence.
+_Avoid_: hold message, placeholder
+
+**Closing line**:
+The fixed goodbye Tala says when a call reaches its disposition without one.
+_Avoid_: sign-off, outro
 
 ## Identity
 

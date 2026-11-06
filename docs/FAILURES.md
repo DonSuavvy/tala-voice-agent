@@ -340,3 +340,115 @@ state is settled. RED `993f1d4`, GREEN `b4a553b`.
 
 **Lesson:** code that calls back into someone else's code from inside an
 accounting boundary inherits their failures as its own.
+
+## 11. Tala went silent before a second tool call, and hung up without a goodbye — 2026-11-06
+
+**Severity: medium.** Both are what a voice caller hears as dead air, the
+second as being hung up on. Neither failed a test: the earlier live checks
+looked at the trace, not at what the caller heard.
+
+**Caught by:** the eval gate's first live run (#9), on its first case. The
+new check `speaksBeforeEveryToolCall` failed, and the advisory grader noticed
+the second on its own: "she gave no closing line to the caller's goodbye".
+
+```
+FAIL  scenario-1-outage
+      expected Tala to speak before every tool call, but these turns were
+      silent: model call 3 (check_area_outage); model call 5 (end_call)
+```
+
+On Sonnet 5.5, after `verify_identity` returned, Tala called
+`check_area_outage` with no line before it. When the simulated Maria said
+"Paalam na po!", Tala called `end_call` with no goodbye. The SOP asked for a
+line before a tool call and a closing line with `end_call`, but it said so
+once, and the second tool call in a row and the caller's own goodbye read as
+exceptions.
+
+**Fix:** the SOP says every reply that calls a tool speaks first, the second
+call in a row included, with an example, and that the closing line is never
+skipped, even after the caller's goodbye (`6c7a08b`). Three runs then passed
+(`f0dc3ae`); `eval:diff` shows `speaksBeforeEveryToolCall: failed -> passed`.
+Until #8 makes fillers fixed phrases the session says itself, this rests on
+the model and the gate.
+
+**Lesson:** a rule the model follows most of the time needs a check that runs
+every time. The first run of a new check is worth more than a passing one.
+
+## 12. The eval pin named a commit that was not what ran — 2026-11-06
+
+**Severity: low.** The reports were honest about the prompt; only the commit
+was wrong.
+
+**Caught by:** review round 2 (Spec and Standards, independently).
+
+`resolveGitSha` recorded `HEAD` and never asked whether the working tree was
+clean. The SOP fix was being tried before it was committed, so two of the
+three passing reports pin `3c80c9c`, a commit that still has the broken SOP.
+The first report pins `ca8a192`, older than the runner that wrote it. Only
+the prompt hash said what had actually run.
+
+**Fix:** the pin records `gitDirty` from `git status --porcelain` (the
+reports directory excluded), the runner warns when it is true, and the diff
+prints it and counts it as a pin change. Reports written before the flag
+read as "dirty unknown", never as clean. RED `52aedc5`, GREEN `ff4fcd6`.
+
+**Lesson:** a record meant to explain a run later must say when it is not the
+whole truth.
+
+## 13. An interruption with differently spaced words would have left Tala talking — 2026-11-06
+
+**Severity: medium (latent).** No voice transport exists yet (#7), and the
+terminal chat always passes the default heard text, so it could not happen
+there.
+
+**Caught by:** review round 3 (Spec), reading `interrupt()`'s prefix check.
+
+`interrupt(heard)` required the heard text to be an exact prefix of what Tala
+had streamed, whitespace included, and threw otherwise. A speech-to-text
+transport reports words, not layout: "Opo. Sandali" for "Opo.\n\nSandali".
+Two text blocks' deltas also join with no separator ("Opo.Sandali"). Either
+way `interrupt()` would have rejected, the turn would have run on, and Tala
+would have kept talking over a caller who had cut in.
+
+**What made it dangerous:** the check protected the conversation, and refusing
+a heard text that is not a prefix is right. But refusing meant not stopping,
+and stopping is the one thing an interruption must do.
+
+**Fix:** whitespace is left out when matching. A heard text that still does
+not match falls back to the default and is reported as `mismatchedHeard`. An
+interruption never throws. RED `e9dfd2d`, GREEN `5bd1879`.
+
+**Lesson:** a guard on a safety action must fail toward the action, not away
+from it.
+
+## 14. A required gate rested on a rule the model keeps only most of the time — 2026-11-06
+
+**Severity: medium.** It would have blocked good PRs at random once `eval gate`
+became a required check, and the caller would still have heard dead air.
+
+**Caught by:** the eval gate on PR #32, a change to the workflow alone. The
+gate ran because the workflow changed, and failed:
+
+```
+FAIL  scenario-1-outage
+      expected Tala to speak before every tool call, but these turns were
+      silent: model call 2 (verify_identity)
+```
+
+After FAILURES 11's SOP fix, Sonnet 5.5 had passed 5 runs. This was the
+sixth, and it went silent anyway. Haiku 5.5 had skipped the same line in all
+3 of its earlier runs. The SOP asked, and the model usually listened. A
+required check cannot rest on "usually".
+
+**What made it dangerous:** a passing streak looked like a fix. Three green
+runs after the SOP change were read as the problem solved, when they only
+showed that the failure had become less frequent.
+
+**Fix:** the session says the pack's fixed filler line before a tool call
+made in silence, and the fixed closing line before a silent `end_call`, and
+records the line in the turn (ADR 5). RED `fdcf60b`, GREEN `faaafb4`. Five
+runs after it passed, with the lines firing on both models.
+
+**Lesson:** a model behaviour that a required check depends on must be
+guaranteed in code. The eval then measures the model's own rate, and does not
+stand guard over it.

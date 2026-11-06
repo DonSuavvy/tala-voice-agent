@@ -41,6 +41,13 @@ describe("the Kidlat Fiber pack", () => {
     expect(persona.openingLine).toMatch(/record/);
   });
 
+  it("has the lines Tala says when the model calls a tool with nothing said", () => {
+    const { persona } = loadKidlatFiber();
+
+    expect(persona.fillerLine).toBe("Sandali lang po, let me check.");
+    expect(persona.closingLine).toBe("Thank you for calling Kidlat Fiber po. Ingat po!");
+  });
+
   it("has scenario 1's world: a fiber cut in Batasan Hills with a restoration time", async () => {
     const { world } = loadKidlatFiber();
     const systems = createInMemorySystems(world, new Date("2026-11-06T05:00:00Z"));

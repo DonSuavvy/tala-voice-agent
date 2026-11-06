@@ -90,8 +90,23 @@ export const companySchema = z
   .strict();
 export type Company = z.infer<typeof companySchema>;
 
+/**
+ * The lines Tala says that no model writes, so none can be skipped:
+ *
+ * - `openingLine`: the AI and recording disclosure every call opens with.
+ * - `fallbackLine`: the apology when a call ends any way but `end_call`.
+ * - `fillerLine`: said when the model calls a tool with nothing said, so the
+ *   caller does not wait in silence while it runs.
+ * - `closingLine`: said when the model ends the call with `end_call` and
+ *   nothing said, so no call ends without a goodbye.
+ */
 export const personaSchema = z
-  .object({ openingLine: nonEmpty, fallbackLine: nonEmpty })
+  .object({
+    openingLine: nonEmpty,
+    fallbackLine: nonEmpty,
+    fillerLine: nonEmpty,
+    closingLine: nonEmpty,
+  })
   .strict();
 export type Persona = z.infer<typeof personaSchema>;
 

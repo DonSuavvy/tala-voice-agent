@@ -23,23 +23,29 @@
  *   with, on its first and last events.
  * - **The conversation.** Append-only, as the 5.5 models' preserved thinking
  *   requires: nothing already sent is ever edited.
+ * - **Streaming and interruption (#6).** Tala's words go out as
+ *   `speech_delta` events while Claude writes them. A caller who talks over
+ *   her calls `interrupt()`, with what they actually heard: the turn stops,
+ *   and the conversation keeps only that much of what she was saying, so the
+ *   model's next turn starts from what the caller knows.
  *
- * Streaming deltas and interruption arrive in #6, in-call approvals in #13,
- * whispers and takeover in #14.
+ * In-call approvals arrive in #13, whispers and takeover in #14.
  */
 import type { BudgetConfig } from "../agent/budget";
 import { ESTIMATED_RUN_NANOS } from "../agent/budget";
 import { cachedSystem } from "../agent/cache";
 import {
+  isSpokenText,
   runAgentLoop,
+  type AssistantTurn,
   type ContentBlock,
   type MessageCreator,
   type MessageParam,
   type SpanEvent,
-  type TextBlock,
+  type ToolUseBlock,
 } from "../agent/loop";
 import type { LogicalModel, Provider } from "../agent/provider";
-import { compilePackSop, type CompanyPack } from "../pack/load-pack";
+import { compilePackSop, type CompanyPack, type Persona } from "../pack/load-pack";
 import { initialIdentityState } from "../policy/identity";
 import { createInMemorySystems } from "../systems/in-memory";
 import { buildTalaRegistry, type CallData } from "../tools";
@@ -74,12 +80,43 @@ export type CallEndReason = "end_call" | "refused" | "failed" | "budget_refused"
 /** One ordered stream per call. Every consumer reads the same events. */
 export type CallEvent =
   | { type: "call_started"; callId: string; pin: CallPin; at: Date }
-  /** Words Tala says, in order. #6 streams these as deltas. */
+  /**
+   * The record of what Tala said, one line at a time: each text block of a
+   * model turn, whole, once the turn has arrived and before its llm_call
+   * span; for a turn the caller interrupted, only what they heard; never for
+   * a refused turn. The opening and fallback lines each get one too.
+   *
+   * Each comes after its words went out as `speech_delta`, provided the
+   * `MessageCreator` passes text deltas on, as the streaming creator does.
+   * One that does not, such as a scripted test creator, sends a model turn's
+   * `speech` with no deltas before it.
+   */
   | { type: "speech"; text: string }
+  /**
+   * Tala's words as they go out, in order. A voice speaks these and nothing
+   * else. The fixed opening and fallback lines always go out as one delta
+   * carrying the whole line. A model turn's words go out piece by piece as
+   * Claude writes them, when the `MessageCreator` passes text deltas on (the
+   * streaming creator does); with one that does not, that turn has no
+   * deltas, and a voice speaking only these would not hear it. A refusal can
+   * only be seen once the turn is complete, so the deltas of a refused turn
+   * were already heard even though its `speech` never comes. None of a
+   * turn's own deltas follow an `interrupt()`.
+   */
+  | { type: "speech_delta"; text: string }
   | { type: "caller_said"; text: string; at: Date }
   | { type: "span"; span: SpanEvent }
   /** Tala's turn is over; the call waits for the caller. */
   | { type: "awaiting_caller" }
+  /**
+   * The caller talked over Tala and her turn has stopped. `heard` is what
+   * the call kept of the model turn that was streaming: what `interrupt()`
+   * was told, or by default every delta emitted before it was called.
+   * `mismatchedHeard` is there only when `interrupt()` was told a heard text
+   * that does not match what Tala said: it holds that text, and `heard` is
+   * then the default.
+   */
+  | { type: "interrupted"; heard: string; mismatchedHeard?: string }
   | {
       type: "call_ended";
       reason: CallEndReason;
@@ -93,7 +130,7 @@ export type CallEvent =
     };
 
 /** How one caller turn ended. */
-export type TurnEnd = "awaiting_caller" | "ended";
+export type TurnEnd = "awaiting_caller" | "interrupted" | "ended";
 
 export type CallState = "not_started" | "in_progress" | "ended";
 
@@ -127,8 +164,30 @@ export interface CallSession {
   readonly state: CallState;
   /** Says the opening line. Once, before anything else. Never calls Claude. */
   start(): void;
-  /** One final caller transcript. Resolves when Tala's turn is over. */
+  /**
+   * One final caller transcript. Resolves when Tala's turn is over. Refused
+   * while a turn is still running: a caller who talks over Tala calls
+   * `interrupt()` first.
+   */
   callerSaid(text: string): Promise<TurnEnd>;
+  /**
+   * The caller talked over Tala. Always stops her running turn, and resolves
+   * once it has settled, when the next `callerSaid()` is taken at once.
+   *
+   * `heard` is what the caller actually heard of the model turn now
+   * streaming. It defaults to every `speech_delta` emitted in that turn
+   * before this call. It is matched against those deltas with whitespace
+   * left out, since a transport reports what was heard with its own spacing
+   * and two text blocks stream with nothing between them. A heard text that
+   * does not match is not trusted: the default is kept instead, and the
+   * `interrupted` event reports it as `mismatchedHeard`. The conversation
+   * keeps only the heard part of that turn. A turn whose tools are already
+   * running keeps the words it streamed: its tools may have acted, so
+   * nothing in it is cut, and `heard` is only reported.
+   *
+   * Does nothing when no turn is running.
+   */
+  interrupt(heard?: string): Promise<void>;
 }
 
 /**
@@ -138,8 +197,125 @@ export interface CallSession {
  */
 const CALL_CONNECTED = "(The call has connected. The caller has not spoken yet.)";
 
-function isSpokenText(block: ContentBlock): block is TextBlock {
-  return block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0;
+/** A caller turn in progress, and how it is being stopped, if it is. */
+interface RunningTurn {
+  controller: AbortController;
+  /**
+   * Set by `interrupt()`: what the call keeps as heard, the heard text it
+   * was told if that did not match, and which model call was streaming.
+   * `modelCall` is null when none was.
+   */
+  interruption: {
+    heard: string;
+    mismatchedHeard: string | null;
+    modelCall: number | null;
+  } | null;
+  /** Resolves once the turn is over and the next caller turn can be taken. */
+  settled: Promise<void>;
+}
+
+/**
+ * The model call now streaming, or the last one: its number in the call,
+ * whether it is still streaming, and the deltas it has emitted. What
+ * `interrupt()` reads to know what the caller can have heard, and which
+ * model call to cut.
+ */
+interface ModelCall {
+  number: number;
+  streaming: boolean;
+  deltas: string[];
+}
+
+const WHITESPACE = /\s/;
+
+/** What heard texts are compared on: everything but whitespace. */
+function withoutWhitespace(text: string): string {
+  return text.replace(/\s+/g, "");
+}
+
+/**
+ * Whether `heard` is how `said` began. Whitespace is not compared: a
+ * transport reports what was heard with its own spacing, and two text blocks
+ * stream as one run of deltas with nothing between them.
+ */
+function isHeardPrefix(heard: string, said: string): boolean {
+  return withoutWhitespace(said).startsWith(withoutWhitespace(heard));
+}
+
+/**
+ * A model turn the caller talked over, kept only as far as they heard it.
+ *
+ * `heard` is matched against the turn's text blocks in order, whitespace
+ * aside. Text blocks are kept while it covers them. Where it stops inside a
+ * text block, that block is cut right after the last character heard, in
+ * Tala's own text, and every block after it is dropped: thinking, text and
+ * tool calls alike. A signed thinking block binds everything before it, so
+ * one must never follow text that was cut; and a tool call Tala never got to
+ * announce has not run, so it goes with the words. Blocks after text heard in
+ * full stay as they came, and the loop answers any tool call among them
+ * "Not run".
+ */
+function keepHeard(content: ContentBlock[], heard: string): ContentBlock[] {
+  const wanted = withoutWhitespace(heard);
+  let matched = 0;
+  const kept: ContentBlock[] = [];
+
+  for (const block of content) {
+    if (block.type !== "text" || typeof block.text !== "string") {
+      kept.push(block);
+      continue;
+    }
+    // Heard ran out before this block: the cut falls at its start.
+    if (matched === wanted.length) break;
+
+    const text = block.text;
+    let end = 0;
+    for (let i = 0; i < text.length && matched < wanted.length; i += 1) {
+      if (WHITESPACE.test(text[i])) continue;
+      if (text[i] !== wanted[matched]) break;
+      matched += 1;
+      end = i + 1;
+    }
+
+    if (withoutWhitespace(text.slice(end)) === "") {
+      kept.push(block);
+      continue;
+    }
+    // The cut falls in this block. Whatever of it was heard stays.
+    if (end > 0) kept.push({ ...block, text: text.slice(0, end) });
+    break;
+  }
+  return kept;
+}
+
+/**
+ * The pack's fixed line a model turn needs said for it, or null.
+ *
+ * A turn that calls a tool with nothing said would leave the caller in
+ * silence while the tool runs, or end the call with no goodbye. The SOP asks
+ * Tala to speak first, and the model's own words are better than a fixed
+ * line; this is the code's backstop for when it does not. `end_call` alone
+ * gets the closing line; any other tool call gets the filler line.
+ */
+function fixedLineFor(
+  content: ContentBlock[],
+  persona: Persona,
+  terminalToolName: string,
+): string | null {
+  const calls = content.filter((b): b is ToolUseBlock => b.type === "tool_use");
+  if (calls.length === 0 || content.some(isSpokenText)) return null;
+  const endsTheCall = calls.length === 1 && calls[0].name === terminalToolName;
+  return endsTheCall ? persona.closingLine : persona.fillerLine;
+}
+
+/**
+ * `content` with `line` as a text block just before its first tool call, so
+ * the conversation says it was said. Whatever came before, a signed
+ * thinking block included, stays where it was and as it was.
+ */
+function withLineBeforeTools(content: ContentBlock[], line: string): ContentBlock[] {
+  const at = content.findIndex((b) => b.type === "tool_use");
+  return [...content.slice(0, at), { type: "text", text: line }, ...content.slice(at)];
 }
 
 export function createCallSession(options: CallSessionOptions): CallSession {
@@ -186,17 +362,65 @@ export function createCallSession(options: CallSessionOptions): CallSession {
 
   let history: MessageParam[] = [];
   let state: CallState = "not_started";
-  let turnRunning = false;
   let nextSeq = 0;
   let spentNanos = 0;
+
+  /** The caller turn now running, if any. */
+  let running: RunningTurn | null = null;
+  let currentModelCall: ModelCall = { number: 0, streaming: false, deltas: [] };
+
+  /**
+   * Deltas go out as Claude writes them, through the same wrapper as every
+   * event: a subscriber that throws is held, not let loose inside the stream.
+   * After `interrupt()` none go out, though a few may still arrive.
+   */
+  const onTextDelta = (text: string): void => {
+    if (running?.interruption) return;
+    currentModelCall.deltas.push(text);
+    onEvent({ type: "speech_delta", text });
+  };
 
   /**
    * Speech is what each model turn says, emitted as the turn arrives and
    * before its tools run, as a caller would hear it. A refused turn is never
    * spoken: the model declined to stand behind it.
+   *
+   * A turn the caller talked over is cut to what they heard here, before the
+   * loop sees it, so the loop never holds a tool call that was dropped. A
+   * turn that calls a tool with nothing said gets one of the pack's fixed
+   * lines here, said before its llm_call span and kept in the turn.
    */
-  const speakingCreator: MessageCreator = async (params) => {
-    const turn = await createMessage(params);
+  const speakingCreator: MessageCreator = async (params, callOptions) => {
+    const thisCall: ModelCall = {
+      number: currentModelCall.number + 1,
+      streaming: true,
+      deltas: [],
+    };
+    currentModelCall = thisCall;
+    let turn: AssistantTurn;
+    try {
+      turn = await createMessage(params, callOptions);
+    } finally {
+      thisCall.streaming = false;
+    }
+
+    const interruption = running?.interruption;
+    if (interruption && interruption.modelCall === thisCall.number) {
+      turn = { ...turn, content: keepHeard(turn.content, interruption.heard) };
+    }
+
+    // Not for a refused turn, and never over a caller who is already talking.
+    const fixedLine =
+      turn.stop_reason === "refusal" || turn.stop_reason === "interrupted" || interruption
+        ? null
+        : fixedLineFor(turn.content, pack.persona, registry.terminalToolName);
+    if (fixedLine !== null) {
+      turn = { ...turn, content: withLineBeforeTools(turn.content, fixedLine) };
+      // The only words in the turn, so this is its speech too.
+      sayLine(fixedLine);
+      return turn;
+    }
+
     if (turn.stop_reason !== "refusal") {
       for (const block of turn.content) {
         if (isSpokenText(block)) onEvent({ type: "speech", text: block.text });
@@ -219,9 +443,18 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     return "ended";
   };
 
+  /**
+   * A fixed line, said the way every line is: its words go out, then its
+   * record. Not a model turn, so nothing here is streamed or interrupted.
+   */
+  const sayLine = (text: string): void => {
+    onEvent({ type: "speech_delta", text });
+    onEvent({ type: "speech", text });
+  };
+
   /** Anything but end_call ends with the pack's apology, never with silence. */
   const endBadly = (reason: Exclude<CallEndReason, "end_call">, error: string | null): TurnEnd => {
-    onEvent({ type: "speech", text: pack.persona.fallbackLine });
+    sayLine(pack.persona.fallbackLine);
     return end(reason, null, error);
   };
 
@@ -241,7 +474,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
         { role: "user", content: CALL_CONNECTED },
         { role: "assistant", content: [{ type: "text", text: pack.persona.openingLine }] },
       ];
-      onEvent({ type: "speech", text: pack.persona.openingLine });
+      sayLine(pack.persona.openingLine);
       onEvent({ type: "awaiting_caller" });
       rethrowSubscriberError();
     },
@@ -251,26 +484,59 @@ export function createCallSession(options: CallSessionOptions): CallSession {
         throw new Error("call session: the call has not started; call start() first");
       }
       if (state === "ended") throw new Error("call session: the call has ended");
-      // Interrupting Tala mid-turn is #6. Until then a second turn must wait.
-      if (turnRunning) throw new Error("call session: Tala's turn is still running");
+      // A caller who talks over Tala interrupts her first; then this is taken.
+      if (running) throw new Error("call session: Tala's turn is still running");
       const words = text.trim();
       if (words.length === 0) throw new Error("call session: a caller turn needs words");
 
-      turnRunning = true;
+      // Set before anything runs, so a subscriber can interrupt from the
+      // turn's very first event.
+      let settle: () => void = () => {};
+      const turn: RunningTurn = {
+        controller: new AbortController(),
+        interruption: null,
+        settled: new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+      };
+      running = turn;
       try {
-        const ended = await runTurn(words);
+        const ended = await runTurn(words, turn);
         // Only now, with the turn's events delivered and the call's state
         // settled, does a failing subscriber hear about it.
         rethrowSubscriberError();
         return ended;
       } finally {
-        turnRunning = false;
+        running = null;
+        settle();
       }
+    },
+
+    async interrupt(heard) {
+      const turn = running;
+      if (turn === null) return;
+
+      if (turn.interruption === null) {
+        // Tala always stops. A heard text that does not match what she said
+        // is not trusted: the call keeps what had streamed, and says so.
+        const said = currentModelCall.deltas.join("");
+        const reported = heard ?? said;
+        const matches = isHeardPrefix(reported, said);
+        turn.interruption = {
+          heard: matches ? reported : said,
+          mismatchedHeard: matches ? null : reported,
+          modelCall: currentModelCall.streaming ? currentModelCall.number : null,
+        };
+        turn.controller.abort();
+      }
+      await turn.settled;
     },
   };
 
   /** One caller turn through the agent loop, to its end. */
-  async function runTurn(words: string): Promise<TurnEnd> {
+  async function runTurn(words: string, turn: RunningTurn): Promise<TurnEnd> {
+    // Nothing of this turn has been said yet, whatever the last one said.
+    currentModelCall = { number: currentModelCall.number, streaming: false, deltas: [] };
     const now = clock();
     onEvent({ type: "caller_said", text: words, at: now });
 
@@ -301,6 +567,8 @@ export function createCallSession(options: CallSessionOptions): CallSession {
         nextSeq = span.seq + 1;
         onEvent({ type: "span", span });
       },
+      signal: turn.controller.signal,
+      onTextDelta,
     });
 
     spentNanos += result.costNanos;
@@ -312,6 +580,17 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       case "awaiting_caller":
         onEvent({ type: "awaiting_caller" });
         return "awaiting_caller";
+      case "interrupted":
+        // The conversation already holds only what the caller heard. The
+        // call stays open: their next words are the next caller turn.
+        onEvent({
+          type: "interrupted",
+          heard: turn.interruption?.heard ?? "",
+          ...(turn.interruption?.mismatchedHeard != null
+            ? { mismatchedHeard: turn.interruption.mismatchedHeard }
+            : {}),
+        });
+        return "interrupted";
       case "completed":
         // The loop parsed this with end_call's own schema already; parsing
         // again turns `unknown` into a type without a cast.

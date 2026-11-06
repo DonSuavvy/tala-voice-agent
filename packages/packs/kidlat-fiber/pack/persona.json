@@ -1,4 +1,6 @@
 {
   "openingLine": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?",
-  "fallbackLine": "Sorry po, our system is having a problem right now. Please call us again in a little while. Salamat po."
+  "fallbackLine": "Sorry po, our system is having a problem right now. Please call us again in a little while. Salamat po.",
+  "fillerLine": "Sandali lang po, let me check.",
+  "closingLine": "Thank you for calling Kidlat Fiber po. Ingat po!"
 }

@@ -135,3 +135,135 @@ decided with audio.
   the model that actually served a turn, since a fallback turn is billed at
   another model's rates; no ticket owns it yet.
 
+## Round 2 — 2026-11-06 — ticket #9, the eval harness and CI gate
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #9 asks, criterion by criterion?
+
+**Headline:**
+- **Standards:** three hard violations, all fixed: a wire model id in a
+  test, comments that overstated the cost cap and the CI upload, and no
+  FAILURES entries.
+- **Spec:** one item still open, by plan: the deliberately broken SOP PR,
+  which also needs the gate as a required check. The worst defect: the pin
+  named commits that were not what ran (R2-01, FAILURES 12).
+
+17 findings: 14 fixed, 1 recorded, 2 open (the gate demo).
+
+**Method:** the mattpocock `code-review` skill. Two independent Opus agents
+that had not written the code, in parallel on `main...feat/eval-harness` at
+`f0dc3ae`:
+
+- **Standards:** CLAUDE.md, DESIGN §11, ADR 2, GLOSSARY, FAILURES 6, and a
+  fixed list of Fowler smells.
+- **Spec:** issue #9 line by line, the committed reports, and `eval:diff`
+  run on them.
+
+Fixes were built by the branch's builder, test-first where behaviour
+changed, and committed after a fresh gate.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R2-01 | Spec | No dirty check on the pin: two passing reports pin `3c80c9c`, which lacks the SOP fix that ran | Fixed `52aedc5` `ff4fcd6` (FAILURES 12) |
+| R2-02 | Spec | The grader's spend budgeted later cases, so "can never fail a run" was not true by construction | Fixed `3e12109` `f697061` |
+| R2-03 | Spec | The CI paths missed `core/src/systems/**`, which the tools act through | Fixed `2570436` (and `package-lock.json`) |
+| R2-04 | Spec | The filter is wider than "only prompts, the SOP, policies or tools" | Fixed: the workflow header says why (`2570436`) |
+| R2-05 | Spec | `51fd0e1` turned a limit of the account-data check into a product rule | Fixed: DESIGN §11 (`bec0295`) |
+| R2-06 | Spec | The SOP version is a label, so an SOP edit does not change it | Fixed: DESIGN §11 (`bec0295`); the prompt hash tells runs apart |
+| R2-07 | Spec | "Blocked" needs the eval gate as a required check | Open: a repository setting for the owner, with R2-08 |
+| R2-08 | Spec | The deliberately broken SOP PR and its screenshot | Open: next, with the owner |
+| R2-09 | Standards | `claude-sonnet-5-5` in `score.test.ts` | Fixed `84c020b` |
+| R2-10 | Standards | Comments overstating: "capped at $1.00 per run", "this run's report only", an interrupted model call that does not exist on this base | Fixed `f697061` `2570436` `84c020b` |
+| R2-11 | Standards | No FAILURES entries for what the gate caught | Fixed `6396a5c` (FAILURES 11, 12) |
+| R2-12 | Standards | Pin fields and the model list copied by hand (the FAILURES 6 pattern) | Fixed `44b66a8` `84c020b`: two-way type guards |
+| R2-13 | Standards | The grader's prompt copied the SOP's language rules | Fixed `ee7cc10` `bb9d60d`: it reads the pack's "How you speak" |
+| R2-14 | Standards | A Kidlat case test inside `packages/evals` | Fixed `84c020b`: moved to `test/` |
+| R2-15 | Standards | The SOP's goodbye example used scenario 1's caller name | Fixed `bec0295` |
+| R2-16 | Standards | Duplicated error text and pricing; "utterance" and "holder name"; an unnamed skill | Fixed `84c020b` |
+| R2-17 | Standards | `9ee821c` says "29 removed as listed in the RED commit"; the RED lists 15, and the other 14 were rewritten | Recorded here; commit messages are not rewritten |
+
+### Left as they are
+
+- **Possible Middle Man:** `parseCaseFiles` only calls `parseEntries`, but
+  it is the public form that takes files in memory, which the tests use.
+- **Possible Speculative Generality:** `pausesFor` cannot pass until in-call
+  approvals arrive (#13); it is kept so #13's cases need no schema change.
+- **`agentRunId` holds the call id.** It is OpsPilot's persisted row shape;
+  renaming waits for the persistence layer (#18).
+- **A new seam, `GradeCreator`:** structured output needs `output_config`,
+  which the loop's `MessageCreator` does not carry.
+- **A pricing test that let "price every grade as Sonnet" through** was
+  caught by the builder's own mutation check before it was committed
+  (`6c82583`), so it is noted here and not in FAILURES.
+
+### Not verified
+
+- **The workflow on GitHub:** the paths negation for committed reports, a
+  failed step's output reaching the upload step, and the secret. This PR
+  exercises them.
+- **The commit a CI report pins:** on `pull_request` runs, `GITHUB_SHA` is
+  GitHub's temporary merge commit, not the PR's head.
+- **The deliberately broken SOP PR.**
+
+## Round 3 — 2026-11-06 — ticket #6, streaming and interruption
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #6 asks, criterion by criterion?
+
+**Headline:** no hard violations and no missing requirements. One medium
+finding: an interruption whose heard text differed in whitespace from what
+streamed would have thrown and left Tala talking (R3-01, FAILURES 13). 11
+findings fixed or recorded, 4 left as they are.
+
+**Method:** the mattpocock `code-review` skill. Two independent Opus agents
+that had not written the code, in parallel on `main...feat/streaming-interruption`
+at `6b12403`:
+
+- **Standards:** CLAUDE.md, DESIGN §11, GLOSSARY, the ADRs, and a fixed list
+  of Fowler smells, each a judgement call.
+- **Spec:** issue #6 line by line, re-running each RED commit's tests in
+  scratch copies to confirm they fail.
+
+Fixes were built test-first by the branch's builder and committed after a
+fresh gate.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R3-01 | Spec | `interrupt(heard)` needed exact whitespace; a mismatch threw and Tala kept talking | Fixed `e9dfd2d` `5bd1879` (FAILURES 13) |
+| R3-02 | Spec | The exact-usage test could not tell final cache counts from early ones | Fixed `fcad0de`; two mutations show it bites |
+| R3-03 | Spec | A shorter heard text once tools ran cuts nothing, against "the history keeps only the text Tala actually spoke" | Recorded as deliberate: ADR 4 (`f492215`) |
+| R3-04 | Spec | The chat commit has no RED | Recorded: scripts are not on the test-first list; checked live |
+| R3-05 | Standards | `claude-haiku-5-5` hard-coded in two session tests | Fixed `9195bec` |
+| R3-06 | Standards | A new fake below the seam (the real SDK client over a fake `fetch`) not in DESIGN §11 | Fixed `f492215` |
+| R3-07 | Standards | Comments promising more than the code: speech always after its deltas; every interrupted call booked at least the estimate | Fixed `9195bec` |
+| R3-08 | Standards | "utterance", which the glossary avoids | Fixed `9195bec`; GLOSSARY gains Line |
+| R3-09 | Standards | Stale "#6" notes in ADR 1 and DESIGN | Fixed `f492215` |
+| R3-10 | Standards | Possible Duplicated Code: three copies of the spoken-text rule | Fixed `9195bec` |
+| R3-11 | Standards | Possible Mysterious Name: `streaming`, `streamed`, `modelCalls` side by side | Fixed `9195bec` (one `currentModelCall` record) |
+
+### Left as they are
+
+- **Possible Shotgun Surgery:** what an interrupted turn keeps is decided in
+  three places. The creator drops unfinished blocks, the session cuts at the
+  heard text, and the loop keeps a turn only with spoken text or a finished
+  tool call. Each layer knows only its own part (the SDK's stream, the
+  caller, the conversation), and ADR 4 lists the rules in one place.
+- **Possible Data Clumps:** `AgentLoopInput` takes `signal` and `onTextDelta`
+  as two fields.
+- **Possible Middle Man and Duplicated Code in `chat.ts`:** `untilTalaIsDone`,
+  and two identical error prints. A script; not worth a type.
+- **Round 1's three preferences** were left to streaming (#6), which did not
+  decide them. The English-led change (`aaf4eed`) made the fallback line
+  English and the opening three sentences. A `max_tokens` cap for spoken
+  replies goes to the voice audition (#3) and cached phrases (#8).
+
+### Not verified
+
+- What a real voice transport reports as heard (#7).
+- An interrupted turn with citations or server tools: Tala has neither.
+- Interrupted calls are over-booked: the $0.02 estimate against about
+  $0.0004 spent on Haiku 5.5. #22 re-measures the estimate.
