@@ -104,8 +104,12 @@ async function main(): Promise<void> {
         spentNanos += event.span.costNanos;
         console.log(describeSpan(event.span));
         return;
+      // Deltas and interruptions show once the chat streams and interrupts
+      // (#6); until then the whole line still prints from `speech`.
       case "caller_said":
       case "awaiting_caller":
+      case "speech_delta":
+      case "interrupted":
         return;
       case "call_ended":
         ended = true;

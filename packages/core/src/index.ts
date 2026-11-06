@@ -8,8 +8,10 @@
 // On top of it, Tala (#5): the call session, which is the main seam; the
 // tools and the business-system interfaces they call; the support policy;
 // the company-pack loader; and the in-memory world a pack's seed becomes.
-// Streaming and interruption arrive in #6. No LiveKit, Next.js or database
-// imports, ever.
+// Streaming and interruption (#6): the creator streams Tala's words and stops
+// on an abort, the loop ends an interrupted turn cleanly, and the call
+// session emits speech deltas and keeps only what the caller heard. No
+// LiveKit, Next.js or database imports, ever.
 export * from "./call/disposition";
 export * from "./call/pin";
 export * from "./call/session";
