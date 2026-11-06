@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { formatLocalTime } from "./format-time";
+import { formatLocalTime, roundUpToQuarterHour } from "./format-time";
 
 /**
  * Times reach the model as words in the company's own time zone, because the
@@ -35,5 +35,46 @@ describe("formatLocalTime", () => {
     });
 
     expect(formatLocalTime(new Date("2026-11-06T09:00:00Z"), MANILA)).toBe("Fri, Nov 6, 5:00 PM");
+  });
+});
+
+describe("roundUpToQuarterHour", () => {
+  it("rounds an instant up to the next quarter hour, never down", () => {
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:41:00Z")).toISOString()).toBe(
+      "2026-11-06T12:45:00.000Z",
+    );
+    expect(roundUpToQuarterHour(new Date("2026-11-06T14:47:00Z")).toISOString()).toBe(
+      "2026-11-06T15:00:00.000Z",
+    );
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:01:00Z")).toISOString()).toBe(
+      "2026-11-06T12:15:00.000Z",
+    );
+  });
+
+  it("leaves an instant exactly on a quarter hour alone", () => {
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:30:00.000Z")).toISOString()).toBe(
+      "2026-11-06T12:30:00.000Z",
+    );
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:00:00.000Z")).toISOString()).toBe(
+      "2026-11-06T12:00:00.000Z",
+    );
+  });
+
+  it("rounds up even by a single millisecond or second past a quarter hour", () => {
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:45:00.001Z")).toISOString()).toBe(
+      "2026-11-06T13:00:00.000Z",
+    );
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:44:59.999Z")).toISOString()).toBe(
+      "2026-11-06T12:45:00.000Z",
+    );
+    expect(roundUpToQuarterHour(new Date("2026-11-06T12:30:01Z")).toISOString()).toBe(
+      "2026-11-06T12:45:00.000Z",
+    );
+  });
+
+  it("carries across midnight into the next day", () => {
+    expect(roundUpToQuarterHour(new Date("2026-11-06T23:50:00Z")).toISOString()).toBe(
+      "2026-11-07T00:00:00.000Z",
+    );
   });
 });
