@@ -3,8 +3,10 @@
  *
  * Core's tests never import a company pack (the pack depends on core, not the
  * other way round), so they get their own world here. It mirrors scenario 1,
- * a verified caller in Batasan Hills, where a fiber cut is in progress, and
- * scenario 2, a caller in Commonwealth whose GCash payment has not posted.
+ * a verified caller in Batasan Hills, where a fiber cut is in progress;
+ * scenario 2, a caller in Commonwealth whose GCash payment has not posted; and
+ * scenario 3, a caller in San Antonio whose line has lost signal, which a
+ * remote reboot does not fix. Jose's modem has hung, which a reboot does fix.
  *
  * Test-only. Nothing outside `*.test.ts` files imports this module.
  */
@@ -29,12 +31,19 @@ export const JOSE = {
 /** The reference of Jose's GCash payment, which has not posted. */
 export const JOSE_GCASH_REFERENCE = "1234567890123";
 
+/** Ana's account: San Antonio, no outage, a line with high signal loss. Scenario 3's caller. */
+export const ANA = {
+  accountNumber: "8012345603",
+  mobileLast4: "0103",
+} as const;
+
 /** A fresh copy on every call, so no test can leak state into another. */
 export function testWorld(): SeedWorld {
   return {
     barangays: [
       { id: "batasan-hills", name: "Batasan Hills", city: "Quezon City" },
       { id: "commonwealth", name: "Commonwealth", city: "Quezon City" },
+      { id: "san-antonio", name: "San Antonio", city: "Pasig" },
     ],
     accounts: [
       {
@@ -52,6 +61,14 @@ export function testWorld(): SeedWorld {
         status: "active",
         planName: "Kidlat 100",
         barangayId: "commonwealth",
+      },
+      {
+        accountNumber: ANA.accountNumber,
+        holderName: "Ana Reyes",
+        registeredMobile: "+639175550103",
+        status: "active",
+        planName: "Kidlat 500",
+        barangayId: "san-antonio",
       },
     ],
     outages: [
@@ -115,7 +132,36 @@ export function testWorld(): SeedWorld {
         posted: false,
       },
     ],
-    modems: [],
+    // Maria has none on record: her area has the outage.
+    modems: [
+      {
+        accountNumber: JOSE.accountNumber,
+        status: "degraded",
+        receivedPowerDbm: -19.5,
+        // Last seen 12:55 PM.
+        lastSeenMinutesBeforeCall: 5,
+        fault: "the modem has hung and is not passing traffic",
+        rebootMayClear: true,
+        restartSeconds: 60,
+        afterReboot: { status: "online", receivedPowerDbm: -19.4, fault: null, rebootMayClear: false },
+      },
+      {
+        accountNumber: ANA.accountNumber,
+        status: "degraded",
+        receivedPowerDbm: -28.4,
+        // Last seen 12:58 PM.
+        lastSeenMinutesBeforeCall: 2,
+        fault: "high signal loss on the fiber line",
+        rebootMayClear: true,
+        restartSeconds: 90,
+        afterReboot: {
+          status: "degraded",
+          receivedPowerDbm: -28.3,
+          fault: "high signal loss on the fiber line",
+          rebootMayClear: false,
+        },
+      },
+    ],
     technicianSlots: [],
   };
 }

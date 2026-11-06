@@ -9,7 +9,7 @@ import { buildTalaRegistry } from "./index";
 
 /**
  * Tala's tool set, as the call session builds it. Boot validation is the
- * engine's (`agent/registry`); this pins what #5 and #10 register.
+ * engine's (`agent/registry`); this pins what #5, #10 and #11 register.
  */
 
 describe("buildTalaRegistry", () => {
@@ -17,7 +17,7 @@ describe("buildTalaRegistry", () => {
     expect(() => buildTalaRegistry()).not.toThrow();
   });
 
-  it("holds exactly the tools #5 and #10 add", () => {
+  it("holds exactly the tools #5, #10 and #11 add", () => {
     const names = buildTalaRegistry()
       .list()
       .map((tool) => tool.name);
@@ -28,6 +28,7 @@ describe("buildTalaRegistry", () => {
       "end_call",
       "get_account_overview",
       "get_billing_history",
+      "run_line_diagnostics",
       "send_sms",
       "verify_identity",
       "verify_payment",
@@ -47,6 +48,7 @@ describe("buildTalaRegistry", () => {
       get_account_overview: "read",
       get_billing_history: "read",
       verify_payment: "read",
+      run_line_diagnostics: "read",
       create_trouble_ticket: "auto_write",
       send_sms: "auto_write",
       end_call: "auto_write",
@@ -88,6 +90,7 @@ describe("the account gate, on every account tool", () => {
     verify_payment: { reference: "1234567890123" },
     create_trouble_ticket: { category: "billing", notes: "A payment has not posted yet." },
     send_sms: { message: "Salamat po." },
+    run_line_diagnostics: { account_number: "8012345601" },
   };
 
   const accountTools = buildTalaRegistry()
