@@ -553,6 +553,137 @@ describe("streamingMessageCreator — a turn a server-side fallback served", () 
     ]);
   });
 
+  /**
+   * The claude-api skill, refusal section, "Echoing fallback turns back":
+   * after a mid-output fallback, thinking, redacted_thinking and tool_use
+   * blocks (and any other model-internal block) that came before the final
+   * `fallback` block are left out when the turn goes back; text and
+   * everything after the boundary go back as they came. The SDK's
+   * `BetaFallbackBlockParam`: keep the `fallback` block in its original
+   * position, and send no tool_result for a tool_use left out.
+   *
+   * So the creator returns the turn as it can go back, and the conversation
+   * stays append-only: nothing downstream ever holds the declined attempt's
+   * thinking or a tool call it never stood behind.
+   */
+  it("returns a turn a fallback took over mid-stream as it can go back to the API", async () => {
+    const transport = scriptedTransport([
+      betaMessageStart(REQUESTED),
+      startThinking(0),
+      thinkingDelta(0, "Check the account first."),
+      signatureDelta(0, "sig_declined"),
+      stopBlock(0),
+      startText(1),
+      textDelta(1, "Sige po, "),
+      stopBlock(1),
+      startToolUse(2, "toolu_declined", "check_area_outage"),
+      inputJson(2, '{"account_number": "8012345601"}'),
+      stopBlock(2),
+      startFallback(3, REQUESTED, FALLBACK_MODEL),
+      stopBlock(3),
+      startThinking(4),
+      thinkingDelta(4, "Verify first."),
+      signatureDelta(4, "sig_served"),
+      stopBlock(4),
+      startText(5),
+      textDelta(5, "iche-check ko po."),
+      stopBlock(5),
+      startToolUse(6, "toolu_served", "verify_identity"),
+      inputJson(6, '{"account_number": "8012345601"}'),
+      stopBlock(6),
+      betaMessageDelta("tool_use", 120, [
+        attempt("message", REQUESTED, 2400, 40),
+        attempt("fallback_message", FALLBACK_MODEL, 2400, 80),
+      ]),
+      messageStop(),
+    ]);
+
+    const turn = await streamingMessageCreator(clientOver(transport))({ ...PARAMS, model: REQUESTED });
+
+    expect(JSON.parse(JSON.stringify(turn.content))).toEqual([
+      { type: "text", text: "Sige po, ", citations: null },
+      {
+        type: "fallback",
+        from: { model: REQUESTED },
+        to: { model: FALLBACK_MODEL },
+        trigger: { type: "refusal", category: "cyber" },
+      },
+      { type: "thinking", thinking: "Verify first.", signature: "sig_served" },
+      { type: "text", text: "iche-check ko po.", citations: null },
+      {
+        type: "tool_use",
+        id: "toolu_served",
+        name: "verify_identity",
+        input: { account_number: "8012345601" },
+        caller: { type: "direct" },
+      },
+    ]);
+  });
+
+  it("leaves out what came before the final boundary only, keeping every fallback block in place", async () => {
+    const SECOND = "claude-opus-4-8";
+    const transport = scriptedTransport([
+      betaMessageStart(REQUESTED),
+      startText(0),
+      textDelta(0, "Opo, "),
+      stopBlock(0),
+      startFallback(1, REQUESTED, FALLBACK_MODEL),
+      stopBlock(1),
+      startThinking(2),
+      thinkingDelta(2, "Hmm."),
+      signatureDelta(2, "sig_middle"),
+      stopBlock(2),
+      startText(3),
+      textDelta(3, "sandali "),
+      stopBlock(3),
+      startFallback(4, FALLBACK_MODEL, SECOND),
+      stopBlock(4),
+      startText(5),
+      textDelta(5, "lang po."),
+      stopBlock(5),
+      betaMessageDelta("end_turn", 30, [
+        attempt("message", REQUESTED, 2400, 5),
+        attempt("message", FALLBACK_MODEL, 2400, 10),
+        attempt("fallback_message", SECOND, 2400, 15),
+      ]),
+      messageStop(),
+    ]);
+
+    const turn = await streamingMessageCreator(clientOver(transport))({ ...PARAMS, model: REQUESTED });
+
+    expect(turn.content.map((b) => b.type)).toEqual(["text", "fallback", "text", "fallback", "text"]);
+    expect(turn.model).toBe(SECOND);
+  });
+
+  it("returns an interrupted turn a fallback took over as it can go back too", async () => {
+    const transport = scriptedTransport([
+      betaMessageStart(REQUESTED),
+      startThinking(0),
+      thinkingDelta(0, "Check the account first."),
+      signatureDelta(0, "sig_declined"),
+      stopBlock(0),
+      startText(1),
+      textDelta(1, "Sige po, "),
+      stopBlock(1),
+      startFallback(2, REQUESTED, FALLBACK_MODEL),
+      stopBlock(2),
+      startText(3),
+      textDelta(3, "iche-check"),
+      PAUSE,
+    ]);
+    const controller = new AbortController();
+    const pending = streamingMessageCreator(clientOver(transport))(
+      { ...PARAMS, model: REQUESTED },
+      { signal: controller.signal },
+    );
+    await transport.paused;
+    controller.abort();
+
+    const turn = await settlesSoon(pending);
+
+    expect(turn.content.map((b) => b.type)).toEqual(["text", "fallback", "text"]);
+  });
+
   it("says which model was writing when the caller interrupted a turn a fallback served", async () => {
     const transport = scriptedTransport([
       betaMessageStart(REQUESTED),

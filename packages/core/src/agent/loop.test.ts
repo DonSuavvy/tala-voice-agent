@@ -18,6 +18,7 @@ import {
   type ToolContext,
   type ToolDefinition,
 } from "./registry";
+import { spanToRow } from "./trace";
 
 import { z } from "zod";
 
@@ -1406,6 +1407,134 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
       cacheReadInputTokens: 0,
     });
     expect(result.usage).toMatchObject({ inputTokens: 20, outputTokens: 10 });
+  });
+
+  /** A switch point, as the API marks one in `content`. */
+  const switched = (from: string, to: string): ContentBlock => ({
+    type: "fallback",
+    from: { model: from },
+    to: { model: to },
+    trigger: { type: "refusal", category: "cyber" },
+  });
+
+  const servedByFallback = (content: ContentBlock[], over: Partial<AssistantTurn> = {}) =>
+    turn(content, {
+      model: FALLBACK,
+      usage: {
+        ...usage(),
+        iterations: [attempt("message", REQUESTED, 10, 0), attempt("fallback_message", FALLBACK, 10, 10)],
+      },
+      ...over,
+    });
+
+  it("records a fallback turn on its llm_call span: the model requested, the one that declined, the one that served", async () => {
+    const { input, spans } = loopInput(
+      [servedByFallback([switched(REQUESTED, FALLBACK), { type: "text", text: "Opo." }])],
+      { model: REQUESTED },
+    );
+
+    await runAgentLoop(input);
+
+    expect(spans[0].name).toBe(REQUESTED);
+    expect(spans[0].output).toEqual({
+      stop_reason: "end_turn",
+      blocks: ["fallback", "text"],
+      fallback: { requested: REQUESTED, declined: [REQUESTED], servedBy: FALLBACK },
+    });
+  });
+
+  /**
+   * Sticky routing: once a conversation has fallen back, later requests can
+   * go straight to the fallback model, and such a turn carries no `fallback`
+   * block. `usage.iterations` is the served-by signal (claude-api skill).
+   */
+  it("records a sticky turn, which carries no fallback block, from usage.iterations", async () => {
+    const { input, spans } = loopInput(
+      [
+        turn([{ type: "text", text: "Opo." }], {
+          model: FALLBACK,
+          usage: { ...usage(), iterations: [attempt("fallback_message", FALLBACK, 10, 10)] },
+        }),
+      ],
+      { model: REQUESTED },
+    );
+
+    await runAgentLoop(input);
+
+    expect((spans[0].output as Record<string, unknown>).fallback).toEqual({
+      requested: REQUESTED,
+      declined: [],
+      servedBy: FALLBACK,
+    });
+  });
+
+  it("records no fallback on a turn the requested model served", async () => {
+    const { input, spans } = loopInput(
+      [
+        turn([{ type: "text", text: "Opo." }], {
+          model: REQUESTED,
+          usage: { ...usage(), iterations: [attempt("message", REQUESTED, 10, 10)] },
+        }),
+      ],
+      { model: REQUESTED },
+    );
+
+    await runAgentLoop(input);
+
+    expect(spans[0].output).toEqual({ stop_reason: "end_turn", blocks: ["text"] });
+  });
+
+  it("carries the record into the span's row, for the console", async () => {
+    const { input, spans } = loopInput(
+      [servedByFallback([switched(REQUESTED, FALLBACK), { type: "text", text: "Opo." }])],
+      { model: REQUESTED },
+    );
+
+    await runAgentLoop(input);
+    const row = spanToRow({ workspaceId: "ws_1", runId: "run_1" }, spans[0]);
+
+    expect((row.output as Record<string, unknown>).fallback).toEqual({
+      requested: REQUESTED,
+      declined: [REQUESTED],
+      servedBy: FALLBACK,
+    });
+  });
+
+  /**
+   * The conversation stays append-only (the 5.5 models' preserved thinking),
+   * and the SDK's `BetaFallbackBlockParam` asks for the block to go back in
+   * its original position: the server validates the turn against it.
+   */
+  it("keeps the fallback block in the conversation where it came, for the next request", async () => {
+    const served = [switched(REQUESTED, FALLBACK), toolUse("search_knowledge_base", { q: "outage" })];
+    const { input, client } = loopInput([servedByFallback(served), resolveTurn()], {
+      model: REQUESTED,
+    });
+
+    await runAgentLoop(input);
+
+    expect(client.calls[1].messages.at(-2)).toEqual({ role: "assistant", content: served });
+  });
+
+  it("still refuses when the whole chain refused, and records every model on the span", async () => {
+    const { input, spans } = loopInput(
+      [
+        servedByFallback([switched(REQUESTED, FALLBACK)], {
+          stop_reason: "refusal",
+          stop_details: { type: "refusal", category: "cyber" },
+        }),
+      ],
+      { model: REQUESTED },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("refused");
+    expect((spans[0].output as Record<string, unknown>).fallback).toEqual({
+      requested: REQUESTED,
+      declined: [REQUESTED],
+      servedBy: FALLBACK,
+    });
   });
 
   it("books an interrupted turn a fallback served at its model's price when that tops the estimate", async () => {

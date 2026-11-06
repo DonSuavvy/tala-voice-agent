@@ -673,6 +673,102 @@ describe("a call session — a turn a server-side fallback served", () => {
     expect(llmSpans(events)[0].costNanos).toBe(160_000);
     expect(llmSpans(events)[0].estimated).toBe(false);
   });
+
+  const REQUESTED = "claude-opus-5-5";
+  const FALLBACK = "claude-opus-5";
+  const switched: ContentBlock = {
+    type: "fallback",
+    from: { model: REQUESTED },
+    to: { model: FALLBACK },
+    trigger: { type: "refusal", category: "cyber" },
+  };
+  const servedByFallback = (content: ContentBlock[], over: Partial<AssistantTurn> = {}) =>
+    turn(content, {
+      model: FALLBACK,
+      usage: {
+        ...usage,
+        iterations: [attempt("message", REQUESTED, 10, 0), attempt("fallback_message", FALLBACK, 10, 10)],
+      },
+      ...over,
+    });
+
+  it("keeps the pin on the requested model, and the call record says which turn a fallback served", async () => {
+    const served = [switched, text("Opo, may outage po.")];
+    const { session, events, claude } = newCall(
+      [turn([text("Ano po ang account number ninyo?")]), servedByFallback(served), turn([text("Sige po.")])],
+      { model: "opus" },
+    );
+    session.start();
+
+    await session.callerSaid("Wala po kaming internet.");
+    await session.callerSaid("May outage po ba?");
+    await session.callerSaid("Salamat po.");
+
+    expect(session.pin).toMatchObject({ model: "opus", modelId: REQUESTED });
+    const spans = llmSpans(events);
+    expect(spans.map((s) => (s.output as Record<string, unknown>).fallback ?? null)).toEqual([
+      null,
+      { requested: REQUESTED, declined: [REQUESTED], servedBy: FALLBACK },
+      null,
+    ]);
+    // Said like any turn, and kept in the conversation as it came.
+    expect(events).toContainEqual({ type: "speech", text: "Opo, may outage po." });
+    expect(claude.requests[2].messages.at(-2)).toEqual({ role: "assistant", content: served });
+  });
+
+  it("says the fallback line and ends the call when the whole chain refuses", async () => {
+    const { session, events, pack } = newCall(
+      [
+        servedByFallback([switched, text("partial")], {
+          stop_reason: "refusal",
+          stop_details: { type: "refusal", category: "cyber" },
+        }),
+      ],
+      { model: "opus" },
+    );
+    session.start();
+    events.length = 0;
+
+    const ended = await session.callerSaid("Hello?");
+
+    expect(ended).toBe("ended");
+    expect(events.filter((e) => e.type === "speech")).toEqual([
+      { type: "speech", text: pack.persona.fallbackLine },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: "call_ended", reason: "refused", pin: { modelId: REQUESTED } });
+    expect((llmSpans(events)[0].output as Record<string, unknown>).fallback).toEqual({
+      requested: REQUESTED,
+      declined: [REQUESTED],
+      servedBy: FALLBACK,
+    });
+  });
+
+  /**
+   * ADR 4's cut, across a fallback boundary: the block is not text, so it
+   * stays while the caller heard past it, and goes with everything after a
+   * cut that falls before it.
+   */
+  it("keeps the fallback block when the caller heard past it, and cuts after what they heard", async () => {
+    const call = interruptWhen(
+      [
+        { parts: [say("Sige po, "), switched, say("iche-check ", "ko po.")] },
+        { parts: [say("Ano po ulit?")] },
+      ],
+      nthDelta(2),
+      "Sige po, iche-check",
+    );
+    call.session.start();
+
+    await call.session.callerSaid("May outage po ba?");
+    await call.session.callerSaid("Ha?");
+
+    expect(call.claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      // What streamed before the abort landed; the rest of the block never came.
+      content: [{ type: "text", text: "Sige po, " }, switched, { type: "text", text: "iche-check " }],
+    });
+    expectValidConversation(call.claude);
+  });
 });
 
 /* -------------------------------------------------------------------------- */
