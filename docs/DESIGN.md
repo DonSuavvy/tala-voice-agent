@@ -84,6 +84,7 @@ Every call is pinned to the SOP version it ran with. A bank or e-wallet would be
   - She uses "po/opo" and speaks English-led Taglish: English sentences with Tagalog mixed in, the way Filipino call center agents talk. English-only callers get English; callers who speak only Tagalog or don't follow English get more Tagalog. (Changed 2026-11-06 after the first live calls, where mirroring a Taglish caller made her mostly Tagalog.)
   - She keeps replies to 1–2 sentences and says fillers while tools run ("Sandali lang po, let me check"). Short never means silent: there is a line before every tool call and a goodbye before she hangs up. (Added 2026-11-06: the first brisk wording made her skip both after terse caller lines.)
   - If the model calls a tool without saying anything, the session says the pack's fixed filler line first; if it ends the call without a goodbye, the fixed closing line (ADR 5, 2026-11-06, pulled forward from #8 after the eval gate failed on a silent tool call).
+  - `check_area_outage` rounds an estimated restoration time up to the next quarter hour, so Tala never promises a time earlier than the estimate (#36, after review round 4 saw her round 10:47 PM down to 10:45).
 - **Opening line (Q21):** before anything else, Tala says she is an AI assistant and that the call is recorded for quality.
 - **Call limit (Q31):** 3 minutes on the public demo. Tala gives a 30-second warning and wraps up politely.
 
