@@ -1537,6 +1537,50 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
     });
   });
 
+  /**
+   * Found live (#35): with `fallbacks` on, an ordinary turn carries one
+   * `message` iteration whose `model` is null. That attempt is the requested
+   * model's, and booking it at the ceiling over-counted every turn.
+   */
+  it("prices an ordinary turn whose one attempt names no model at the requested model's card", async () => {
+    const { input, spans } = loopInput(
+      [
+        turn([{ type: "text", text: "Opo." }], {
+          model: REQUESTED,
+          usage: { ...usage(), iterations: [attempt("message", null, 10, 10)] },
+        }),
+      ],
+      { model: REQUESTED },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(spans[0].costNanos).toBe(TURN_NANOS);
+    expect(spans[0].estimated).toBe(false);
+    expect(result.estimated).toBe(false);
+  });
+
+  it("prices the requested model's unnamed attempt at its card in a turn a fallback served", async () => {
+    const { input, spans } = loopInput(
+      [
+        turn([{ type: "text", text: "Opo." }], {
+          model: FALLBACK,
+          usage: {
+            ...usage(),
+            iterations: [attempt("message", null, 10, 0), attempt("fallback_message", FALLBACK, 10, 10)],
+          },
+        }),
+      ],
+      { model: REQUESTED },
+    );
+
+    await runAgentLoop(input);
+
+    // 10 * 1000 on the requested card, 10 * 10_000 + 10 * 50_000 at the ceiling.
+    expect(spans[0].costNanos).toBe(610_000);
+    expect(spans[0].estimated).toBe(true);
+  });
+
   it("books an interrupted turn a fallback served at its model's price when that tops the estimate", async () => {
     const { input, spans } = loopInput(
       [

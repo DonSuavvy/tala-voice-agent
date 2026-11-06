@@ -635,13 +635,44 @@ describe("a call session — a turn a server-side fallback served", () => {
   const llmSpans = (events: CallEvent[]) =>
     events.flatMap((e) => (e.type === "span" && e.span.type === "llm_call" ? [e.span] : []));
 
-  const attempt = (type: string, model: string, input_tokens: number, output_tokens: number) => ({
+  const attempt = (type: string, model: string | null, input_tokens: number, output_tokens: number) => ({
     type,
     model,
     input_tokens,
     output_tokens,
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: 0,
+  });
+
+  /**
+   * The regression the live check found (#35): Sonnet passed verify:first-call
+   * at $0.22 instead of about $0.02. With `fallbacks` on, an ordinary turn
+   * carries one `message` iteration with `model: null`, and that was booked at
+   * the ceiling. It is the pinned model's attempt, priced at its card.
+   */
+  it("prices an ordinary turn on the pinned model's card, as the live API reports it", async () => {
+    const { session, events } = newCall(
+      [
+        turn([text("Opo.")], {
+          model: "claude-sonnet-5-5",
+          usage: {
+            input_tokens: 16,
+            output_tokens: 11,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            iterations: [attempt("message", null, 16, 11)],
+          },
+        }),
+      ],
+      { model: "sonnet" },
+    );
+    session.start();
+
+    await session.callerSaid("Hello?");
+
+    // 16 * 2000 + 11 * 10_000 on Sonnet 5.5's card.
+    expect(llmSpans(events)[0].costNanos).toBe(142_000);
+    expect(llmSpans(events)[0].estimated).toBe(false);
   });
 
   /**

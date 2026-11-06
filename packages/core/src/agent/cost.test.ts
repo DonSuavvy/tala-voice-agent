@@ -390,11 +390,16 @@ describe("UNKNOWN_MODEL_CEILING", () => {
  * attempt that produced the message (claude-api skill, refusal section,
  * "Billing"), so each attempt is priced at its own model's card and summed.
  * Without iterations, the turn is priced at the model that produced it.
+ *
+ * An attempt that names no model was found live (2026-11-06, #35): with
+ * `fallbacks` on, an ordinary Sonnet 5.5 turn came back with one `message`
+ * iteration whose `model` is null. That attempt is the requested model's.
+ * Booking it at the ceiling over-counted every ordinary turn about 11 times.
  */
 describe("costOfTurn", () => {
   /** Prices the 5.5 models from the table, and anything else at the ceiling. */
-  const cardFor = (modelId: string | null): RateCard =>
-    modelId !== null && Object.hasOwn(ANTHROPIC_RATES, modelId)
+  const cardFor = (modelId: string): RateCard =>
+    Object.hasOwn(ANTHROPIC_RATES, modelId)
       ? ANTHROPIC_RATES[modelId as keyof typeof ANTHROPIC_RATES]
       : UNKNOWN_MODEL_CEILING;
 
@@ -406,13 +411,56 @@ describe("costOfTurn", () => {
     ...over,
   });
 
+  /** An attempt with no cache traffic. */
+  const attempt = (
+    type: "message" | "fallback_message",
+    model: string | null,
+    input_tokens: number,
+    output_tokens: number,
+  ) => ({
+    type,
+    model,
+    input_tokens,
+    output_tokens,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  });
+
   it("prices a turn with no iterations at the card of the model that produced it", () => {
-    const c = costOfTurn(wire({ input_tokens: 1_000, output_tokens: 100 }), "claude-sonnet-5-5", cardFor);
+    const c = costOfTurn(
+      wire({ input_tokens: 1_000, output_tokens: 100 }),
+      { requested: "claude-sonnet-5-5", servedBy: "claude-sonnet-5-5" },
+      cardFor,
+    );
 
     // 1000 * 2000 + 100 * 10_000
     expect(c.totalNanos).toBe(3_000_000);
     expect(c.estimated).toBe(false);
     expect(c.usage).toEqual(usage({ inputTokens: 1_000, outputTokens: 100 }));
+  });
+
+  it("prices a turn with no iterations and no model of its own at the requested model's card", () => {
+    const c = costOfTurn(
+      wire({ input_tokens: 1_000 }),
+      { requested: "claude-opus-5-5", servedBy: null },
+      cardFor,
+    );
+
+    expect(c.totalNanos).toBe(4_000_000);
+    expect(c.estimated).toBe(false);
+  });
+
+  /** The live shape, verbatim in its counts. */
+  it("prices an ordinary turn's one unnamed `message` attempt at the requested model's card", () => {
+    const c = costOfTurn(
+      wire({ input_tokens: 16, output_tokens: 11, iterations: [attempt("message", null, 16, 11)] }),
+      { requested: "claude-sonnet-5-5", servedBy: "claude-sonnet-5-5" },
+      cardFor,
+    );
+
+    // 16 * 2000 + 11 * 10_000, on Sonnet 5.5's card: measured, not estimated.
+    expect(c.totalNanos).toBe(142_000);
+    expect(c.estimated).toBe(false);
   });
 
   it("prices each attempt at its own model's card and sums them, ignoring the top-level usage", () => {
@@ -441,7 +489,7 @@ describe("costOfTurn", () => {
           },
         ],
       }),
-      "claude-sonnet-5-5",
+      { requested: "claude-opus-5-5", servedBy: "claude-sonnet-5-5" },
       cardFor,
     );
 
@@ -465,21 +513,35 @@ describe("costOfTurn", () => {
     );
   });
 
-  it("books an attempt by a model with no card at the ceiling, and marks the turn estimated", () => {
+  /**
+   * After a fallback, `response.model` names the model that served; the
+   * unnamed `message` attempt before it is still the requested model's.
+   * (The serving model here has a card of its own so the two prices differ.)
+   */
+  it("prices the requested model's unnamed attempt at its card after a fallback, not the serving model's", () => {
     const c = costOfTurn(
       wire({
         iterations: [
+          { ...attempt("message", null, 1_000, 40), cache_read_input_tokens: 2_000 },
           {
-            type: "fallback_message",
-            model: "claude-opus-5",
-            input_tokens: 1_000,
-            output_tokens: 100,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
+            ...attempt("fallback_message", "claude-sonnet-5-5", 1_000, 200),
+            cache_creation_input_tokens: 500,
           },
         ],
       }),
-      "claude-opus-5",
+      { requested: "claude-opus-5-5", servedBy: "claude-sonnet-5-5" },
+      cardFor,
+    );
+
+    // As above: 5_200_000 on Opus 5.5's card, 5_250_000 on Sonnet 5.5's.
+    expect(c.totalNanos).toBe(10_450_000);
+    expect(c.estimated).toBe(false);
+  });
+
+  it("books an attempt by a model with no card at the ceiling, and marks the turn estimated", () => {
+    const c = costOfTurn(
+      wire({ iterations: [attempt("fallback_message", "claude-opus-5", 1_000, 100)] }),
+      { requested: "claude-opus-5-5", servedBy: "claude-opus-5" },
       cardFor,
     );
 
@@ -488,32 +550,25 @@ describe("costOfTurn", () => {
     expect(c.estimated).toBe(true);
   });
 
-  it("books an attempt that names no model at the ceiling", () => {
+  /** Never seen live: the attempt that served has always named its model. */
+  it("books a `fallback_message` attempt that names no model at the ceiling, marked estimated", () => {
     const c = costOfTurn(
       wire({
-        iterations: [
-          {
-            type: "message",
-            model: null,
-            input_tokens: 10,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
-        ],
+        iterations: [attempt("message", null, 10, 0), attempt("fallback_message", null, 10, 0)],
       }),
-      "claude-opus-5-5",
+      { requested: "claude-opus-5-5", servedBy: null },
       cardFor,
     );
 
-    expect(c.totalNanos).toBe(100_000);
+    // 10 * 4000 for the requested model's attempt, 10 * 10_000 at the ceiling.
+    expect(c.totalNanos).toBe(140_000);
     expect(c.estimated).toBe(true);
   });
 
   it("never prices an empty iterations list as free: it falls back to the top-level usage", () => {
     const c = costOfTurn(
       wire({ input_tokens: 1_000, iterations: [] }),
-      "claude-opus-5-5",
+      { requested: "claude-opus-5-5", servedBy: "claude-opus-5-5" },
       cardFor,
     );
 
@@ -524,25 +579,11 @@ describe("costOfTurn", () => {
     const c = costOfTurn(
       wire({
         iterations: [
-          {
-            type: "message",
-            model: "claude-haiku-5-5",
-            input_tokens: 100_001,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
-          {
-            type: "message",
-            model: "claude-haiku-5-5",
-            input_tokens: 100_000,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
+          attempt("message", "claude-haiku-5-5", 100_001, 0),
+          attempt("message", "claude-haiku-5-5", 100_000, 0),
         ],
       }),
-      "claude-haiku-5-5",
+      { requested: "claude-haiku-5-5", servedBy: "claude-haiku-5-5" },
       cardFor,
     );
 
@@ -554,7 +595,7 @@ describe("costOfTurn", () => {
   it("applies the cache TTL to every attempt", () => {
     const c = costOfTurn(
       wire({ cache_creation_input_tokens: 1_000 }),
-      "claude-opus-5-5",
+      { requested: "claude-opus-5-5", servedBy: "claude-opus-5-5" },
       cardFor,
       { cacheTtl: "1h" },
     );
