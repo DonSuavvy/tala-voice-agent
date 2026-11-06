@@ -1,155 +1,127 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import {
-  DEFAULT_POLICY,
-  MAX_REFUND_CEILING_CENTS,
-  MAX_REFUND_WINDOW_DAYS,
-} from "@/policy/refund";
-
-import { UnknownPlaceholderError } from "./sop";
+import { formatMoney, UnknownPlaceholderError, type SopRenderers } from "./sop";
 import { SopDraftError, validateSopDraft } from "./sop-draft";
 
 /**
- * The editor is the first thing that writes to `sop_versions`, which makes it
- * the first untrusted writer to the column `issue_refund` revalidates against.
- * Everything the boot validator does for tools, this does for policy — and it
- * has to happen *before* the row is written, because an activated version is
- * the live system prompt the moment it lands.
+ * Checking an SOP and its policy before they become the live prompt: the
+ * tool registry's boot validation, applied to policy. A company pack runs it
+ * at boot, and any future editor runs it before saving.
  *
- * Two failure modes, both silent without this:
+ * Two failure modes, both silent without it:
  *
- * A typo'd placeholder (`{{refund.windowDay}}`) survives into the prompt as a
- * literal, which the model reads as an instruction nobody wrote.
+ * A typo'd placeholder survives into the prompt as a literal, which the model
+ * reads as an instruction nobody wrote.
  *
- * A well-formed policy with absurd figures parses fine — a $999,999.99 ceiling
- * is valid JSON and valid types. Round 4 caught exactly that, which is why the
- * absolute caps exist; the editor must enforce them at the door rather than
- * trusting whoever is typing.
+ * A well-formed policy with absurd figures parses fine. A ₱9,999,999 credit
+ * ceiling is valid JSON and valid types. OpsPilot's review Round 4 found
+ * exactly that, which is why a pack's policy schema carries absolute caps and
+ * this check runs the pack's parser rather than trusting the caller.
+ *
+ * The policy below is a test fixture, not Kidlat Fiber's real one.
  */
 
-const goodMarkdown = "Window is {{refund.windowDays}} days, cap {{refund.maxRefund}}.";
+const MAX_CREDIT_CEILING_MINOR = 500_000; // ₱5,000
+
+const fixturePolicySchema = z
+  .object({
+    credit: z
+      .object({
+        maxAutoApproveMinor: z.number().int().nonnegative(),
+        maxCreditMinor: z.number().int().positive().max(MAX_CREDIT_CEILING_MINOR),
+      })
+      .strict()
+      .refine((c) => c.maxAutoApproveMinor <= c.maxCreditMinor, {
+        message: "maxAutoApproveMinor must not exceed maxCreditMinor",
+      }),
+    outage: z
+      .object({ creditAfterHours: z.number().int().positive().max(168) })
+      .strict(),
+  })
+  .strict();
+
+type FixturePolicy = z.infer<typeof fixturePolicySchema>;
+
+const DEFAULT: FixturePolicy = {
+  credit: { maxAutoApproveMinor: 20_000, maxCreditMinor: 150_000 },
+  outage: { creditAfterHours: 24 },
+};
+
+const PESO = { code: "PHP", locale: "en-PH" } as const;
+
+const PACK = {
+  parsePolicy: (raw: unknown) => fixturePolicySchema.parse(raw),
+  renderers: {
+    "credit.maxCredit": (p) => formatMoney(p.credit.maxCreditMinor, PESO),
+    "outage.creditAfterHours": (p) => String(p.outage.creditAfterHours),
+  } satisfies SopRenderers<FixturePolicy>,
+};
+
+const goodMarkdown =
+  "Credit after {{outage.creditAfterHours}} hours, up to {{credit.maxCredit}}.";
+
+function draft(policyConfig: unknown, bodyMarkdown = goodMarkdown) {
+  return validateSopDraft({ bodyMarkdown, policyConfig }, PACK);
+}
 
 describe("validateSopDraft", () => {
   it("returns the parsed draft when markdown and policy are both sound", () => {
-    const draft = validateSopDraft({
-      bodyMarkdown: goodMarkdown,
-      policyConfig: DEFAULT_POLICY,
-    });
+    const result = draft(DEFAULT);
 
-    expect(draft.policyConfig.refund.windowDays).toBe(30);
-    expect(draft.bodyMarkdown).toBe(goodMarkdown);
+    expect(result.policyConfig.outage.creditAfterHours).toBe(24);
+    expect(result.bodyMarkdown).toBe(goodMarkdown);
   });
 
-  it("accepts the window flip that demo arc step 2 depends on", () => {
-    const draft = validateSopDraft({
-      bodyMarkdown: goodMarkdown,
-      policyConfig: {
-        ...DEFAULT_POLICY,
-        refund: { ...DEFAULT_POLICY.refund, windowDays: 14 },
-      },
-    });
+  it("returns the markdown unsubstituted, so the stored document keeps its placeholders", () => {
+    expect(draft(DEFAULT).bodyMarkdown).toContain("{{credit.maxCredit}}");
+  });
 
-    expect(draft.policyConfig.refund.windowDays).toBe(14);
+  it("accepts a changed figure within the caps", () => {
+    const result = draft({ ...DEFAULT, outage: { creditAfterHours: 12 } });
+    expect(result.policyConfig.outage.creditAfterHours).toBe(12);
   });
 
   /**
-   * The compile has to run at save time, not at request time. Deferring it
-   * means the bad version is already active and every run fails until someone
-   * edits it back — with the failure surfacing in the agent loop, far from the
+   * The compile is rehearsed here, at the door, not at request time. Deferring
+   * it means a bad version is already live and every call fails, far from the
    * edit that caused it.
    */
-  it("rejects an unknown placeholder before the version is written", () => {
-    expect(() =>
-      validateSopDraft({
-        bodyMarkdown: "window is {{refund.windowDay}} days",
-        policyConfig: DEFAULT_POLICY,
-      }),
-    ).toThrow(UnknownPlaceholderError);
+  it("rejects an unknown placeholder", () => {
+    expect(() => draft(DEFAULT, "after {{outage.creditAfterHour}} hours")).toThrow(
+      UnknownPlaceholderError,
+    );
   });
 
-  it("rejects a refund ceiling above the absolute cap", () => {
+  it("rejects a ceiling above the pack's absolute cap", () => {
     expect(() =>
-      validateSopDraft({
-        bodyMarkdown: goodMarkdown,
-        policyConfig: {
-          ...DEFAULT_POLICY,
-          refund: {
-            ...DEFAULT_POLICY.refund,
-            maxRefundCents: MAX_REFUND_CEILING_CENTS + 1,
-            maxAutoApproveCents: 1_000,
-          },
-        },
+      draft({
+        ...DEFAULT,
+        credit: { maxAutoApproveMinor: 1_000, maxCreditMinor: MAX_CREDIT_CEILING_MINOR + 1 },
       }),
     ).toThrow(SopDraftError);
   });
 
-  it("rejects a refund window beyond a year", () => {
+  it("rejects an auto-approve limit above the ceiling", () => {
     expect(() =>
-      validateSopDraft({
-        bodyMarkdown: goodMarkdown,
-        policyConfig: {
-          ...DEFAULT_POLICY,
-          refund: {
-            ...DEFAULT_POLICY.refund,
-            windowDays: MAX_REFUND_WINDOW_DAYS + 1,
-          },
-        },
+      draft({
+        ...DEFAULT,
+        credit: { maxAutoApproveMinor: 40_000, maxCreditMinor: 20_000 },
       }),
     ).toThrow(SopDraftError);
   });
 
-  /**
-   * The injection guardrail is pinned to the literal `true` in the type, so the
-   * compiler refuses `false` at every call site. The editor is the one place
-   * where the value arrives as untyped JSON from a form, so the check has to be
-   * a runtime one too — demo arc step 4 rests on it.
-   */
-  it("rejects a policy that switches off the injection guardrail", () => {
-    expect(() =>
-      validateSopDraft({
-        bodyMarkdown: goodMarkdown,
-        policyConfig: {
-          ...DEFAULT_POLICY,
-          escalation: {
-            ...DEFAULT_POLICY.escalation,
-            escalateOnSuspectedInjection: false as unknown as true,
-          },
-        },
-      }),
-    ).toThrow(SopDraftError);
-  });
-
-  it("rejects an auto-approve ceiling above the refund ceiling", () => {
-    expect(() =>
-      validateSopDraft({
-        bodyMarkdown: goodMarkdown,
-        policyConfig: {
-          ...DEFAULT_POLICY,
-          refund: {
-            ...DEFAULT_POLICY.refund,
-            maxAutoApproveCents: 40_000,
-            maxRefundCents: 20_000,
-          },
-        },
-      }),
-    ).toThrow(SopDraftError);
+  it("rejects a policy with a key the pack does not know", () => {
+    expect(() => draft({ ...DEFAULT, refund: { windowDays: 30 } })).toThrow(SopDraftError);
   });
 
   it("rejects an empty document rather than activating a blank prompt", () => {
-    expect(() =>
-      validateSopDraft({ bodyMarkdown: "   \n  ", policyConfig: DEFAULT_POLICY }),
-    ).toThrow(SopDraftError);
+    expect(() => draft(DEFAULT, "   \n  ")).toThrow(SopDraftError);
   });
 
   it("carries a message naming what to fix", () => {
-    expect(() =>
-      validateSopDraft({
-        bodyMarkdown: goodMarkdown,
-        policyConfig: {
-          ...DEFAULT_POLICY,
-          refund: { ...DEFAULT_POLICY.refund, windowDays: 9_999 },
-        },
-      }),
-    ).toThrow(/windowDays/);
+    expect(() => draft({ ...DEFAULT, outage: { creditAfterHours: 9_999 } })).toThrow(
+      /creditAfterHours/,
+    );
   });
 });
