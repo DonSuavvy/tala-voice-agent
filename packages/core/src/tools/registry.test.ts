@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { initialIdentityState } from "../policy/identity";
+import { createInMemorySystems } from "../systems/in-memory";
+import { CALL_STARTED_AT, testWorld } from "../testing/fixtures";
+
+import type { TalaToolContext } from "./context";
 import { buildTalaRegistry } from "./index";
 
 /**
  * Tala's tool set, as the call session builds it. Boot validation is the
- * engine's (`agent/registry`); this pins what #5 registers.
+ * engine's (`agent/registry`); this pins what #5 and #10 register.
  */
 
 describe("buildTalaRegistry", () => {
@@ -12,12 +17,36 @@ describe("buildTalaRegistry", () => {
     expect(() => buildTalaRegistry()).not.toThrow();
   });
 
-  it("holds exactly verify_identity, check_area_outage and end_call", () => {
+  it("holds exactly the tools #5 and #10 add", () => {
     const names = buildTalaRegistry()
       .list()
       .map((tool) => tool.name);
 
-    expect(names.sort()).toEqual(["check_area_outage", "end_call", "verify_identity"]);
+    expect(names.sort()).toEqual([
+      "check_area_outage",
+      "create_trouble_ticket",
+      "end_call",
+      "send_sms",
+      "verify_identity",
+      "verify_payment",
+    ]);
+  });
+
+  it("declares each tool's safety class", () => {
+    const classes = Object.fromEntries(
+      buildTalaRegistry()
+        .list()
+        .map((tool) => [tool.name, tool.safetyClass]),
+    );
+
+    expect(classes).toEqual({
+      verify_identity: "read",
+      check_area_outage: "read",
+      verify_payment: "read",
+      create_trouble_ticket: "auto_write",
+      send_sms: "auto_write",
+      end_call: "auto_write",
+    });
   });
 
   it("ends every call through end_call", () => {
@@ -38,4 +67,47 @@ describe("buildTalaRegistry", () => {
 
     expect(wire).not.toMatch(/kidlat/i);
   });
+});
+
+/**
+ * The account gate, across the whole registry: every tool but the one that
+ * verifies and the one that ends the call refuses before verification. A new
+ * tool has to be given a valid input here, so nobody adds an account tool
+ * without the gate being checked.
+ */
+describe("the account gate, on every account tool", () => {
+  const NOT_ACCOUNT_TOOLS = ["verify_identity", "end_call"];
+  const VALID_INPUT: Record<string, unknown> = {
+    check_area_outage: { account_number: "8012345601" },
+    verify_payment: { reference: "1234567890123" },
+    create_trouble_ticket: { category: "billing", notes: "A payment has not posted yet." },
+    send_sms: { message: "Salamat po." },
+  };
+
+  const accountTools = buildTalaRegistry()
+    .list()
+    .filter((tool) => !NOT_ACCOUNT_TOOLS.includes(tool.name));
+
+  it.each(accountTools.map((tool) => [tool.name, tool] as const))(
+    "%s refuses before the caller is verified",
+    async (name, tool) => {
+      const ctx: TalaToolContext = {
+        workspaceId: "test-isp",
+        runId: "call_1",
+        callId: "call_1",
+        now: CALL_STARTED_AT,
+        data: {
+          systems: createInMemorySystems(testWorld(), CALL_STARTED_AT),
+          identity: initialIdentityState(),
+          company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+        },
+        policyConfig: { identity: { maxFailedAttempts: 3 } },
+      };
+      expect(VALID_INPUT[name], `give ${name} a valid input here`).toBeDefined();
+
+      await expect(tool.handler(tool.input.parse(VALID_INPUT[name]), ctx)).rejects.toThrow(
+        /^Refused: the caller has not been verified on this call/,
+      );
+    },
+  );
 });
