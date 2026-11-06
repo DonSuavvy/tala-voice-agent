@@ -17,6 +17,8 @@
  *
  * No clock, no I/O: `now` is passed in.
  */
+import { instantOfWall, wallClock } from "../systems/local-time";
+import { SECOND_MS } from "../systems/time-units";
 
 export type PlanChangeKind = "upgrade" | "downgrade";
 
@@ -81,60 +83,6 @@ export function pricePlanChange(request: PlanChangeRequest): PlanChangePrice {
   };
 }
 
-interface WallClock {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-}
-
-const SECOND_MS = 1_000;
-
-/** What a wall clock in the time zone reads at this instant, to the second. */
-function wallClock(instant: Date, timeZone: string): WallClock {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  }).formatToParts(instant);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((p) => p.type === type)?.value);
-  return {
-    year: part("year"),
-    month: part("month"),
-    day: part("day"),
-    hour: part("hour"),
-    minute: part("minute"),
-    second: part("second"),
-  };
-}
-
-function wallAsUtc(wall: WallClock): number {
-  return Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
-}
-
-/** How far the zone's wall clock is ahead of UTC at this instant, in milliseconds. */
-function offsetAt(instant: Date, timeZone: string): number {
-  const whole = Math.floor(instant.getTime() / SECOND_MS) * SECOND_MS;
-  return wallAsUtc(wallClock(instant, timeZone)) - whole;
-}
-
-/** The instant the zone's wall clock reads `wall`. */
-function instantOfWall(wall: WallClock, timeZone: string): Date {
-  const asUtc = wallAsUtc(wall);
-  // Guess with the offset at the wall time read as UTC, then correct with the
-  // offset at the guess: right on both sides of a clock change.
-  const guess = asUtc - offsetAt(new Date(asUtc), timeZone);
-  return new Date(asUtc - offsetAt(new Date(guess), timeZone));
-}
-
 /** Days in a month, 1 to 12, of a year. */
 function daysIn(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -151,6 +99,5 @@ function oneMonthLater(instant: Date, timeZone: string): Date {
   const month = wall.month === 12 ? 1 : wall.month + 1;
   const day = Math.min(wall.day, daysIn(year, month));
   const later = instantOfWall({ ...wall, year, month, day }, timeZone);
-  const milliseconds = instant.getTime() - Math.floor(instant.getTime() / SECOND_MS) * SECOND_MS;
-  return new Date(later.getTime() + milliseconds);
+  return new Date(later.getTime() + (instant.getTime() % SECOND_MS));
 }
