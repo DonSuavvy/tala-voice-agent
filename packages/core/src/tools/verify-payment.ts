@@ -29,7 +29,7 @@ export const verifyPayment = defineTalaTool({
   description:
     "Looks up a payment the verified caller made, by the reference number the payment " +
     "channel gave them (GCash, Maya, bank, 7-Eleven or Bayad). Use it when a verified caller " +
-    "says a payment has not been posted or reflected. It searches only the account verified " +
+    "says a payment has not posted. It searches only the account verified " +
     "on this call with verify_identity. Returns found false when no payment of that account " +
     "has the reference: ask the caller to check the number, and never suggest it might be on " +
     "another account. When found, returns the channel, the amount and the time it was paid, " +
