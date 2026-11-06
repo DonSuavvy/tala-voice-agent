@@ -87,6 +87,7 @@ function seed(): SeedWorld {
         posted: false,
       },
     ],
+    modems: [],
   };
 }
 

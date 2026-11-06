@@ -5,13 +5,18 @@
  * fails at boot with a path, not mid-call. `./in-memory` then serves it as
  * `BusinessSystems`.
  *
- * Times (outages, due dates, disconnections, bills, payments) are stored
- * relative to the call's start, on purpose. A seed with absolute dates would
- * announce a restoration time that passed months ago the first time anyone ran
- * the demo. The in-memory world anchors the offsets to the moment the call
- * begins. Each offset's name says its direction (`...MinutesBeforeCall`,
- * `...MinutesAfterCall`), so none is ever negative, and each is bounded:
- * outages to 30 days, billing dates to 366. Money is whole minor units.
+ * Times (outages, due dates, disconnections, bills, payments, when a modem was
+ * last seen) are stored relative to the call's start, on purpose. A seed with
+ * absolute dates would announce a restoration time that passed months ago the
+ * first time anyone ran the demo. The in-memory world anchors the offsets to
+ * the moment the call begins. Each offset's name says its direction
+ * (`...MinutesBeforeCall`, `...MinutesAfterCall`), so none is ever negative,
+ * and each is bounded: outages and modems to 30 days, billing dates to 366.
+ * Money is whole minor units.
+ *
+ * A modem entry is the network's own diagnosis of an account's connection and
+ * what a remote reboot does to it, as data: no code turns a signal level into
+ * a verdict.
  *
  * Cross-references (unique ids and references, every barangay and account
  * named is declared) are checked in a refinement with one issue per broken
@@ -28,7 +33,7 @@
  */
 import { z } from "zod";
 
-import { PAYMENT_CHANNELS } from "./types";
+import { MODEM_STATUSES, PAYMENT_CHANNELS } from "./types";
 
 const nonEmpty = z.string().min(1);
 
@@ -116,6 +121,44 @@ const paymentSchema = z
   })
   .strict();
 
+/**
+ * 30 days, in minutes, like the outages: the bound on when a modem was last
+ * seen. A modem silent for longer is a disconnection matter, not a line check.
+ */
+const MAX_LAST_SEEN_MINUTES = 43_200;
+
+/**
+ * The longest remote restart a seed may state, in seconds. The caller waits on
+ * the line through it, so it stays within a few minutes.
+ */
+const MAX_RESTART_SECONDS = 180;
+
+/** What the network's monitoring reads from a modem. */
+const modemReadingShape = {
+  status: z.enum(MODEM_STATUSES),
+  /** Optical power the modem receives, in dBm, as the network reports it. */
+  receivedPowerDbm: z.number(),
+  /** For speech, e.g. `high signal loss on the fiber line`. Null when the system found none. */
+  fault: nonEmpty.nullable(),
+  /** Whether the system says a remote reboot may clear the fault. */
+  rebootMayClear: z.boolean(),
+};
+
+/**
+ * The modem at an account's home, as the network diagnoses it when the call
+ * starts, and as it reads once a remote reboot has finished. At most one per
+ * account.
+ */
+const modemSchema = z
+  .object({
+    accountNumber: z.string(),
+    ...modemReadingShape,
+    lastSeenMinutesBeforeCall: minutesBeforeCall(MAX_LAST_SEEN_MINUTES),
+    restartSeconds: z.number().int().positive().max(MAX_RESTART_SECONDS),
+    afterReboot: z.object(modemReadingShape).strict(),
+  })
+  .strict();
+
 const seedWorldShape = {
   barangays: z.array(barangaySchema).min(1),
   accounts: z.array(accountSchema).min(1),
@@ -123,6 +166,7 @@ const seedWorldShape = {
   balances: z.array(balanceSchema),
   bills: z.array(billSchema),
   payments: z.array(paymentSchema),
+  modems: z.array(modemSchema),
 };
 
 /** A top-level list of the seed world, such as 'accounts': derived, so a new list is one too. */
@@ -156,6 +200,8 @@ export const seedWorldSchema = z
     reportDuplicates("bills", "reference", world.bills.map((b) => b.reference));
     // Unique across accounts, not per account: one reference, one payment.
     reportDuplicates("payments", "reference", world.payments.map((p) => p.reference));
+    // One modem per account, for the same reason as one balance.
+    reportDuplicates("modems", "accountNumber", world.modems.map((m) => m.accountNumber));
 
     const known = new Set(world.barangays.map((b) => b.id));
     world.accounts.forEach((account, index) => {
@@ -181,7 +227,7 @@ export const seedWorldSchema = z
 
     const accountNumbers = new Set(world.accounts.map((a) => a.accountNumber));
     const reportUnknownAccount = (
-      collection: "balances" | "bills" | "payments",
+      collection: Collection,
       index: number,
       accountNumber: string,
       what: string,
@@ -200,5 +246,6 @@ export const seedWorldSchema = z
     world.payments.forEach((p, i) =>
       reportUnknownAccount("payments", i, p.accountNumber, `payment ${p.reference}`),
     );
+    world.modems.forEach((m, i) => reportUnknownAccount("modems", i, m.accountNumber, "modem"));
   });
 export type SeedWorld = z.infer<typeof seedWorldSchema>;

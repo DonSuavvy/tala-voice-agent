@@ -107,5 +107,6 @@
       "paidMinutesBeforeCall": 23040,
       "posted": true
     }
-  ]
+  ],
+  "modems": []
 }

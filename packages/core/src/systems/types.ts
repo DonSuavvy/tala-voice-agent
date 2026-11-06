@@ -64,6 +64,14 @@ export interface CustomerAccounts {
   findAccount(accountNumber: string): Promise<AccountRecord | null>;
 }
 
+/**
+ * How the network sees the modem at an account's home: `online` and working,
+ * `degraded` (reachable, with a fault), or `offline`. The seed schema reads
+ * this list.
+ */
+export const MODEM_STATUSES = ["online", "degraded", "offline"] as const;
+export type ModemStatus = (typeof MODEM_STATUSES)[number];
+
 /** The network operations side. */
 export interface NetworkOperations {
   /** Ongoing outages that include this barangay, oldest first. Empty if none. */

@@ -115,6 +115,7 @@ export function testWorld(): SeedWorld {
         posted: false,
       },
     ],
+    modems: [],
   };
 }
 
