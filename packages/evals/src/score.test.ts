@@ -132,6 +132,20 @@ describe("score — action", () => {
     );
   });
 
+  /**
+   * The failure sentence is what a reviewer reads. `String({...})` is
+   * "[object Object]", which says nothing about what the agent actually sent.
+   */
+  it("shows a non-text action as JSON, not as [object Object]", () => {
+    const result = only(
+      { action: "escalated" },
+      observed({ outcome: outcome({ action: { kind: "escalated" } }) }),
+    );
+
+    expect(result.failureReason).toBe(
+      'expected action "escalated", got "{"kind":"escalated"}"',
+    );
+  });
 
   /**
    * A completed run *should* always have an outcome — `end_call` is the
@@ -304,6 +318,16 @@ describe("score — replyMentions", () => {
     const result = only(
       { replyMentions: ["NEXT MONTH'S BILL"] },
       observed(),
+    );
+
+    expect(result.passed).toBe(true);
+  });
+
+  /** Searched as JSON, so the words are still there to find. */
+  it("searches a non-text reply as JSON, not as [object Object]", () => {
+    const result = only(
+      { replyMentions: ["next month"] },
+      observed({ outcome: outcome({ reply: { text: "Your credit is on next month's bill." } }) }),
     );
 
     expect(result.passed).toBe(true);
