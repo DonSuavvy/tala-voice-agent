@@ -335,3 +335,54 @@ the same. Rounding belongs in the tool's result, in code, if it is wanted.
 - The tool's exact time in the eval run: reports do not keep tool results, so
   "10:46 or 10:47 PM" is inferred from the run's start and the seed.
 - The PR's results with the three extra callers (R4-05).
+
+## Round 7 — 2026-11-06 — ticket #10, the payment scenario
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #10 asks, criterion by criterion: five tools, SMS only to
+the number on file, masking of everything stored or logged, scenario 2?
+
+**Headline:** no account tool runs before verification or for another
+account, and `send_sms` has no field for a number. The worst findings were in
+masking: numbers in comma groups (how Tala reads digits), brackets, dashes
+and line breaks stayed unmasked, and streamed speech could carry a number
+past the SSE masking in two pieces (FAILURES 18). The scenario 2 eval case
+would also have passed a broken scenario 2. 16 findings: 12 fixed, 3 left,
+1 recorded. Tests 740 → 911.
+
+**Method:** the orchestrator replayed the builders' slices as RED/GREEN
+commits, checking each RED fails, and ran `npm run eval` live (both
+scenarios), then grepped the stored report and the runner's log for every
+seed number with all separators removed. Then the mattpocock `code-review`
+skill: two independent Opus agents that had not written the code, in
+parallel on `main...feat/payment-scenario` at `911ada9`. Standards:
+CLAUDE.md, ADRs 2, 3 and 5, DESIGN §6 and §11, GLOSSARY, earlier findings.
+Spec: #10 line by line, spec #1, DESIGN §6 and §12, SECURITY.md, with the
+live evidence given to it.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R7-01 | Standards | "Never put an account or mobile number in a text" was in the SOP and a schema description only, not the handlers | Fixed `42841fe` `f98cf92`: both handlers refuse the verified account's numbers in any spacing |
+| R7-02 | Standards | Comments that promised more than the code (`types.ts`, `in-memory.ts`, `seed-world.ts`) | Fixed `50a2e8c` |
+| R7-03 | Standards | Glossary slips: "choosing that number is the caller's job"; "reflected", which Posted lists under Avoid | Fixed `50a2e8c` `6f968b0` |
+| R7-04 | Standards | Possible Duplicated Code: four not-found throws, four `account_number` schemas, three money formattings | Fixed `50a2e8c`: the gate returns the account; one input; `formatCompanyMoney` |
+| R7-05 | Standards | Hand-copied values: the report's masking note, `slice(-4)`, the seed's `Collection` union | Fixed `0710199` `50a2e8c` |
+| R7-06 | Standards | An SOP example used scenario 2's GCash payment (R2-15) | Fixed `6f968b0`: a Maya payment |
+| R7-07 | Standards | Possible Mysterious Name: `MAX_OFFSET_MINUTES` beside `MAX_BILLING_OFFSET_MINUTES` | Fixed `50a2e8c`: `MAX_OUTAGE_OFFSET_MINUTES` |
+| R7-08 | Standards | Core tool descriptions repeat SOP rules | Left: the existing tools do the same |
+| R7-09 | Standards | Philippine payment channels live in core (ADR 2) | Left: DESIGN §6 names them, like the `+639` mobile rule |
+| R7-10 | Standards | Ten RED commit messages repeat the GREEN text and give no failure reason | Recorded here; commit messages are not rewritten |
+| R7-11 | Spec | The masking acceptance test could not see a leaked local `09...` mobile, and searched with the masking's own separators | Fixed `174fd1c` |
+| R7-12 | Spec | Masking missed commas, brackets, dashes, slashes and line breaks | Fixed `cd611ff` `334da64` (FAILURES 18) |
+| R7-13 | Spec | The scenario 2 case passed with `verify_payment` finding nothing, a ticket in the wrong category, or the text sent first | Fixed `b670235` `6e499ed`: `toolsCalledInOrder` and `toolResults` |
+| R7-14 | Spec | Every run of 10+ digits is masked, so a numeric date and time would be too | Left: intended; tools say dates in words |
+| R7-15 | Spec | The SSE stream masked frame by frame, and speech deltas could split a number | Fixed `878025c` `df1f690` (FAILURES 18): no deltas over SSE |
+| R7-16 | Spec | Tala said "I've noted the scheduled disconnection date in it", and the SOP never said what ticket notes hold | Fixed `6f968b0`: the SOP lists them and limits how she describes a ticket |
+
+### Not verified
+
+- What Tala wrote in a ticket's notes on a live call: reports do not keep
+  tool inputs. The stricter case checks the category, not the notes.
+- How a voice reads "₱1,299.00" and spoken dates (#3, #7).
