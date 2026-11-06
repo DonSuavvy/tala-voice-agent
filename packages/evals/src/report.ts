@@ -65,6 +65,8 @@ export interface CaseReportRow extends CaseResultRow {
 
 export interface ReportPin extends CallPin {
   gitSha: string | null;
+  /** True when the tree held uncommitted changes, so `gitSha` is not exactly what ran. Null when unknown. */
+  gitDirty: boolean | null;
 }
 
 export interface EvalReport {
@@ -139,6 +141,7 @@ export interface ReportInput {
   /** Tala's pin: the same for every case in a run. */
   pin: CallPin;
   gitSha: string | null;
+  gitDirty: boolean | null;
   callerModel: LogicalModel;
   graderModel: LogicalModel;
   rows: CaseReportRow[];
@@ -152,7 +155,7 @@ export function buildReport(input: ReportInput): EvalReport {
     format: REPORT_FORMAT,
     masking: "none (#10)",
     ranAt: input.ranAt.toISOString(),
-    pin: { ...input.pin, gitSha: input.gitSha },
+    pin: { ...input.pin, gitSha: input.gitSha, gitDirty: input.gitDirty },
     models: { caller: input.callerModel, grader: input.graderModel },
     passed: rows.every((r) => r.passed),
     cases: rows,

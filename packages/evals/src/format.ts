@@ -70,6 +70,8 @@ const pinSchema = z.object({
   model: z.string(),
   modelId: z.string(),
   gitSha: z.string().nullable(),
+  // Reports from before the pin recorded it say nothing, which reads as unknown.
+  gitDirty: z.boolean().nullable().default(null),
 });
 
 const diffableSchema = z.object({
@@ -99,12 +101,17 @@ export function parseReport(raw: unknown, source: string): DiffableReport {
   return { ranAt, pin, cases };
 }
 
+function dirtyMark(dirty: boolean | null): string {
+  if (dirty === null) return " (dirty unknown)";
+  return dirty ? " (dirty)" : "";
+}
+
 function pinLine(label: string, report: DiffableReport): string {
   const { pin } = report;
   return (
     `${label} ${report.ranAt}  ${pin.model} (${pin.modelId})  pack ${pin.packId}  ` +
     `sop ${pin.sopVersion}  prompt ${pin.promptVersion}  policy ${pin.policyVersion}  ` +
-    `git ${pin.gitSha === null ? "unknown" : pin.gitSha.slice(0, 7)}`
+    `git ${pin.gitSha === null ? "unknown" : pin.gitSha.slice(0, 7)}${dirtyMark(pin.gitDirty)}`
   );
 }
 
@@ -117,6 +124,7 @@ function pinChanges(before: DiffableReport["pin"], after: DiffableReport["pin"])
     ["policy", before.policyVersion !== after.policyVersion],
     ["model", before.model !== after.model || before.modelId !== after.modelId],
     ["git", before.gitSha !== after.gitSha],
+    ["dirty", before.gitDirty !== after.gitDirty],
   ] as const;
   const moved = changes.filter(([, changed]) => changed).map(([name]) => name);
   return `pin changes: ${moved.length > 0 ? moved.join(", ") : "none"}`;

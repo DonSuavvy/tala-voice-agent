@@ -55,3 +55,25 @@ export function resolveGitSha(
     return null;
   }
 }
+
+/** Runs `git status --porcelain` and returns stdout. May throw. */
+export type GitStatusExec = () => string;
+
+/**
+ * Whether the working tree held changes its commit does not, or null.
+ *
+ * A SHA alone cannot say what ran: a run with an uncommitted SOP fix pins the
+ * commit before the fix. So the pin also records whether `git status` listed
+ * anything. Which paths count is the caller's choice (the runner leaves out
+ * the reports directory, which every run writes to). Null, never a throw, for
+ * the same reason as `resolveGitSha`: a missing answer costs a label.
+ */
+export function resolveGitDirty(exec?: GitStatusExec): boolean | null {
+  if (!exec) return null;
+
+  try {
+    return exec().trim().length > 0;
+  } catch {
+    return null;
+  }
+}

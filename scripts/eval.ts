@@ -51,6 +51,7 @@ import {
   gradeTranscript,
   loadCases,
   reportFileName,
+  resolveGitDirty,
   resolveGitSha,
   runSimulatedCall,
   transcriptOf,
@@ -69,6 +70,7 @@ const RUN_CAP_NANOS = 1_000_000_000;
  */
 const MAX_RETRIES = 5;
 
+const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const CASES_DIR = fileURLToPath(new URL("../packages/packs/kidlat-fiber/evals/cases/", import.meta.url));
 const REPORTS_DIR = fileURLToPath(new URL("../packages/evals/reports/", import.meta.url));
 
@@ -116,12 +118,19 @@ function pinOf(events: readonly CallEvent[]): CallPin | null {
   return null;
 }
 
-function gitHead(): string {
-  return execFileSync("git", ["rev-parse", "HEAD"], {
+function git(...args: string[]): string {
+  return execFileSync("git", args, {
+    cwd: REPO_ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   });
 }
+
+/**
+ * Uncommitted changes anywhere but the reports directory, which every run
+ * writes to. Untracked files count: a new case file is read like any other.
+ */
+const gitStatus = () => git("status", "--porcelain", "--", ".", ":(exclude)packages/evals/reports");
 
 async function main(): Promise<number> {
   loadEnv();
@@ -133,6 +142,14 @@ async function main(): Promise<number> {
   const cases = only === null ? all : all.filter((c) => c.slug === only);
   if (cases.length === 0) {
     throw new Error(`no case named "${only}" (cases: ${all.map((c) => c.slug).join(", ")})`);
+  }
+  // Read before anything is written, so this run's own report cannot count.
+  const gitDirty = resolveGitDirty(gitStatus);
+  if (gitDirty === true) {
+    console.warn(
+      "eval: warning: the working tree has uncommitted changes, so the report's git commit " +
+        "is not exactly what ran (the pin says dirty)",
+    );
   }
   if ((process.env.ANTHROPIC_API_KEY ?? "").length === 0) {
     throw new Error(
@@ -204,7 +221,8 @@ async function main(): Promise<number> {
   const report = buildReport({
     ranAt,
     pin,
-    gitSha: resolveGitSha(process.env, gitHead),
+    gitSha: resolveGitSha(process.env, () => git("rev-parse", "HEAD")),
+    gitDirty,
     callerModel: DEFAULT_CALLER_MODEL,
     graderModel: DEFAULT_GRADER_MODEL,
     rows,
