@@ -320,6 +320,59 @@ describe("streamingMessageCreator — a turn that completes", () => {
     });
   });
 
+  /**
+   * Review round 2: the test above cannot tell final counts from early ones,
+   * because its message_delta repeats message_start's figures. Here every
+   * count message_delta reports differs from message_start's, and the turn's
+   * usage must be exactly what the SDK's own finalMessage() assembles.
+   */
+  it("returns the usage finalMessage() assembles, exactly, when message_delta revises every count", async () => {
+    const script: Step[] = [
+      messageStart(),
+      startText(0),
+      textDelta(0, "Opo, may outage po."),
+      stopBlock(0),
+      {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn", stop_sequence: null, stop_details: null, container: null },
+        usage: {
+          input_tokens: 2450,
+          output_tokens: 87,
+          cache_creation_input_tokens: 640,
+          cache_read_input_tokens: 6000,
+          output_tokens_details: { thinking_tokens: 31 },
+          server_tool_use: { web_fetch_requests: 0, web_search_requests: 1 },
+        },
+      },
+      messageStop(),
+    ];
+
+    const turn = await streamingMessageCreator(clientOver(scriptedTransport(script)))(PARAMS);
+    const final = await clientOver(scriptedTransport(script))
+      .messages.stream({
+        model: PARAMS.model,
+        max_tokens: PARAMS.max_tokens,
+        messages: [{ role: "user", content: "Wala po kaming internet." }],
+      })
+      .finalMessage();
+
+    expect(turn.usage).toEqual(final.usage);
+    // Worked out by hand: message_delta's figures where it sends them,
+    // message_start's for the rest.
+    expect(turn.usage).toEqual({
+      input_tokens: 2450,
+      output_tokens: 87,
+      cache_creation_input_tokens: 640,
+      cache_read_input_tokens: 6000,
+      cache_creation: null,
+      inference_geo: null,
+      output_tokens_details: { thinking_tokens: 31 },
+      server_tool_use: { web_fetch_requests: 0, web_search_requests: 1 },
+      service_tier: "standard",
+      speed: null,
+    });
+  });
+
   it("still throws a failure that is not an interruption", async () => {
     const fetch = async (): Promise<Response> =>
       new Response(
