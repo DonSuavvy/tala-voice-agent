@@ -24,23 +24,32 @@ export function initialIdentityState(): IdentityState {
 }
 
 /**
- * Removes spaces, dashes and dots, and nothing else: `801-234 5678` becomes
- * `8012345678`. It does not validate. Anything else stays, so a malformed
- * number misses the lookup instead of being repaired into someone's account.
+ * Removes separators, and nothing else: `801-234 5678` becomes `8012345678`.
+ *
+ * The separators are all whitespace (JavaScript's `\s`: spaces, tabs,
+ * newlines, U+00A0 and the other Unicode spaces), dots, the hyphen-minus, and
+ * the Unicode dashes U+2010 to U+2015 (speech-to-text and models often write
+ * an account number with en dashes). It does not validate. Anything else
+ * stays, so a malformed number misses the lookup instead of being repaired
+ * into someone's account.
  */
 export function normalizeAccountNumber(raw: string): string {
-  return raw.replace(/[ .-]/g, "");
+  return raw.replace(/[\s.\-\u2010-\u2015]/g, "");
 }
 
 const FOUR_DIGITS = /^[0-9]{4}$/;
 
 /**
- * True only when `last4`, once spaces are removed, is exactly 4 digits and
- * equals the last 4 digits of the registered mobile. Anything shorter is
+ * True only when `last4`, once all whitespace is removed, is exactly 4 digits
+ * and equals the last 4 digits of the registered mobile. Anything shorter is
  * refused outright: "101" is a suffix of the mobile, but it is not the secret.
+ *
+ * "All whitespace" is JavaScript's `\s`: tabs, newlines and the Unicode
+ * spaces such as U+00A0. It is the same set `verify_identity`'s schema lets
+ * between the digits, so digits the schema accepts are never miscounted here.
  */
 export function mobileLast4Matches(registeredMobile: string, last4: string): boolean {
-  const given = last4.replaceAll(" ", "");
+  const given = last4.replace(/\s/g, "");
   if (!FOUR_DIGITS.test(given)) return false;
   return registeredMobile.replace(/[^0-9]/g, "").slice(-4) === given;
 }
