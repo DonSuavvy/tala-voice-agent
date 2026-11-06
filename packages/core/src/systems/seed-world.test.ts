@@ -77,6 +77,40 @@ function validSeed() {
         posted: true,
       },
     ],
+    // Maria's line has lost signal and a reboot will not bring it back; Jun's
+    // modem has hung, and a reboot clears it.
+    modems: [
+      {
+        accountNumber: "1234567890",
+        status: "degraded",
+        receivedPowerDbm: -28.4,
+        lastSeenMinutesBeforeCall: 2,
+        fault: "high signal loss on the fiber line" as string | null,
+        rebootMayClear: true,
+        restartSeconds: 90,
+        afterReboot: {
+          status: "degraded",
+          receivedPowerDbm: -28.3,
+          fault: "high signal loss on the fiber line" as string | null,
+          rebootMayClear: false,
+        },
+      },
+      {
+        accountNumber: "2234567890",
+        status: "degraded",
+        receivedPowerDbm: -19.5,
+        lastSeenMinutesBeforeCall: 5,
+        fault: "the modem has hung and is not passing traffic" as string | null,
+        rebootMayClear: true,
+        restartSeconds: 60,
+        afterReboot: {
+          status: "online",
+          receivedPowerDbm: -19.4,
+          fault: null as string | null,
+          rebootMayClear: false,
+        },
+      },
+    ],
   };
 }
 
@@ -84,7 +118,7 @@ function validSeed() {
 function renumberAccount(seed: ReturnType<typeof validSeed>, index: number, accountNumber: string) {
   const old = seed.accounts[index].accountNumber;
   seed.accounts[index].accountNumber = accountNumber;
-  for (const entries of [seed.balances, seed.bills, seed.payments]) {
+  for (const entries of [seed.balances, seed.bills, seed.payments, seed.modems]) {
     for (const e of entries) if (e.accountNumber === old) e.accountNumber = accountNumber;
   }
 }
@@ -141,6 +175,21 @@ describe("seedWorldSchema", () => {
   it("accepts a world with no balances, bills or payments", () => {
     const seed = { ...validSeed(), balances: [], bills: [], payments: [] };
     expect(seedWorldSchema.safeParse(seed).success).toBe(true);
+  });
+
+  it("accepts a world with no modems", () => {
+    expect(seedWorldSchema.safeParse({ ...validSeed(), modems: [] }).success).toBe(true);
+  });
+
+  it("rejects an unknown key inside a modem and inside its state after a reboot", () => {
+    const a = validSeed();
+    (a.modems[0] as Record<string, unknown>).extra = 1;
+    const b = validSeed();
+    (b.modems[0].afterReboot as Record<string, unknown>).extra = 1;
+    expect(seedWorldSchema.safeParse(a).error?.issues.map((i) => i.path)).toEqual([["modems", 0]]);
+    expect(seedWorldSchema.safeParse(b).error?.issues.map((i) => i.path)).toEqual([
+      ["modems", 0, "afterReboot"],
+    ]);
   });
 
   describe("cross-references", () => {
@@ -230,6 +279,21 @@ describe("seedWorldSchema", () => {
         [["payments", 1, "accountNumber"], 'payment MAYA7K2Q9 names unknown account "7777777777"'],
       ]);
     });
+
+    it("flags a second modem for one account at the later entry", () => {
+      const seed = validSeed();
+      seed.modems[1].accountNumber = "1234567890";
+      expect(paths(seed)).toEqual([["modems", 1, "accountNumber"]]);
+    });
+
+    it("flags a modem for an unknown account", () => {
+      const seed = validSeed();
+      seed.modems[1].accountNumber = "9999999999";
+      const result = seedWorldSchema.safeParse(seed);
+      expect(result.error?.issues.map((i) => [i.path, i.message])).toEqual([
+        [["modems", 1, "accountNumber"], 'modem names unknown account "9999999999"'],
+      ]);
+    });
   });
 
   // The zod 4 probe. A pack loader reports every problem in one pass only as
@@ -276,12 +340,13 @@ describe("seedWorldSchema", () => {
       ["zero restoration offset", (s) => (s.outages[0].restorationMinutesAfterCall = 0), ["outages", 0, "restorationMinutesAfterCall"]],
       ["fractional restoration offset", (s) => (s.outages[0].restorationMinutesAfterCall = 2.5), ["outages", 0, "restorationMinutesAfterCall"]],
       [
-        "no accounts (and so no billing)",
+        "no accounts (and so no billing or modems)",
         (s) => {
           (s as { accounts: unknown[] }).accounts = [];
           s.balances = [];
           s.bills = [];
           s.payments = [];
+          s.modems = [];
         },
         ["accounts"],
       ],
@@ -380,6 +445,66 @@ describe("seedWorldSchema", () => {
       const result = seedWorldSchema.safeParse(over);
       expect(result.success).toBe(false);
       expect(result.error?.issues.map((i) => i.path)).toEqual([[collection, 0, field]]);
+    });
+  });
+
+  /**
+   * A modem is what the network's own monitoring says about the connection at
+   * an account's home: the seed states the system's diagnosis and what a
+   * remote reboot does to it. No code turns the numbers into a verdict.
+   */
+  describe("modem shape", () => {
+    const cases: Array<[string, (s: ReturnType<typeof validSeed>) => void, (string | number)[]]> = [
+      ["unknown status", (s) => (s.modems[0].status = "rebooting"), ["modems", 0, "status"]],
+      ["empty fault", (s) => (s.modems[0].fault = ""), ["modems", 0, "fault"]],
+      ["negative last-seen offset", (s) => (s.modems[0].lastSeenMinutesBeforeCall = -1), ["modems", 0, "lastSeenMinutesBeforeCall"]],
+      ["fractional last-seen offset", (s) => (s.modems[0].lastSeenMinutesBeforeCall = 1.5), ["modems", 0, "lastSeenMinutesBeforeCall"]],
+      ["zero restart time", (s) => (s.modems[0].restartSeconds = 0), ["modems", 0, "restartSeconds"]],
+      ["fractional restart time", (s) => (s.modems[0].restartSeconds = 30.5), ["modems", 0, "restartSeconds"]],
+      ["unknown status after a reboot", (s) => (s.modems[0].afterReboot.status = "rebooting"), ["modems", 0, "afterReboot", "status"]],
+      ["empty fault after a reboot", (s) => (s.modems[0].afterReboot.fault = ""), ["modems", 0, "afterReboot", "fault"]],
+    ];
+
+    it.each(cases)("rejects %s", (_name, mutate, path) => {
+      const seed = validSeed();
+      mutate(seed);
+      const result = seedWorldSchema.safeParse(seed);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues.map((i) => i.path)).toEqual([path]);
+    });
+
+    it.each(["online", "degraded", "offline"])("accepts the %s status, before and after a reboot", (status) => {
+      const seed = validSeed();
+      seed.modems[0].status = status;
+      seed.modems[0].afterReboot.status = status;
+      expect(seedWorldSchema.safeParse(seed).success).toBe(true);
+    });
+
+    // The caller waits on the line through a restart, so a seed may state at
+    // most 3 minutes.
+    it("accepts a restart of 180 seconds and refuses 181", () => {
+      const atLimit = validSeed();
+      atLimit.modems[0].restartSeconds = 180;
+      expect(seedWorldSchema.safeParse(atLimit).success).toBe(true);
+
+      const over = validSeed();
+      over.modems[0].restartSeconds = 181;
+      expect(seedWorldSchema.safeParse(over).error?.issues.map((i) => i.path)).toEqual([
+        ["modems", 0, "restartSeconds"],
+      ]);
+    });
+
+    // 30 days, in minutes, like the outages: an unbounded offset fails mid-call.
+    it("accepts a modem last seen 43_200 minutes before the call and refuses 43_201", () => {
+      const atLimit = validSeed();
+      atLimit.modems[0].lastSeenMinutesBeforeCall = 43_200;
+      expect(seedWorldSchema.safeParse(atLimit).success).toBe(true);
+
+      const over = validSeed();
+      over.modems[0].lastSeenMinutesBeforeCall = 43_201;
+      expect(seedWorldSchema.safeParse(over).error?.issues.map((i) => i.path)).toEqual([
+        ["modems", 0, "lastSeenMinutesBeforeCall"],
+      ]);
     });
   });
 
