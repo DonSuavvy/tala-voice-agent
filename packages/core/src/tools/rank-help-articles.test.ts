@@ -54,15 +54,15 @@ const idsFor = (query: string, articles: readonly HelpArticle[] = CATALOG) =>
 
 describe("rankHelpArticles", () => {
   /**
-   * "router" is in the last article's title (3), the middle one's tags (2)
+   * "fiber" is in the last article's title (3), the middle one's tags (2)
    * and the first one's body (1): the field decides, not the catalog order.
    */
   it("ranks a word in the title above one in the tags, and the tags above the body", () => {
-    const inBody = article("in-body", "Your connection", ["internet"], "Restart the router.");
-    const inTags = article("in-tags", "Your equipment", ["router"], "Check the cables.");
-    const inTitle = article("in-title", "Your router", ["equipment"], "Check the cables.");
+    const inBody = article("in-body", "Your connection", ["internet"], "Check the fiber.");
+    const inTags = article("in-tags", "Your equipment", ["fiber"], "Check the cables.");
+    const inTitle = article("in-title", "Your fiber", ["equipment"], "Check the cables.");
 
-    expect(idsFor("router", [inBody, inTags, inTitle])).toEqual(["in-title", "in-tags", "in-body"]);
+    expect(idsFor("fiber", [inBody, inTags, inTitle])).toEqual(["in-title", "in-tags", "in-body"]);
   });
 
   /**
@@ -114,7 +114,7 @@ describe("rankHelpArticles", () => {
   });
 
   it("gives nothing when no article shares a word with the question", () => {
-    expect(rankHelpArticles(CATALOG, "cancel subscription")).toEqual([]);
+    expect(rankHelpArticles(CATALOG, "cancel service")).toEqual([]);
     expect(rankHelpArticles(CATALOG, "?!")).toEqual([]);
     expect(rankHelpArticles([], "modem")).toEqual([]);
   });

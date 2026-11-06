@@ -52,7 +52,7 @@ describe("search_knowledge_base", () => {
   });
 
   it("gives an empty list when no article matches", async () => {
-    expect(await search(testToolContext(testSystems()), "cancel my subscription")).toEqual({
+    expect(await search(testToolContext(testSystems()), "cancel my service")).toEqual({
       articles: [],
     });
   });

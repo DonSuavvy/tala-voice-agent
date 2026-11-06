@@ -22,8 +22,9 @@ export interface CallData {
   /** The company pack's help articles, in catalog order. They hold nothing about any account. */
   helpArticles: readonly HelpArticle[];
   /**
-   * When the call started, from the session's clock. "Opened on this call"
-   * means opened at or after this, whatever else the business systems hold.
+   * When the call started, from the session's clock. A ticket "opened on this
+   * call" or a quote "made on this call" is one opened or made at or after
+   * this, whatever else the business systems hold.
    */
   startedAt: Date;
   /**
