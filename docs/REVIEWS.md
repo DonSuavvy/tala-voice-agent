@@ -267,3 +267,71 @@ fresh gate.
 - An interrupted turn with citations or server tools: Tala has neither.
 - Interrupted calls are over-booked: the $0.02 estimate against about
   $0.0004 spent on Haiku 5.5. #22 re-measures the estimate.
+
+## Round 4 — 2026-11-06 — PR #31, the tone pass
+
+**Question asked:** does the tone pass follow the repo's documented standards,
+and does it do what its task asked, no more and no less? It had no ticket: the
+task was a side session's brief, and Sebastian's asks recorded there ("no
+'Naku', no 'Walang anuman', Taglish mix as is, brisk and efficient, brisker
+opening").
+
+**Headline:** nothing blocking. The worst Standards finding: the advisory
+grader still scored tone as "warm", so a brisk Tala could be marked "curt"
+(R4-01). The worst Spec finding: "leave out details they did not ask for"
+pulled against giving an outage's cause, which spec story 11 asks for
+(R4-02). 13 findings: 5 fixed, 6 left as they are, 1 open, 1 rejected. Tests
+739 → 740.
+
+**Method:** the mattpocock `code-review` skill. Two independent Opus agents
+that had not written the change, in parallel on `main...feat/tala-tone` at
+`a6b1c18` (merge-base `afc366e`):
+
+- **Standards:** CLAUDE.md, DESIGN §5 and §11, GLOSSARY, the ADRs, the
+  FAILURES and REVIEWS formats, and a fixed list of Fowler smells, each a
+  judgement call. Told to look at code that consumes the changed text.
+- **Spec:** the side session's brief verbatim, Sebastian's recorded asks,
+  spec #1 and #17, DESIGN §5 and §11, and the ADRs.
+
+The orchestrator re-read each cited line on the branch before acting. Fixes
+were made by the orchestrator, the grader test-first.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R4-01 | Standards | The grader's rubric hard-codes tone as "warm, calm and natural", with "cold, curt or robotic" as the worst, against DESIGN §11's "against the company pack's own rules" | Fixed `d2a39e6` `24f2105` |
+| R4-02 | Spec | "Leave out details they did not ask for" read as dropping the outage cause: the grade on `a6b1c18` called it "extra detail the caller didn't need" | Fixed `20cbf1c` |
+| R4-03 | Spec | Rounding an estimated time up to the quarter hour: not asked for, bends "never invent times", and only the prose enforces it | Fixed `20cbf1c`: dropped. See "After the fixes" |
+| R4-04 | Standards | No FAILURES entry for the regression tuning caught (the first brisk wording hung up silently in 3 of 6 calls) | Fixed `fa1e82c` (FAILURES 15) |
+| R4-05 | Standards | The PR's evidence table rests on three scripted callers that were never committed | Left: a tuning aid; the spec's simulated callers (about 13) are where such callers belong |
+| R4-06 | Standards | The rounding rule types a figure ("quarter hour") into the SOP and says "estimated time", not the glossary's term | Fixed with R4-03 |
+| R4-07 | Standards | Possible Duplicated Code: the goodbye example appears word for word in "How you speak" and "Ending the call" | Left: FAILURES 11 repeats the rule in both places on purpose |
+| R4-08 | Standards | `closingLine` keeps "Ingat po!" though the opening line dropped its exclamation mark | Left: a goodbye can be warmer than a disclosure |
+| R4-09 | Standards | The merge's semantic clash, "Walang anuman" back in an SOP example, has no FAILURES entry | Left: caught and fixed in the merge itself (`34c3928`), and its message says so |
+| R4-10 | Spec | Spec #1 story 4 still says "a warm tone" | Open: an edit to the spec issue, for the owner |
+| R4-11 | Spec | "No line breaks" was not asked for | Left: harmless for speech, and the PR body explains it |
+| R4-12 | Spec | The "brisker" opening is 25 words against 26: register, not length | Left: the owner chose it while tuning |
+| R4-13 | Spec | The eval report is a file outside the task's three | **Rejected**: committing reports is the convention since #30 |
+
+### After the fixes
+
+`npm run eval` on `fa1e82c`, clean tree: gate PASS 1 of 1, advisory tone 5,
+Taglish 5, politeness 5. The grader noted "she gave the outage cause and
+restoration time without extras". `verify:first-call` passed 4 of 4, and Tala
+said the tool's "10:47 PM" exactly.
+
+In the eval, though, Tala said "around 10:45 tonight". The run started at
+6:46:45 PM Manila time and the seed sets restoration 240 minutes after the
+call starts, so the tool most likely said 10:46 or 10:47 PM: she rounded
+earlier by a minute or two. With no rule, the model rounds on its own, and
+downward is what the dropped rule was guarding against. Main's SOP behaves
+the same. Rounding belongs in the tool's result, in code, if it is wanted.
+
+### Not verified
+
+- Whether Sebastian approved the rounding in the tone session: his answers
+  there are not in the transcript that could be read.
+- The tool's exact time in the eval run: reports do not keep tool results, so
+  "10:46 or 10:47 PM" is inferred from the run's start and the seed.
+- The PR's results with the three extra callers (R4-05).
