@@ -62,6 +62,8 @@ const SOURCE: PackSource = {
   persona: {
     openingLine: OPENING,
     fallbackLine: "Sorry po, our system is having a problem. Please call again later.",
+    fillerLine: "Sandali lang po.",
+    closingLine: "Salamat po sa pagtawag!",
   },
   policy: { identity: { maxFailedAttempts: 3 } },
   world: WORLD,

@@ -19,7 +19,7 @@ import {
 } from "../testing/fixtures";
 
 import { promptVersion } from "./pin";
-import { createCallSession, type CallEvent } from "./session";
+import { createCallSession, type CallEvent, type CallSession } from "./session";
 
 /**
  * The call session is Tala's main seam (spec #1, Q39). Unit tests, the
@@ -621,6 +621,203 @@ describe("a call session — ending", () => {
 /* -------------------------------------------------------------------------- */
 /* Streaming speech                                                           */
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/* A tool call with nothing said                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The SOP asks Tala to say a line before every tool call, and the model
+ * mostly does. When it does not, the caller would hear silence while a tool
+ * runs, or a call end with no goodbye. So the session says one of the pack's
+ * fixed lines for it, as it says the opening line: before the turn's
+ * llm_call span, and in the turn itself, so Claude knows it was said.
+ */
+describe("a call session — a tool call with nothing said", () => {
+  it("says the filler line before the turn's llm_call span, and records it before the tool call", async () => {
+    const verifying = verify(MARIA) as ToolUseBlock;
+    const { session, events, claude, pack } = newCall([
+      turn([verifying]),
+      turn([text("Verified na po kayo.")]),
+    ]);
+    session.start();
+    events.length = 0;
+
+    await session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+
+    expect(types(events).slice(0, 5)).toEqual([
+      "caller_said",
+      "speech_delta",
+      "speech",
+      "span",
+      "span",
+    ]);
+    expect(events[1]).toEqual({ type: "speech_delta", text: pack.persona.fillerLine });
+    expect(events[2]).toEqual({ type: "speech", text: pack.persona.fillerLine });
+    expect(events[3]).toMatchObject({ type: "span", span: { type: "llm_call" } });
+    expect(events[4]).toMatchObject({
+      type: "span",
+      span: { type: "tool_exec", name: "verify_identity" },
+    });
+    expect(claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: pack.persona.fillerLine }, verifying],
+    });
+  });
+
+  /**
+   * A signed thinking block binds what comes before it, so the line goes in
+   * after it: nothing before the block changes, and the block stays as the
+   * model returned it.
+   */
+  it("puts the filler line after a signed thinking block, which stays as it came", async () => {
+    const thought = { type: "thinking", thinking: "Verify first.", signature: "sig_ghi" };
+    const verifying = verify(MARIA) as ToolUseBlock;
+    const { session, claude, pack } = newStreamedCall([
+      { parts: [thought, verifying] },
+      { parts: [say("Verified na po kayo.")] },
+    ]);
+    session.start();
+
+    await session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+
+    const sent = claude.requests[1].messages.at(-2);
+    expect(sent).toEqual({
+      role: "assistant",
+      content: [thought, { type: "text", text: pack.persona.fillerLine }, verifying],
+    });
+    expect(JSON.stringify((sent?.content as ContentBlock[])[0])).toBe(JSON.stringify(thought));
+    expectValidConversation(claude);
+  });
+
+  it("says the closing line when end_call comes alone with nothing said, before the call ends", async () => {
+    const { session, events, pack } = newCall([turn([toolUse("end_call", DISPOSITION)])]);
+    session.start();
+    events.length = 0;
+
+    const ended = await session.callerSaid("Wala na po, salamat. Bye po.");
+
+    expect(ended).toBe("ended");
+    expect(types(events)).toEqual([
+      "caller_said",
+      "speech_delta",
+      "speech",
+      "span",
+      "span",
+      "call_ended",
+    ]);
+    expect(events[1]).toEqual({ type: "speech_delta", text: pack.persona.closingLine });
+    expect(events[2]).toEqual({ type: "speech", text: pack.persona.closingLine });
+    // Recorded in the turn: the llm_call span lists the blocks the loop was handed.
+    expect(events[3]).toMatchObject({
+      type: "span",
+      span: { type: "llm_call", output: { blocks: ["text", "tool_use"] } },
+    });
+  });
+
+  it("says the filler line, not the closing line, when end_call comes beside another call", async () => {
+    const { session, events, pack } = newCall([
+      turn([verify(MARIA), toolUse("end_call", DISPOSITION)]),
+      turn([text("Verified na po kayo.")]),
+    ]);
+    session.start();
+    events.length = 0;
+
+    await session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+
+    expect(events.filter((e) => e.type === "speech")[0]).toEqual({
+      type: "speech",
+      text: pack.persona.fillerLine,
+    });
+  });
+
+  it("adds nothing to a tool turn that already says something", async () => {
+    const said = text("Sige po, iche-check ko.");
+    const verifying = verify(MARIA);
+    const { session, events, claude, pack } = newCall([
+      turn([said, verifying]),
+      turn([text("Verified na po kayo.")]),
+    ]);
+    session.start();
+
+    await session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+
+    const lines = [pack.persona.fillerLine, pack.persona.closingLine];
+    expect(
+      events.some((e) => (e.type === "speech" || e.type === "speech_delta") && lines.includes(e.text)),
+    ).toBe(false);
+    expect(claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      content: [said, verifying],
+    });
+  });
+
+  it("adds nothing to a refused tool turn", async () => {
+    const { session, events, pack } = newCall([
+      turn([verify(MARIA)], {
+        stop_reason: "refusal",
+        stop_details: { type: "refusal", category: null },
+      }),
+    ]);
+    session.start();
+    events.length = 0;
+
+    await session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+
+    expect(events.filter((e) => e.type === "speech")).toEqual([
+      { type: "speech", text: pack.persona.fallbackLine },
+    ]);
+  });
+
+  /** The caller is already talking: nothing is said over them. */
+  it("adds nothing to a tool turn the caller interrupted", async () => {
+    const verifying = verify(MARIA) as ToolUseBlock;
+    const requests: MessageCreateParams[] = [];
+    const caller: { session?: CallSession } = {};
+    const replies: (() => AssistantTurn)[] = [
+      // The caller talks over Tala while this model call streams, so it
+      // comes back cut short with the one block that had finished.
+      () => {
+        void caller.session?.interrupt();
+        return turn([verifying], { stop_reason: "interrupted" });
+      },
+      () => turn([text("Ano po ulit?")]),
+    ];
+    const create: MessageCreator = async (params) => {
+      requests.push(structuredClone(params));
+      const next = replies.shift();
+      if (!next) throw new Error("scripted Claude ran out of turns");
+      return next();
+    };
+    const call = callWith(create, {});
+    caller.session = call.session;
+    call.session.start();
+    call.events.length = 0;
+
+    const ended = await call.session.callerSaid(`${MARIA.accountNumber}, ${MARIA.mobileLast4}`);
+
+    expect(ended).toBe("interrupted");
+    expect(call.events.some((e) => e.type === "speech" || e.type === "speech_delta")).toBe(false);
+
+    await call.session.callerSaid("Ha?");
+
+    expect(requests[1].messages.slice(-3)).toEqual([
+      { role: "assistant", content: [verifying] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: verifying.id,
+            content: "Not run: the caller interrupted.",
+            is_error: true,
+          },
+        ],
+      },
+      { role: "user", content: "Ha?" },
+    ]);
+  });
+});
 
 describe("a call session — streaming speech", () => {
   it("emits each text delta as speech_delta, in order, before the turn's speech and awaiting_caller", async () => {

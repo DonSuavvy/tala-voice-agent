@@ -176,10 +176,29 @@ describe("loadPack on the small parts", () => {
     expect(issuesOf(source)).toEqual([expect.stringMatching(/^company\.locale: .*"en_PH"/)]);
   });
 
+  /** The test pack's persona with every fixed line but one. */
+  function personaWithout(line: string): Record<string, unknown> {
+    const persona = { ...(testPackSource().persona as Record<string, unknown>) };
+    delete persona[line];
+    return persona;
+  }
+
   it("rejects a persona that is missing its fallback line", () => {
     const source = testPackSource();
-    source.persona = { openingLine: "Hello po!" };
+    source.persona = personaWithout("fallbackLine");
     expect(issuesOf(source)).toEqual([expect.stringMatching(/^persona\.fallbackLine: /)]);
+  });
+
+  it("rejects a persona that is missing its filler line", () => {
+    const source = testPackSource();
+    source.persona = personaWithout("fillerLine");
+    expect(issuesOf(source)).toEqual([expect.stringMatching(/^persona\.fillerLine: /)]);
+  });
+
+  it("rejects a persona that is missing its closing line", () => {
+    const source = testPackSource();
+    source.persona = personaWithout("closingLine");
+    expect(issuesOf(source)).toEqual([expect.stringMatching(/^persona\.closingLine: /)]);
   });
 
   /** Nothing reads an agent name, so a pack that still carries one is refused. */

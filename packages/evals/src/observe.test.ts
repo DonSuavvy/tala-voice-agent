@@ -55,12 +55,18 @@ const WORLD: SeedWorld = {
 
 const OPENING = "Hello po! I'm Tala, an AI assistant, and this call is recorded.";
 const FALLBACK = "Sorry po, our system is having a problem. Please call again later.";
+const FILLER = "Sandali lang po.";
 
 const SOURCE: PackSource = {
   id: "test-isp",
   sop: { version: "v1", body: "You are the assistant on Test ISP's support line.\n" },
   company: { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH" },
-  persona: { openingLine: OPENING, fallbackLine: FALLBACK },
+  persona: {
+    openingLine: OPENING,
+    fallbackLine: FALLBACK,
+    fillerLine: FILLER,
+    closingLine: "Salamat po sa pagtawag!",
+  },
   policy: { identity: { maxFailedAttempts: 3 } },
   world: WORLD,
 };
@@ -214,7 +220,13 @@ describe("observeCall: a call that ended through end_call", () => {
 });
 
 describe("observeCall: through a real call, the voice checks see what went wrong", () => {
-  it("a tool call with nothing said", async () => {
+  /**
+   * The model called a tool with nothing said. The session says the pack's
+   * filler line for it before the turn's span, so through a real call the
+   * check now passes. That the check catches a silent tool call is pinned
+   * on hand-built events in score.test.ts.
+   */
+  it("a tool call the model made with nothing said: the session's filler line comes first", async () => {
     const { session, events } = newCall([
       turn([text("Sige po. Account number at last four ng mobile po?")]),
       turn([toolUse("verify_identity", { account_number: "8012345601", mobile_last4: "0101" })]),
@@ -224,9 +236,12 @@ describe("observeCall: through a real call, the voice checks see what went wrong
     await session.callerSaid("Wala po kaming internet.");
     await session.callerSaid("8012345601 po, 0101.");
 
-    const result = score({ speaksBeforeEveryToolCall: true }, observeCall(events, WORLD));
+    const observed = observeCall(events, WORLD);
+    const result = score({ speaksBeforeEveryToolCall: true }, observed);
 
-    expect(result.assertions[0].actual).toEqual(["model call 2 (verify_identity)"]);
+    expect(observed.events).toContainEqual({ type: "speech", text: FILLER });
+    expect(result.assertions[0].actual).toEqual([]);
+    expect(result.passed).toBe(true);
   });
 
   it("account data said in the turn that verifies", async () => {
