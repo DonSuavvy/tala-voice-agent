@@ -30,6 +30,12 @@
  * is message_start's figures if message_delta never came, so it undercounts
  * output: for an interrupted turn it is a floor, not a bill.
  *
+ * **One request path, the beta namespace.** Every model goes through
+ * `client.beta.messages`, because server-side refusal fallback is a beta.
+ * Only the models `provider.ts` opts in send `fallbacks: "default"` and its
+ * beta header; a Haiku request carries neither and is otherwise the same
+ * request as before.
+ *
  * **No `thinking`, no `effort` yet.** On the 5.5 models, omitting `thinking`
  * runs adaptive thinking, which is the only setting Opus 5.5 accepts. Effort
  * per logical model is #20. Whatever thinking blocks come back round-trip
@@ -38,8 +44,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { isSpokenText, type AssistantTurn, type MessageCreator } from "./loop";
+import { refusalFallbackFor } from "./provider";
 
-type StreamParams = Parameters<Anthropic["messages"]["stream"]>[0];
+type StreamParams = Parameters<Anthropic["beta"]["messages"]["stream"]>[0];
+type StreamMessage = Anthropic.Beta.BetaMessage;
 
 /** An abort before message_start: nothing was reported, so nothing is carried. */
 const NO_USAGE: AssistantTurn["usage"] = {
@@ -57,7 +65,7 @@ const NO_USAGE: AssistantTurn["usage"] = {
  * `input` is a best-effort parse of half the JSON.
  */
 function interruptedTurn(
-  snapshot: Anthropic.Message | undefined,
+  snapshot: StreamMessage | undefined,
   finished: ReadonlySet<number>,
 ): AssistantTurn {
   const content = (snapshot?.content ?? []).filter((block, index) => {
@@ -96,7 +104,7 @@ export function streamingMessageCreator(client: Anthropic): MessageCreator {
   return async (params, options = {}) => {
     const { signal, onTextDelta } = options;
 
-    const stream = client.messages.stream(
+    const stream = client.beta.messages.stream(
       {
         model: params.model,
         max_tokens: params.max_tokens,
@@ -105,6 +113,8 @@ export function streamingMessageCreator(client: Anthropic): MessageCreator {
         system: params.system,
         messages: params.messages as StreamParams["messages"],
         tools: params.tools as StreamParams["tools"],
+        // `fallbacks` and its beta header, on the models that take them.
+        ...refusalFallbackFor(params.model),
       },
       signal ? { signal } : undefined,
     );
