@@ -4,7 +4,7 @@ import type { CallEvent, CallPin, SeedWorld, SpanEvent } from "@tala/core";
 
 import type { EvalCase } from "./case";
 import type { AdvisoryGrade } from "./grader";
-import { buildReport, caseRow, reportFileName, type CaseReportRow } from "./report";
+import { buildReport, caseRow, reportFileName, sessionSpendNanos, type CaseReportRow } from "./report";
 import type { SimulatedCall } from "./simulated-caller";
 
 /**
@@ -291,6 +291,23 @@ describe("buildReport", () => {
       grader: { nanos: 400_000, usd: "0.000400", estimated: false },
       total: { nanos: 6_900_000, usd: "0.006900", estimated: true },
     });
+  });
+});
+
+/**
+ * What each next case's session is told the run has spent, for the $1.00
+ * cap. Tala's and the callers' calls count; the grader's spend is in the
+ * run's reported cost and never budgets anything, so the advisory grade
+ * cannot push a later case into budget_refused.
+ */
+describe("sessionSpendNanos", () => {
+  it("counts Tala and the caller, never the grader", () => {
+    // Each row: Tala 4,000,000 and caller 750,000 nanos; its 200,000 for the grader is left out.
+    expect(sessionSpendNanos([row(), row()])).toBe(9_500_000);
+  });
+
+  it("is zero before any case has finished", () => {
+    expect(sessionSpendNanos([])).toBe(0);
   });
 });
 
