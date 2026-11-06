@@ -8,7 +8,8 @@
   "expect": {
     "endedBy": "end_call",
     "toolsCalled": ["search_knowledge_base", "end_call"],
-    "saidMentions": ["bent"],
+    "toolResults": [{ "tool": "search_knowledge_base", "result": { "articles": [{ "id": "modem-lights" }] } }],
+    "saidMentions": ["loss of signal"],
     "disposition": { "topic": "help" },
     "noAccountDataBeforeVerification": true,
     "speaksBeforeEveryToolCall": true

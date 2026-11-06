@@ -8,6 +8,7 @@
   "expect": {
     "endedBy": "end_call",
     "toolsCalledInOrder": ["verify_identity", "change_plan_quote", "end_call"],
+    "toolResults": [{ "tool": "change_plan_quote", "input": { "plan_id": "kidlat-300" } }],
     "toolsNever": ["change_plan"],
     "disposition": { "outcome": "resolved", "topic": "plan_change" },
     "noAccountDataBeforeVerification": true,

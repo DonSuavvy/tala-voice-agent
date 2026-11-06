@@ -10,8 +10,9 @@
     "toolsCalledInOrder": ["verify_identity", "change_plan_quote", "change_plan", "end_call"],
     "toolResults": [
       { "tool": "change_plan_quote", "input": { "plan_id": "kidlat-500" } },
-      { "tool": "change_plan", "input": { "customer_confirmed": true }, "result": { "changed": true } }
+      { "tool": "change_plan", "input": { "customer_confirmed": true }, "result": { "changed": true, "plan": "Kidlat 500" } }
     ],
+    "saidMentions": ["2,099"],
     "disposition": { "outcome": "resolved", "topic": "plan_change" },
     "noAccountDataBeforeVerification": true,
     "speaksBeforeEveryToolCall": true
