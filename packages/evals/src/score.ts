@@ -103,14 +103,15 @@ const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
 /**
  * True when `actual` holds everything in `expected`: every field of an
  * expected object is present with a value that holds in turn, an expected
- * array matches element by element at the same length, and anything else is
+ * array is a prefix (each of its elements holds in the actual element at the
+ * same index, and the actual array may be longer), and anything else is
  * compared exactly (`false` is not `"false"`).
  */
 function holds(actual: unknown, expected: unknown): boolean {
   if (Array.isArray(expected)) {
     return (
       Array.isArray(actual) &&
-      actual.length === expected.length &&
+      actual.length >= expected.length &&
       expected.every((value, index) => holds(actual[index], value))
     );
   }
