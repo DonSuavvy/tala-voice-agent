@@ -1,0 +1,29 @@
+{
+  // One config for the whole repo while every workspace is plain TypeScript.
+  // apps/web gets its own tsconfig when the Next.js app lands (#12), and is
+  // excluded here then.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+
+    // Same strictness as OpsPilot, so its engine imports cleanly (#4).
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "packages/*/src",
+    "packages/packs/*/src",
+    "apps/*/src",
+    "test",
+    "scripts",
+    "*.ts"
+  ]
+}
