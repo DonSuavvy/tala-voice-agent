@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { promptVersion, resolveGitSha } from "./pin";
 
 /**
- * PLAN.md: "Every eval run pinned to (SOP version, prompt version, model, git
+ * OpsPilot's plan: "Every eval run pinned to (SOP version, prompt version, model, git
  * SHA) → regression diff view between any two runs." The pin is what makes a
  * diff mean anything — two runs are comparable only if you can say what was
  * different about them, and "the prompt changed" is the difference the whole
@@ -18,8 +18,8 @@ describe("promptVersion", () => {
    */
   it("is a 12-character sha256 prefix of the text", () => {
     expect(promptVersion("hello")).toBe("2cf24dba5fb0");
-    expect(promptVersion("# SOP\nRefund window is 30 days.\n")).toBe(
-      "8e36f8a02a36",
+    expect(promptVersion("# SOP\nCredit after 24 hours.\n")).toBe(
+      "bf2dcc08e66b",
     );
   });
 
@@ -28,8 +28,8 @@ describe("promptVersion", () => {
   });
 
   it("moves when a single character of policy moves", () => {
-    expect(promptVersion("# SOP\nRefund window is 30 days.\n")).not.toBe(
-      promptVersion("# SOP\nRefund window is 14 days.\n"),
+    expect(promptVersion("# SOP\nCredit after 24 hours.\n")).not.toBe(
+      promptVersion("# SOP\nCredit after 12 hours.\n"),
     );
   });
 

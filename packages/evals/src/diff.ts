@@ -27,7 +27,7 @@ import type {
  * `actual` comes back out of `jsonb`, which stores objects as a key-sorted
  * binary form and hands them back in whatever order it likes, so raw
  * `JSON.stringify` would report a flip on a value nothing touched. Arrays are
- * the opposite case: `toolsCalled: ["get_invoices", "issue_refund"]` arriving
+ * the opposite case: `toolsCalled: ["get_billing_history", "apply_bill_credit"]` arriving
  * reversed means the agent did a different thing in a different order, which is
  * exactly what the diff exists to surface.
  *
@@ -181,7 +181,7 @@ export function diffEvalRuns(
 
   // Sorting the buckets, which are ours. `base` and `head` are the caller's and
   // are never reordered — `Array.prototype.sort` is in place.
-  for (const bucket of Object.values(diff)) bucket.sort(bySlug);
+  for (const bucket of Object.values(diff) as CaseDiff[][]) bucket.sort(bySlug);
 
   return diff;
 }

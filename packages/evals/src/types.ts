@@ -1,5 +1,5 @@
 /**
- * The Eval Lab's result vocabulary — the contract between the scorer, the
+ * The eval result vocabulary — the contract between the scorer, the
  * runner, the persistence layer and the diff view.
  *
  * Kept in its own module on purpose: the diff is pure and the UI reads rows,

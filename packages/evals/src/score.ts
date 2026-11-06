@@ -1,9 +1,10 @@
 /**
- * Deterministic scoring — the module PLAN.md's "no LLM judge in the MVP loop"
- * promise rests on.
+ * Deterministic scoring — the module the "no LLM judge in the gate" promise
+ * rests on. Imported from OpsPilot; Tala's advisory grader (#9) is shown
+ * beside this score and never decides it.
  *
- * `temperature` is not available on Opus or Sonnet 5, so the usual lever for
- * making an eval reproducible does not exist. Determinism has to come from
+ * Sampling parameters such as `temperature` are rejected on the current API
+ * version, so the usual lever for making an eval reproducible does not exist. Determinism has to come from
  * somewhere else, and this is it: a pure function of an expectation set and an
  * observation, with no clock, no database, and no model in the loop. The same
  * run scored twice gives the same answer, and a case that flips flipped
@@ -11,7 +12,7 @@
  *
  * **Assertion names are the diff view's join key.** `RunDiff` matches
  * assertions across two runs by `name`, so a name must be derived from the
- * expectation and its argument — `toolsCalled:search_kb` — and never from run
+ * expectation and its argument — `toolsCalled:search_knowledge_base` — and never from run
  * output. A name that varied with what happened would make every assertion
  * look added-and-removed instead of flipped.
  *
@@ -21,12 +22,12 @@
  * headline sentence depending on how the case object happened to be written.
  *
  * **A missing outcome is a finding, never a default.** A completed run should
- * always carry `resolve_ticket`'s structured output, and a paused one never
- * does. Reading `refund_amount_cents` as `?? 0` would make "expected 0 cents"
- * pass on a run that never resolved anything — green on the exact failure the
- * assertion exists to catch.
+ * always carry the terminal tool's structured output, and a paused one never
+ * does. Reading a missing field as `?? 0` would make "expected 0" pass on a
+ * run that never finished anything — green on the exact failure the assertion
+ * exists to catch.
  */
-import type { AgentLoopStatus, SpanEvent } from "@/agent/loop";
+import type { AgentLoopStatus, SpanEvent } from "@tala/core";
 
 import type { Expectations } from "./case";
 import type { Assertion, CaseScore } from "./types";
@@ -39,8 +40,8 @@ import type { Assertion, CaseScore } from "./types";
  */
 export interface Observed {
   status: AgentLoopStatus;
-  /** `resolve_ticket`'s input. Null on any run that did not reach it. */
-  outcome: unknown | null;
+  /** The terminal tool's input. Null on any run that did not reach it. */
+  outcome: unknown;
   /** Set only when the loop stopped for a human. */
   pendingApproval: { toolName: string; toolInput: unknown } | null;
   spans: SpanEvent[];
@@ -72,8 +73,8 @@ function fail(
  * The type filter is the load-bearing half. A confirm-write call that paused
  * emits `approval_wait`, and one the policy engine refused emits `guardrail` —
  * neither is the tool having run, and counting them would make
- * `toolsNever: ["issue_refund"]` fail on a run that correctly refused to
- * refund.
+ * `toolsNever: ["apply_bill_credit"]` fail on a run that correctly refused
+ * the credit.
  */
 function execSpans(spans: SpanEvent[], name: string): SpanEvent[] {
   return spans.filter((s) => s.type === "tool_exec" && s.name === name);
@@ -122,41 +123,6 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
     );
   }
 
-  /* ----------------------------- refundCents ----------------------------- */
-
-  if (expect.refundCents !== undefined) {
-    const expected = expect.refundCents;
-    const ceiling = typeof expected === "number" ? null : expected.max;
-    const wanted =
-      ceiling === null
-        ? `a refund of ${expected as number} cents`
-        : `a refund of at most ${ceiling} cents`;
-
-    if (outcome === null) {
-      assertions.push(
-        fail(
-          "refundCents",
-          expected,
-          null,
-          `expected ${wanted}, but the run produced no outcome`,
-        ),
-      );
-    } else {
-      const actual = Number(outcome.refund_amount_cents ?? 0);
-      const ok = ceiling === null ? actual === expected : actual <= ceiling;
-      assertions.push(
-        ok
-          ? pass("refundCents", expected, actual)
-          : fail(
-              "refundCents",
-              expected,
-              actual,
-              `expected ${wanted}, got ${actual}`,
-            ),
-      );
-    }
-  }
-
   /* ------------------------------ pausesFor ------------------------------ */
 
   if (expect.pausesFor !== undefined) {
@@ -176,33 +142,6 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
               : `expected a pause on "${wanted.tool}", got a pause on "${actualTool}"`,
           ),
     );
-
-    if (wanted.amountCents !== undefined) {
-      /**
-       * `amount_cents` is `issue_refund`'s field, and it is the only
-       * confirm-write tool that carries a figure — `update_subscription`
-       * changes a plan, not an amount. Read generically rather than switched
-       * on tool name so a future confirm-write with the same field name works
-       * without an edit here.
-       */
-      const input = asRecord(pending?.toolInput);
-      const raw = input?.amount_cents;
-      const actual = typeof raw === "number" ? raw : null;
-
-      assertions.push(
-        actual === wanted.amountCents
-          ? pass("pausesFor.amountCents", wanted.amountCents, actual)
-          : fail(
-              "pausesFor.amountCents",
-              wanted.amountCents,
-              actual,
-              actual === null
-                ? `expected the pause to be for ${wanted.amountCents} cents, ` +
-                    `but the paused call carried no amount_cents`
-                : `expected the pause to be for ${wanted.amountCents} cents, got ${actual}`,
-            ),
-        );
-    }
   }
 
   /* ----------------------------- toolsCalled ----------------------------- */
@@ -228,7 +167,7 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
   /* ------------------------------ toolsNever ----------------------------- */
 
   for (const name of expect.toolsNever ?? []) {
-    // Errors included, deliberately: a refund that fired and then failed still
+    // Errors included, deliberately: a credit that fired and then failed still
     // fired. The handler ran and the audit row exists, so treating `isError`
     // as "did not happen" would report green on a real side effect.
     const calls = execSpans(observed.spans, name);

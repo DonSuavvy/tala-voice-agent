@@ -8,10 +8,10 @@ import type { Assertion, CaseResultRow } from "./types";
  * pressure, so what it must never do is lose a change. Two failure modes are
  * pinned here because both are silent:
  *
- * 1. A verdict that holds while the number underneath it moves — a refund that
- *    slid from 4900 to 2400 but stayed under the policy `max` still passes, and
- *    a diff comparing only `passed` would call that case unchanged with nothing
- *    to show. It *is* unchanged, and the flip is still the interesting part.
+ * 1. A verdict that holds while the number underneath it moves — a call that
+ *    went from 6 iterations to 4 but stayed under the `maxIterations` cap still
+ *    passes, and a diff comparing only `passed` would call that case unchanged
+ *    with nothing to show. It *is* unchanged, and the flip is still the interesting part.
  * 2. Object key order counting as a difference. `actual` comes back through
  *    `jsonb`, which does not preserve key order, so a naive `JSON.stringify`
  *    comparison reports a flip on every run and the real ones drown.
@@ -20,8 +20,8 @@ import type { Assertion, CaseResultRow } from "./types";
 function assertion(over: Partial<Assertion> = {}): Assertion {
   return {
     name: "action",
-    expected: "refunded",
-    actual: "refunded",
+    expected: "credited",
+    actual: "credited",
     passed: true,
     ...over,
   };
@@ -29,8 +29,8 @@ function assertion(over: Partial<Assertion> = {}): Assertion {
 
 function row(over: Partial<CaseResultRow> = {}): CaseResultRow {
   return {
-    slug: "refund-within-window",
-    title: "Refund inside the 30-day window",
+    slug: "outage-credit",
+    title: "Outage credit for a Batasan Hills caller",
     passed: true,
     assertions: [assertion()],
     failureReason: null,
@@ -46,26 +46,26 @@ describe("diffEvalRuns", () => {
     const before = row({
       passed: true,
       assertions: [
-        assertion({ name: "action", expected: "refunded", actual: "refunded" }),
+        assertion({ name: "action", expected: "credited", actual: "credited" }),
         assertion({
-          name: "refundCents",
-          expected: 4900,
-          actual: 4900,
+          name: "maxIterations",
+          expected: 6,
+          actual: 4,
           passed: true,
         }),
       ],
     });
     const after = row({
       passed: false,
-      failureReason: "Expected a refund of 4900 cents, got 0",
+      failureReason: "expected at most 6 iterations, got 9",
       assertions: [
-        assertion({ name: "action", expected: "refunded", actual: "refunded" }),
+        assertion({ name: "action", expected: "credited", actual: "credited" }),
         assertion({
-          name: "refundCents",
-          expected: 4900,
-          actual: 0,
+          name: "maxIterations",
+          expected: 6,
+          actual: 9,
           passed: false,
-          detail: "issue_refund never fired",
+          detail: "expected at most 6 iterations, got 9",
         }),
       ],
     });
@@ -79,35 +79,35 @@ describe("diffEvalRuns", () => {
     expect(diff.removed).toEqual([]);
 
     const entry = diff.regressed[0];
-    expect(entry.slug).toBe("refund-within-window");
+    expect(entry.slug).toBe("outage-credit");
     expect(entry.kind).toBe("regressed");
     expect(entry.before?.passed).toBe(true);
     expect(entry.after?.passed).toBe(false);
     expect(entry.flips).toHaveLength(1);
-    expect(entry.flips[0].name).toBe("refundCents");
-    expect(entry.flips[0].before?.actual).toBe(4900);
-    expect(entry.flips[0].after?.actual).toBe(0);
-    expect(entry.flips[0].after?.detail).toBe("issue_refund never fired");
+    expect(entry.flips[0].name).toBe("maxIterations");
+    expect(entry.flips[0].before?.actual).toBe(4);
+    expect(entry.flips[0].after?.actual).toBe(9);
+    expect(entry.flips[0].after?.detail).toBe("expected at most 6 iterations, got 9");
   });
 
   it("calls a case that failed in base and passes in head fixed", () => {
     const before = row({
       slug: "injection-attempt",
-      title: "Prompt injection in the ticket body",
+      title: "Spoken prompt injection",
       passed: false,
-      failureReason: "Expected zero side-effect tools, got issue_refund",
+      failureReason: "Expected zero side-effect tools, got apply_bill_credit",
       assertions: [
         assertion({
           name: "toolsNever",
           expected: [],
-          actual: ["issue_refund"],
+          actual: ["apply_bill_credit"],
           passed: false,
         }),
       ],
     });
     const after = row({
       slug: "injection-attempt",
-      title: "Prompt injection in the ticket body",
+      title: "Spoken prompt injection",
       passed: true,
       assertions: [
         assertion({
@@ -134,9 +134,9 @@ describe("diffEvalRuns", () => {
     const before = row({
       assertions: [
         assertion({
-          name: "refundCents<=max",
-          expected: 4900,
-          actual: 4900,
+          name: "maxIterations",
+          expected: 6,
+          actual: 6,
           passed: true,
         }),
       ],
@@ -144,9 +144,9 @@ describe("diffEvalRuns", () => {
     const after = row({
       assertions: [
         assertion({
-          name: "refundCents<=max",
-          expected: 4900,
-          actual: 2400,
+          name: "maxIterations",
+          expected: 6,
+          actual: 4,
           passed: true,
         }),
       ],
@@ -159,9 +159,9 @@ describe("diffEvalRuns", () => {
     expect(diff.unchanged).toHaveLength(1);
     expect(diff.unchanged[0].kind).toBe("unchanged");
     expect(diff.unchanged[0].flips).toHaveLength(1);
-    expect(diff.unchanged[0].flips[0].name).toBe("refundCents<=max");
-    expect(diff.unchanged[0].flips[0].before?.actual).toBe(4900);
-    expect(diff.unchanged[0].flips[0].after?.actual).toBe(2400);
+    expect(diff.unchanged[0].flips[0].name).toBe("maxIterations");
+    expect(diff.unchanged[0].flips[0].before?.actual).toBe(6);
+    expect(diff.unchanged[0].flips[0].after?.actual).toBe(4);
   });
 
   it("puts a head-only case in added and a base-only case in removed, with no flips", () => {
@@ -213,8 +213,8 @@ describe("diffEvalRuns", () => {
       assertions: [
         assertion({
           name: "outcome",
-          expected: { action: "refunded", refundCents: 4900 },
-          actual: { action: "refunded", refundCents: 4900 },
+          expected: { action: "credited", creditMinor: 4900 },
+          actual: { action: "credited", creditMinor: 4900 },
           passed: true,
         }),
       ],
@@ -223,8 +223,8 @@ describe("diffEvalRuns", () => {
       assertions: [
         assertion({
           name: "outcome",
-          expected: { refundCents: 4900, action: "refunded" },
-          actual: { refundCents: 4900, action: "refunded" },
+          expected: { creditMinor: 4900, action: "credited" },
+          actual: { creditMinor: 4900, action: "credited" },
           passed: true,
         }),
       ],
@@ -241,8 +241,8 @@ describe("diffEvalRuns", () => {
       assertions: [
         assertion({
           name: "toolsCalled",
-          expected: ["get_invoices", "issue_refund"],
-          actual: ["get_invoices", "issue_refund"],
+          expected: ["get_billing_history", "apply_bill_credit"],
+          actual: ["get_billing_history", "apply_bill_credit"],
           passed: true,
         }),
       ],
@@ -251,8 +251,8 @@ describe("diffEvalRuns", () => {
       assertions: [
         assertion({
           name: "toolsCalled",
-          expected: ["get_invoices", "issue_refund"],
-          actual: ["issue_refund", "get_invoices"],
+          expected: ["get_billing_history", "apply_bill_credit"],
+          actual: ["apply_bill_credit", "get_billing_history"],
           passed: true,
         }),
       ],
@@ -270,14 +270,14 @@ describe("diffEvalRuns", () => {
         assertion({ name: "status", expected: "resolved", actual: "resolved" }),
         assertion({
           name: "pausesFor",
-          expected: "issue_refund",
-          actual: "issue_refund",
+          expected: "apply_bill_credit",
+          actual: "apply_bill_credit",
           passed: true,
         }),
         assertion({
           name: "replyMentions",
-          expected: "refund",
-          actual: "refund",
+          expected: "credit",
+          actual: "credit",
           passed: true,
         }),
       ],
@@ -287,8 +287,8 @@ describe("diffEvalRuns", () => {
         assertion({ name: "status", expected: "resolved", actual: "resolved" }),
         assertion({
           name: "replyMentions",
-          expected: "refund",
-          actual: "refund",
+          expected: "credit",
+          actual: "credit",
           passed: true,
         }),
         assertion({
@@ -309,7 +309,7 @@ describe("diffEvalRuns", () => {
     // Base assertion order leads: `pausesFor` is second in base and absent from
     // head. `guardrailOn` is head-only and follows.
     expect(flips[0].name).toBe("pausesFor");
-    expect(flips[0].before?.expected).toBe("issue_refund");
+    expect(flips[0].before?.expected).toBe("apply_bill_credit");
     expect(flips[0].after).toBeNull();
     expect(flips[1].name).toBe("guardrailOn");
     expect(flips[1].before).toBeNull();
@@ -318,32 +318,32 @@ describe("diffEvalRuns", () => {
 
   it("orders each bucket by slug, ascending, without reordering the caller's arrays", () => {
     const base = [
-      row({ slug: "zeta-refund", passed: true }),
-      row({ slug: "alpha-refund", passed: true }),
-      row({ slug: "mid-refund", passed: true }),
+      row({ slug: "zeta-credit", passed: true }),
+      row({ slug: "alpha-credit", passed: true }),
+      row({ slug: "mid-credit", passed: true }),
     ];
     const head = [
-      row({ slug: "zeta-refund", passed: false }),
-      row({ slug: "alpha-refund", passed: false }),
-      row({ slug: "mid-refund", passed: false }),
+      row({ slug: "zeta-credit", passed: false }),
+      row({ slug: "alpha-credit", passed: false }),
+      row({ slug: "mid-credit", passed: false }),
     ];
 
     const diff = diffEvalRuns(base, head);
 
     expect(diff.regressed.map((c) => c.slug)).toEqual([
-      "alpha-refund",
-      "mid-refund",
-      "zeta-refund",
+      "alpha-credit",
+      "mid-credit",
+      "zeta-credit",
     ]);
     expect(base.map((r) => r.slug)).toEqual([
-      "zeta-refund",
-      "alpha-refund",
-      "mid-refund",
+      "zeta-credit",
+      "alpha-credit",
+      "mid-credit",
     ]);
     expect(head.map((r) => r.slug)).toEqual([
-      "zeta-refund",
-      "alpha-refund",
-      "mid-refund",
+      "zeta-credit",
+      "alpha-credit",
+      "mid-credit",
     ]);
   });
 

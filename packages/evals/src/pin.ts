@@ -1,7 +1,7 @@
 /**
  * What an eval run is pinned to.
  *
- * PLAN.md: every run carries (SOP version, prompt version, model, git SHA), so
+ * As in OpsPilot, every run carries (SOP version, prompt version, model, git SHA), so
  * any two runs can be diffed and the difference attributed. The SOP version and
  * the model are ids the caller already holds; the other two are computed here.
  *
@@ -14,7 +14,7 @@
  */
 import { createHash } from "node:crypto";
 
-import type { SystemBlock } from "@/agent/cache";
+import type { SystemBlock } from "@tala/core";
 
 /**
  * Twelve hex characters — 48 bits.
