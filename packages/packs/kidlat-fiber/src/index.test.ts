@@ -40,6 +40,34 @@ describe("the Kidlat Fiber pack", () => {
     expect(shipped).not.toContain("{{");
   });
 
+  /** The plans DESIGN §4 names, with Kidlat's speeds and monthly prices. */
+  it("offers the Kidlat 100, 300, 500 and 1000 plans", () => {
+    expect(loadKidlatFiber().plans).toEqual([
+      { id: "kidlat-100", name: "Kidlat 100", downloadMbps: 100, monthlyPriceMinor: 129_900 },
+      { id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 },
+      { id: "kidlat-500", name: "Kidlat 500", downloadMbps: 500, monthlyPriceMinor: 209_900 },
+      { id: "kidlat-1000", name: "Kidlat 1000", downloadMbps: 1000, monthlyPriceMinor: 299_900 },
+    ]);
+  });
+
+  /**
+   * The seed's bills are a month of each account's plan. The loader cannot
+   * require this of every pack (a bill can carry a prorated amount, or an
+   * older plan), so it is checked here, on the data Kidlat ships.
+   */
+  it("bills every account at its plan's monthly price", () => {
+    const { plans, world } = loadKidlatFiber();
+
+    for (const account of world.accounts) {
+      const plan = plans.find((p) => p.name === account.planName);
+      const bills = world.bills.filter((b) => b.accountNumber === account.accountNumber);
+
+      expect(plan, account.planName).toBeDefined();
+      expect(bills.length, account.accountNumber).toBeGreaterThan(0);
+      for (const bill of bills) expect(bill.amountMinor, bill.reference).toBe(plan?.monthlyPriceMinor);
+    }
+  });
+
   it("opens every call by saying Tala is an AI and the call is recorded", () => {
     const { persona } = loadKidlatFiber();
 

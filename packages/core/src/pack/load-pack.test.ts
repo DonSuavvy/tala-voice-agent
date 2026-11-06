@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeedWorld } from "../systems/seed-world";
-import { TEST_COMPANY, testPackSource, testSystems } from "../testing/fixtures";
+import { TEST_COMPANY, testPackSource, testPlans, testSystems } from "../testing/fixtures";
 import { compilePackSop, loadPack, PackValidationError, type PackSource } from "./load-pack";
 
 /** The one error a broken source throws, so a test can read its issues. */
@@ -223,6 +223,80 @@ describe("loadPack on the small parts", () => {
     const source = testPackSource();
     source.persona = { ...(source.persona as object), agentName: "Tala" };
     expect(issuesOf(source)).toEqual([expect.stringMatching(/^persona: .*agentName/)]);
+  });
+});
+
+describe("loadPack's plan catalog", () => {
+  it("loads the plans, each with its id, name, download speed and monthly price", () => {
+    expect(loadPack(testPackSource()).plans).toEqual([
+      { id: "kidlat-100", name: "Kidlat 100", downloadMbps: 100, monthlyPriceMinor: 129_900 },
+      { id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 },
+      { id: "kidlat-500", name: "Kidlat 500", downloadMbps: 500, monthlyPriceMinor: 209_900 },
+    ]);
+  });
+
+  it("freezes the catalog with the rest of the pack", () => {
+    const [plan] = loadPack(testPackSource()).plans;
+
+    expect(() => {
+      plan.monthlyPriceMinor = 1;
+    }).toThrow(TypeError);
+  });
+
+  /** A plan with one field broken: each case names the path it must report. */
+  it.each([
+    ["an id that is not a slug", { id: "Kidlat 100" }, "plans[0].id"],
+    ["an empty name", { name: "" }, "plans[0].name"],
+    ["a speed of zero", { downloadMbps: 0 }, "plans[0].downloadMbps"],
+    ["a fractional speed", { downloadMbps: 100.5 }, "plans[0].downloadMbps"],
+    ["a price of zero", { monthlyPriceMinor: 0 }, "plans[0].monthlyPriceMinor"],
+    ["a price in fractions of a minor unit", { monthlyPriceMinor: 1299.5 }, "plans[0].monthlyPriceMinor"],
+    ["a price given as text", { monthlyPriceMinor: "129900" }, "plans[0].monthlyPriceMinor"],
+    ["an unknown key", { uploadMbps: 50 }, "plans[0]"],
+  ])("refuses a plan with %s, by path", (_what, change, path) => {
+    const source = testPackSource();
+    const plans = testPlans();
+    source.plans = [{ ...plans[0], ...change }, ...plans.slice(1)];
+
+    const issues = issuesOf(source);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].startsWith(`${path}: `), issues[0]).toBe(true);
+  });
+
+  it("refuses a pack with no plans", () => {
+    const source = testPackSource();
+    source.plans = [];
+    expect(issuesOf(source)).toEqual([expect.stringMatching(/^plans: /)]);
+  });
+
+  /** The first of two clashing plans is kept; the later one is the line to change. */
+  it("refuses a duplicate plan id or name, reporting the later plan", () => {
+    const source = testPackSource();
+    const [hundred, threeHundred, fiveHundred] = testPlans();
+    source.plans = [
+      hundred,
+      { ...threeHundred, id: "kidlat-100" },
+      { ...fiveHundred, name: "Kidlat 300" },
+    ];
+
+    expect(issuesOf(source)).toEqual([
+      'plans[1].id: duplicate plan id "kidlat-100"',
+      'plans[2].name: duplicate plan name "Kidlat 300"',
+    ]);
+  });
+
+  /** An account on a plan the catalog lacks could never be quoted a change. */
+  it("reports each account whose plan is not in the catalog, one issue per account", () => {
+    const source = testPackSource();
+    const world = source.world as SeedWorld;
+    world.accounts[1].planName = "Kidlat 200";
+    world.accounts[2].planName = "kidlat 500";
+
+    expect(issuesOf(source)).toEqual([
+      'world.accounts[1].planName: account 8012345602 names unknown plan "Kidlat 200"',
+      'world.accounts[2].planName: account 8012345603 names unknown plan "kidlat 500"',
+    ]);
   });
 });
 

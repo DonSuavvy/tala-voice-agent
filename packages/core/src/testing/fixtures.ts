@@ -221,6 +221,18 @@ export function testWorld(): SeedWorld {
   };
 }
 
+/**
+ * The test pack's plan catalog: every plan the test world's accounts are on.
+ * A fresh copy on every call.
+ */
+export function testPlans() {
+  return [
+    { id: "kidlat-100", name: "Kidlat 100", downloadMbps: 100, monthlyPriceMinor: 129_900 },
+    { id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 },
+    { id: "kidlat-500", name: "Kidlat 500", downloadMbps: 500, monthlyPriceMinor: 209_900 },
+  ];
+}
+
 /** The test pack's SOP. Its one placeholder is filled from the policy. */
 export const TEST_SOP_BODY =
   "You are the assistant on Test ISP's support line.\n\n" +
@@ -243,6 +255,7 @@ export function testPackSource(): PackSource {
       closingLine: "Salamat po sa pagtawag sa Test ISP. Ingat po!",
     },
     policy: { identity: { maxFailedAttempts: 3 } },
+    plans: testPlans(),
     world: testWorld(),
   };
 }
