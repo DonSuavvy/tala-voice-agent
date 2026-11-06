@@ -37,8 +37,8 @@ export function testSystems(
 
 /**
  * A tool context for one test call that started at `CALL_STARTED_AT`: nobody
- * verified yet, the test company, the test policy, and a wait that resolves at
- * once unless one is given. `now` defaults to the call's start.
+ * verified yet, the test company, its plans, the test policy, and a wait that
+ * resolves at once unless one is given. `now` defaults to the call's start.
  */
 export function testToolContext(
   systems: BusinessSystems,
@@ -53,6 +53,7 @@ export function testToolContext(
       systems,
       identity: initialIdentityState(),
       company: { ...TEST_COMPANY },
+      plans: testPlans(),
       startedAt: CALL_STARTED_AT,
       wait: options.wait ?? noWait,
     },
