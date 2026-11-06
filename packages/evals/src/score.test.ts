@@ -386,13 +386,22 @@ describe("score: toolResults", () => {
     ]);
   });
 
-  it("matches nested objects field by field, and arrays element by element", () => {
+  /**
+   * An expected array is a prefix: each element matches the actual element at
+   * the same index, and the actual array may be longer. "The first search
+   * result is this article" is then a case a search with more results passes.
+   */
+  it("matches nested objects field by field, and an array by its first elements, in order", () => {
     const nested = { toolResults: [{ tool: "verify_payment", result: { account: { posted: false } } }] };
     const list = { toolResults: [{ tool: "verify_payment", result: { tags: ["late"] } }] };
+    const tags = (actual: string[]) =>
+      score(list, observed({ events: [payment({ tags: actual })] })).passed;
 
     expect(score(nested, observed({ events: [payment({ account: { posted: false, id: 1 } })] })).passed).toBe(true);
-    expect(score(list, observed({ events: [payment({ tags: ["late"] })] })).passed).toBe(true);
-    expect(score(list, observed({ events: [payment({ tags: ["late", "gcash"] })] })).passed).toBe(false);
+    expect(tags(["late"])).toBe(true);
+    expect(tags(["late", "gcash"])).toBe(true);
+    expect(tags(["gcash", "late"])).toBe(false);
+    expect(tags([])).toBe(false);
   });
 
   it("compares values exactly, so false is not \"false\"", () => {
