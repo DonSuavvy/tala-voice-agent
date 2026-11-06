@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { compilePackSop, createInMemorySystems, loadPack } from "@tala/core";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { compilePackSop, createInMemorySystems, loadPack, PackValidationError } from "@tala/core";
 
 import { KIDLAT_SOP_VERSION, kidlatFiberSource, loadKidlatFiber } from "./index";
 
@@ -51,5 +56,57 @@ describe("the Kidlat Fiber pack", () => {
     expect(outages).toHaveLength(1);
     expect(outages[0].cause).toMatch(/fiber/);
     expect(outages[0].estimatedRestorationAt).not.toBeNull();
+  });
+});
+
+/**
+ * A pack with unreadable files must name every one of them, not stop at the
+ * first parser error. Tested on a temporary copy so the shipped files stay put.
+ */
+describe("kidlatFiberSource on a broken copy of the pack", () => {
+  const copies: string[] = [];
+
+  afterEach(() => {
+    for (const dir of copies.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function copyOfPack(): { root: URL; dir: string } {
+    const dir = mkdtempSync(join(tmpdir(), "kidlat-pack-"));
+    copies.push(dir);
+    const here = fileURLToPath(new URL("../", import.meta.url));
+    cpSync(join(here, "sop"), join(dir, "sop"), { recursive: true });
+    cpSync(join(here, "pack"), join(dir, "pack"), { recursive: true });
+    return { root: pathToFileURL(dir + sep), dir };
+  }
+
+  function issuesFrom(root: URL): string[] {
+    try {
+      kidlatFiberSource(root);
+    } catch (error) {
+      if (error instanceof PackValidationError) return error.issues;
+      throw error;
+    }
+    throw new Error("expected kidlatFiberSource to throw");
+  }
+
+  it("lists every file that is not valid JSON, by name", () => {
+    const { root, dir } = copyOfPack();
+    writeFileSync(join(dir, "pack/world.json"), '{ "barangays": [1,, 2] }');
+    writeFileSync(join(dir, "pack/policy.json"), "{ nope");
+
+    const issues = issuesFrom(root);
+
+    expect(issues).toHaveLength(2);
+    expect(issues).toContainEqual(expect.stringMatching(/^pack\/world\.json: not valid JSON \(.+\)$/));
+    expect(issues).toContainEqual(expect.stringMatching(/^pack\/policy\.json: not valid JSON \(.+\)$/));
+  });
+
+  it("lists a missing file the same way", () => {
+    const { root, dir } = copyOfPack();
+    rmSync(join(dir, "pack/persona.json"));
+
+    expect(issuesFrom(root)).toEqual([
+      expect.stringMatching(/^pack\/persona\.json: cannot be read \(.+\)$/),
+    ]);
   });
 });
