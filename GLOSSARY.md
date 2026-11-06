@@ -161,6 +161,13 @@ Service cut off for an unpaid balance, on a scheduled date after the balance
 was due.
 _Avoid_: cut-off, termination
 
+## Tickets
+
+**Ticket**:
+A request, opened on the verified account, for a team to do what Tala cannot do
+on the call, with a reference the caller can quote back.
+_Avoid_: case, complaint, trouble report
+
 ## People
 
 **Supervisor**:
