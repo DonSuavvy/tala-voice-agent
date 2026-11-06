@@ -1,65 +1,77 @@
 /**
- * The SOP compiler — the piece that makes "the SOP *is* the prompt" true.
+ * The SOP compiler: the piece that makes "the SOP *is* the prompt" true.
  *
- * `sop_versions` stores two halves of one policy in a single row:
- * `bodyMarkdown` is what the model reads, `policyConfig` is what the
- * `issue_refund` handler revalidates against. The schema comment says they
- * "cannot drift apart across an edit" because they are versioned together —
- * true of the *row*, but not of the *figures*, because the seed interpolated
- * `DEFAULT_POLICY` into the markdown at seed time and froze them into a string.
+ * A company pack keeps two halves of one policy side by side: markdown that
+ * the model reads, and a policy config that the tool handlers revalidate
+ * against. If the markdown carried the figures as typed text, the two could
+ * drift: change a limit in the config and the handler enforces the new number
+ * while the prose still states the old one. The agent then refuses something
+ * under a rule it was never told, which looks exactly like a working system
+ * and demonstrates nothing. (OpsPilot shipped that bug once, with its refund
+ * window: the seed had frozen the figures into the string.)
  *
- * Flip the window 30 -> 14 in `policyConfig` and the handler enforces 14 while
- * the prose still says thirty. The refund is denied for a rule the model was
- * never told, which is the one outcome demo arc step 2 must not have: it looks
- * exactly like a working demo and demonstrates nothing.
+ * So the markdown carries placeholders, and the figures are substituted here
+ * from the same config, at compile time. One source of truth, no drift.
  *
- * So the markdown carries placeholders and the figures are substituted here,
- * from the same row, at compile time. One source of truth, no drift possible.
+ * The engine owns the mechanism. The vocabulary of placeholders, and how each
+ * one renders, belongs to the company pack, passed in as `renderers`.
  */
-import type { PolicyConfig } from "@/policy/refund";
 
 /**
- * Every placeholder the markdown may use, and how each renders.
+ * Every placeholder a pack's markdown may use, and how each renders.
  *
- * A closed vocabulary rather than arbitrary path lookup: the editor validates
- * against this list before saving, and an unknown token fails at compile time
- * instead of reaching the model. Values are pre-formatted for prose — cents
- * become dollars here, so no SOP author has to divide by 100 correctly.
+ * A closed vocabulary rather than arbitrary path lookup: an unknown token
+ * fails at compile time instead of reaching the model, and a pack can check
+ * its document against the list at boot. Values are pre-formatted for prose,
+ * so no SOP author has to divide minor units correctly.
  */
-const RENDERERS: Readonly<
-  Record<string, (policy: PolicyConfig) => string>
-> = {
-  "refund.windowDays": (p) => String(p.refund.windowDays),
-  "refund.maxAutoApprove": (p) => usd(p.refund.maxAutoApproveCents),
-  "refund.maxRefund": (p) => usd(p.refund.maxRefundCents),
-  "escalation.churnRiskLtv": (p) => usd(p.escalation.churnRiskLtvCents),
-};
+export type SopRenderers<P> = Readonly<Record<string, (policy: P) => string>>;
 
-export const SOP_PLACEHOLDERS: readonly string[] = Object.freeze(
-  Object.keys(RENDERERS),
-);
+/** The placeholders a set of renderers understands, in declaration order. */
+export function sopPlaceholders<P>(renderers: SopRenderers<P>): readonly string[] {
+  return Object.freeze(Object.keys(renderers));
+}
+
+/** A currency and the locale its amounts are written in. */
+export interface Currency {
+  /** ISO 4217, e.g. `PHP`. */
+  code: string;
+  /** BCP 47, e.g. `en-PH`. Always explicit; see `formatMoney`. */
+  locale: string;
+}
 
 /**
- * Cents to `$1,234.56`.
+ * Integer minor units (centavos, cents) to prose: `150000` PHP is `₱1,500.00`.
  *
- * Pinned to `en-US` explicitly. `toLocaleString` with no locale reads the host
- * environment, which would make the compiled prompt — and therefore the prompt
- * cache key — differ between a developer's laptop and the Vercel runtime.
+ * Money is held as integer minor units everywhere, as the policy engine does,
+ * and formatted only at the edge. The divisor comes from the currency itself,
+ * so a currency with no minor unit (yen) is not silently divided by 100.
+ *
+ * The locale is required. `toLocaleString` with no locale reads the host
+ * environment, which would make the compiled prompt, and therefore the
+ * prompt-cache key, differ between a developer's laptop and the server.
  */
-function usd(cents: number): string {
-  return `$${(cents / 100).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+export function formatMoney(minorUnits: number, currency: Currency): string {
+  if (!Number.isSafeInteger(minorUnits)) {
+    throw new RangeError(
+      `formatMoney: amount must be a whole number of minor units, got ${String(minorUnits)}`,
+    );
+  }
+  const format = new Intl.NumberFormat(currency.locale, {
+    style: "currency",
+    currency: currency.code,
+  });
+  const digits = format.resolvedOptions().maximumFractionDigits ?? 2;
+  return format.format(minorUnits / 10 ** digits);
 }
 
 export class UnknownPlaceholderError extends Error {
   readonly placeholder: string;
 
-  constructor(placeholder: string) {
+  constructor(placeholder: string, known: readonly string[]) {
     super(
       `unknown SOP placeholder {{${placeholder}}} — known placeholders are ` +
-        `${SOP_PLACEHOLDERS.map((p) => `{{${p}}}`).join(", ")}`,
+        `${known.map((p) => `{{${p}}}`).join(", ")}`,
     );
     this.name = "UnknownPlaceholderError";
     this.placeholder = placeholder;
@@ -69,27 +81,29 @@ export class UnknownPlaceholderError extends Error {
 /** `{{ anything.without.braces }}`, tolerant of surrounding whitespace. */
 const PLACEHOLDER = /\{\{\s*([^{}\s]+)\s*\}\}/g;
 
-export interface CompileSopInput {
+export interface CompileSopInput<P> {
   bodyMarkdown: string;
-  policyConfig: PolicyConfig;
+  policyConfig: P;
+  renderers: SopRenderers<P>;
 }
 
 /**
  * Render one SOP version into the system prompt the model receives.
  *
- * Pure and deterministic — no clock, no I/O. The policy engine takes `now` as
+ * Pure and deterministic: no clock, no I/O. The policy engine takes `now` as
  * an argument for the same reason; here it matters twice over, because a
  * prompt that varies between two runs of the same SOP version also changes the
  * prompt-cache key and silently drops the hit rate to zero.
  */
-export function compileSop({
+export function compileSop<P>({
   bodyMarkdown,
   policyConfig,
-}: CompileSopInput): string {
+  renderers,
+}: CompileSopInput<P>): string {
   return bodyMarkdown.replace(PLACEHOLDER, (_match, name: string) => {
-    const render = RENDERERS[name];
+    const render = renderers[name];
     if (!render) {
-      throw new UnknownPlaceholderError(name);
+      throw new UnknownPlaceholderError(name, sopPlaceholders(renderers));
     }
     return render(policyConfig);
   });
