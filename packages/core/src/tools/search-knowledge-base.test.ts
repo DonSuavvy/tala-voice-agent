@@ -51,6 +51,20 @@ describe("search_knowledge_base", () => {
     expect(await search(ctx, "the modem")).toEqual({ articles: [LIGHTS, PASSWORD] });
   });
 
+  /** The articles come from the business systems' knowledge base, an adapter a company fills. */
+  it("answers from the knowledge base the business systems give it", async () => {
+    const systems = testSystems();
+    const answer = { id: "moving", title: "Moving house", tags: ["move"], body: "Tell us first." };
+    const ctx = testToolContext({
+      ...systems,
+      knowledgeBase: { search: (query) => Promise.resolve(query === "lipat" ? [answer] : []) },
+    });
+
+    expect(await search(ctx, "lipat")).toEqual({
+      articles: [{ id: "moving", title: "Moving house", text: "Tell us first." }],
+    });
+  });
+
   it("gives an empty list when no article matches", async () => {
     expect(await search(testToolContext(testSystems()), "cancel my service")).toEqual({
       articles: [],

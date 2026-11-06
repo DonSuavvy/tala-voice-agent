@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEST_COMPANY, testPlans } from "../testing/fixtures";
+import { TEST_COMPANY, testHelpArticles, testPlans } from "../testing/fixtures";
 
 import { createInMemorySystems } from "./in-memory";
 import type { SeedWorld } from "./seed-world";
@@ -132,7 +132,7 @@ function seed(): SeedWorld {
 }
 
 /** The pack's data the world is built from, around this seed. */
-const dataFor = (world: SeedWorld) => ({ world, plans: testPlans() });
+const dataFor = (world: SeedWorld) => ({ world, plans: testPlans(), help: testHelpArticles() });
 
 describe("createInMemorySystems", () => {
   describe("accounts.findAccount", () => {
@@ -580,6 +580,35 @@ describe("createInMemorySystems", () => {
       expect((await systems.tickets.findTicket("1234567890", reference))?.openedAt).toEqual(
         CALL_STARTED_AT,
       );
+    });
+  });
+
+  /** The knowledge base: the pack's help articles, searched with the ranking. */
+  describe("knowledgeBase.search", () => {
+    it("gives the articles that match the question, best first", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+
+      expect((await systems.knowledgeBase.search("wifi password")).map((a) => a.id)).toEqual([
+        "wifi-password",
+      ]);
+      expect((await systems.knowledgeBase.search("the modem")).map((a) => a.id)).toEqual([
+        "modem-lights",
+        "wifi-password",
+      ]);
+    });
+
+    it("gives each article whole, as a copy", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      const [found] = await systems.knowledgeBase.search("ilaw");
+      found.tags.push("tampered");
+      found.title = "Tampered";
+
+      expect(await systems.knowledgeBase.search("ilaw")).toEqual([testHelpArticles()[0]]);
+    });
+
+    it("gives nothing when no article matches", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      expect(await systems.knowledgeBase.search("cancel my service")).toEqual([]);
     });
   });
 

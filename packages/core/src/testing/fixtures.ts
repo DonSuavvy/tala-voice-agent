@@ -278,6 +278,11 @@ export function testHelpFiles() {
   ];
 }
 
+/** The test pack's help articles, read the way the pack loader reads them. */
+export function testHelpArticles() {
+  return helpArticlesSchema.parse(testHelpFiles());
+}
+
 /** The test pack's SOP. Its one placeholder is filled from the policy. */
 export const TEST_SOP_BODY =
   "You are the assistant on Test ISP's support line.\n\n" +
