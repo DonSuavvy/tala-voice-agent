@@ -179,7 +179,22 @@ describe("pricePlanChange — refusals", () => {
           now: new Date(now),
           timeZone,
         }),
-      ).toEqual({ allowed: false, reason: "outside_billing_cycle" });
+      ).toEqual({ allowed: false, reason: "no_current_cycle" });
+    }
+  });
+
+  /** With no bill on record there is no cycle to prorate against: the policy decides it. */
+  it("refuses to price a change for an account with no bill on record", () => {
+    for (const next of [K500, K100]) {
+      expect(
+        pricePlanChange({
+          current: K300,
+          next,
+          latestBillIssuedAt: null,
+          now: new Date("2026-11-06T05:00:00Z"),
+          timeZone,
+        }),
+      ).toEqual({ allowed: false, reason: "no_current_cycle" });
     }
   });
 
