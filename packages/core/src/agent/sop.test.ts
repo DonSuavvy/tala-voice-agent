@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   compileSop,
   formatMoney,
+  placeholdersIn,
   sopPlaceholders,
   UnknownPlaceholderError,
   type SopRenderers,
@@ -153,6 +154,26 @@ describe("sopPlaceholders", () => {
       "credit.maxCredit",
       "outage.creditAfterHours",
     ]);
+  });
+});
+
+describe("placeholdersIn", () => {
+  it("lists each distinct placeholder once, in first-appearance order", () => {
+    expect(placeholdersIn("{{b.two}} then {{ a.one }} then {{b.two}} then {{c}}")).toEqual([
+      "b.two",
+      "a.one",
+      "c",
+    ]);
+  });
+
+  it("finds nothing in markdown without placeholders", () => {
+    expect(placeholdersIn("# Heading\n\nJust prose.")).toEqual([]);
+  });
+
+  /** One grammar: whatever compileSop would substitute, placeholdersIn reports. */
+  it("agrees with compileSop on what counts as a placeholder", () => {
+    const body = "{{ outage.creditAfterHours }} {{credit.maxCredit}} {not} {{}} {{a b}}";
+    expect(placeholdersIn(body)).toEqual(["outage.creditAfterHours", "credit.maxCredit"]);
   });
 });
 
