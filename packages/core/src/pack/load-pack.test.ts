@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createInMemorySystems } from "../systems/in-memory";
 import type { SeedWorld } from "../systems/seed-world";
-import { CALL_STARTED_AT, testPackSource } from "../testing/fixtures";
+import { TEST_COMPANY, testPackSource, testSystems } from "../testing/fixtures";
 import { compilePackSop, loadPack, PackValidationError, type PackSource } from "./load-pack";
 
 /** The one error a broken source throws, so a test can read its issues. */
@@ -46,7 +45,7 @@ describe("loadPack", () => {
       pack.sop.version = "v8";
     }).toThrow(TypeError);
 
-    expect(() => createInMemorySystems(pack.world, CALL_STARTED_AT, "Asia/Manila")).not.toThrow();
+    expect(() => testSystems(pack.world)).not.toThrow();
 
     const copy = structuredClone(pack.world);
     copy.accounts[0].planName = "Kidlat 1000";
@@ -172,7 +171,7 @@ describe("loadPack on the small parts", () => {
 
   it("rejects a locale that is not a BCP 47 tag", () => {
     const source = testPackSource();
-    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en_PH", currency: "PHP" };
+    source.company = { name: "Test ISP", ...TEST_COMPANY, locale: "en_PH" };
     expect(issuesOf(source)).toEqual([expect.stringMatching(/^company\.locale: .*"en_PH"/)]);
   });
 
@@ -182,7 +181,7 @@ describe("loadPack on the small parts", () => {
 
   it.each(["PESO", "php", "XYZ", ""])("rejects %j, which is not an ISO 4217 currency code", (code) => {
     const source = testPackSource();
-    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH", currency: code };
+    source.company = { name: "Test ISP", ...TEST_COMPANY, currency: code };
     expect(issuesOf(source)).toEqual([
       `company.currency: "${code}" is not an ISO 4217 currency code`,
     ]);
@@ -190,7 +189,7 @@ describe("loadPack on the small parts", () => {
 
   it("rejects a company with no currency", () => {
     const source = testPackSource();
-    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH" };
+    source.company = { name: "Test ISP", timeZone: TEST_COMPANY.timeZone, locale: "en-PH" };
     expect(issuesOf(source)).toEqual([expect.stringMatching(/^company\.currency: /)]);
   });
 

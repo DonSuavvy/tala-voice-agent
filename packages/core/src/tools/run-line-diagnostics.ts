@@ -9,25 +9,10 @@
  */
 import { z } from "zod";
 
-import type { Diagnosis } from "../systems/types";
-
 import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
-import { defineTalaTool, type CallData } from "./context";
+import { defineTalaTool } from "./context";
+import { diagnosisOf, spokenDiagnosis } from "./diagnosis";
 import { formatLocalTime } from "./format-time";
-
-/**
- * A diagnosis as the model reads it, with its time in the company's own words.
- * `remote_reboot_modem` gives its re-check in the same form.
- */
-export function spokenDiagnosis(diagnosis: Diagnosis, company: CallData["company"]) {
-  return {
-    modem_status: diagnosis.modemStatus,
-    received_power_dbm: diagnosis.receivedPowerDbm,
-    last_seen: formatLocalTime(diagnosis.lastSeenAt, company),
-    fault: diagnosis.fault,
-    reboot_may_clear: diagnosis.rebootMayClear,
-  };
-}
 
 export const runLineDiagnostics = defineTalaTool({
   name: "run_line_diagnostics",
@@ -49,10 +34,7 @@ export const runLineDiagnostics = defineTalaTool({
   handler: async (input, ctx) => {
     const account = await requireVerifiedAccount(ctx, input.account_number);
     const { systems, company } = ctx.data;
-    const diagnosis = await systems.network.diagnose(account.accountNumber);
-    if (diagnosis === null) {
-      throw new Error("no modem is on record for the account verified on this call");
-    }
+    const diagnosis = await diagnosisOf(systems, account.accountNumber);
     return {
       checked_at: formatLocalTime(ctx.now, company),
       ...spokenDiagnosis(diagnosis, company),

@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { dispositionSchema } from "../call/disposition";
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems } from "../systems/in-memory";
-import { CALL_STARTED_AT, testWorld } from "../testing/fixtures";
+import { testSystems, testToolContext } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { endCall } from "./end-call";
@@ -15,20 +13,7 @@ import { endCall } from "./end-call";
  */
 
 function newContext(): TalaToolContext {
-  return {
-    workspaceId: "test-isp",
-    runId: "call_1",
-    callId: "call_1",
-    now: CALL_STARTED_AT,
-    data: {
-      systems: createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila"),
-      identity: initialIdentityState(),
-      company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-      startedAt: CALL_STARTED_AT,
-      wait: () => Promise.resolve(),
-    },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
-  };
+  return testToolContext(testSystems());
 }
 
 const DISPOSITION = {

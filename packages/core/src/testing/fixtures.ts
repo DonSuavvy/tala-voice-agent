@@ -1,5 +1,6 @@
 /**
- * Shared test fixtures for core: a small seed world and a fixed call start.
+ * Shared test fixtures for core: a small seed world, a fixed call start, the
+ * test company, and a tool context built from them.
  *
  * Core's tests never import a company pack (the pack depends on core, not the
  * other way round), so they get their own world here. It mirrors scenario 1,
@@ -11,10 +12,53 @@
  * Test-only. Nothing outside `*.test.ts` files imports this module.
  */
 import type { PackSource } from "../pack/load-pack";
+import { initialIdentityState } from "../policy/identity";
+import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
 import type { SeedWorld } from "../systems/seed-world";
+import type { BusinessSystems } from "../systems/types";
+import type { TalaToolContext } from "../tools/context";
 
 /** 1:00 PM in Manila (UTC+8). Every time in these fixtures hangs off this. */
 export const CALL_STARTED_AT = new Date("2026-11-06T05:00:00Z");
+
+/** How the test company speaks times and money: its time zone, locale and currency. */
+export const TEST_COMPANY = { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" } as const;
+
+/** A wait that resolves at once, so no test sits through a modem's restart. */
+export const noWait = (): Promise<void> => Promise.resolve();
+
+/** A fresh in-memory world for a call that starts at `startedAt`, in the test company's zone. */
+export function testSystems(
+  world: SeedWorld = testWorld(),
+  startedAt: Date = CALL_STARTED_AT,
+): InMemorySystems {
+  return createInMemorySystems(world, startedAt, TEST_COMPANY.timeZone);
+}
+
+/**
+ * A tool context for one test call that started at `CALL_STARTED_AT`: nobody
+ * verified yet, the test company, the test policy, and a wait that resolves at
+ * once unless one is given. `now` defaults to the call's start.
+ */
+export function testToolContext(
+  systems: BusinessSystems,
+  options: { now?: Date; wait?: (ms: number) => Promise<void> } = {},
+): TalaToolContext {
+  return {
+    workspaceId: "test-isp",
+    runId: "call_1",
+    callId: "call_1",
+    now: options.now ?? CALL_STARTED_AT,
+    data: {
+      systems,
+      identity: initialIdentityState(),
+      company: { ...TEST_COMPANY },
+      startedAt: CALL_STARTED_AT,
+      wait: options.wait ?? noWait,
+    },
+    policyConfig: { identity: { maxFailedAttempts: 3 } },
+  };
+}
 
 /** Maria's account: Batasan Hills, where the outage is. */
 export const MARIA = {
@@ -190,7 +234,7 @@ export function testPackSource(): PackSource {
   return {
     id: "test-isp",
     sop: { version: "v7", body: TEST_SOP_BODY },
-    company: { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+    company: { name: "Test ISP", ...TEST_COMPANY },
     persona: {
       openingLine:
         "Hello po! Ako po si Tala, an AI assistant, at nire-record po ang call na ito.",

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { TEST_COMPANY } from "../testing/fixtures";
+
 import { createInMemorySystems } from "./in-memory";
 import type { SeedWorld } from "./seed-world";
 
 /** 2:00 PM, Fri, Nov 6 in Manila. */
 const CALL_STARTED_AT = new Date("2026-11-06T06:00:00Z");
 /** The company's time zone, which technician slots are stated in. */
-const MANILA = "Asia/Manila";
+const MANILA = TEST_COMPANY.timeZone;
 
 /**
  * Two barangays; Batasan Hills has a fiber cut, Commonwealth has none.

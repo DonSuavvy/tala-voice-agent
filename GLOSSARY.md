@@ -123,8 +123,8 @@ The barangay and city where an account's line is installed.
 _Avoid_: address, location
 
 **Outage**:
-A network fault affecting one or more barangays, with a cause and, when the
-network team has one, an estimated restoration time.
+A network failure affecting a whole area of one or more barangays, with a
+cause and, when the network team has one, an estimated restoration time.
 _Avoid_: downtime, incident
 
 **Estimated restoration time**:
@@ -146,7 +146,7 @@ _Avoid_: line test, line check
 
 **Fault**:
 A problem a diagnosis finds on one account's connection, described in plain
-words. An outage is a fault in a whole barangay; this is not.
+words.
 _Avoid_: error, issue
 
 **Remote reboot**:

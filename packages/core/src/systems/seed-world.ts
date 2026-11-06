@@ -11,8 +11,8 @@
  * first time anyone ran the demo. The in-memory world anchors the offsets to
  * the moment the call begins. Each offset's name says its direction
  * (`...MinutesBeforeCall`, `...MinutesAfterCall`), so none is ever negative,
- * and each is bounded: outages and modems to 30 days, billing dates to 366.
- * Money is whole minor units.
+ * and each is bounded: network and field-service times to 30 days, billing
+ * dates to 366. Money is whole minor units.
  *
  * A modem entry is the network's own diagnosis of an account's connection and
  * what a remote reboot does to it, as data: no code turns a signal level into
@@ -56,21 +56,27 @@ const accountSchema = z
   })
   .strict();
 
+const MINUTES_PER_DAY = 1_440;
+
 /**
- * 30 days, in minutes: the bound on outage times. An unbounded offset loads
- * fine and then fails mid-call ("Invalid time value") once it is added to the
- * call's start; a bad config must fail at boot instead (spec user story 69).
+ * 30 days: how far from the call a network or field-service time may be: an
+ * outage's start and restoration, when a modem was last seen, a technician
+ * slot. An unbounded offset loads fine and then fails mid-call ("Invalid time
+ * value") once it is added to the call's start; a bad config must fail at boot
+ * instead (spec user story 69). A modem silent for longer is a disconnection
+ * matter, not a diagnosis.
  */
-const MAX_OUTAGE_OFFSET_MINUTES = 43_200;
+const MAX_NETWORK_OFFSET_DAYS = 30;
+const MAX_NETWORK_OFFSET_MINUTES = MAX_NETWORK_OFFSET_DAYS * MINUTES_PER_DAY;
 
 /**
  * 366 days, in minutes: the bound on billing dates (due dates, disconnections,
  * bills, payments). A billing history spans months, so it cannot live inside
- * the outages' 30 days, but it is bounded for the same reason: an unbounded
+ * the network's 30 days, but it is bounded for the same reason: an unbounded
  * offset loads fine and then fails mid-call once it is added to the call's
  * start, and a bad config must fail at boot instead.
  */
-const MAX_BILLING_OFFSET_MINUTES = 527_040;
+const MAX_BILLING_OFFSET_MINUTES = 366 * MINUTES_PER_DAY;
 
 /** At or before the call's start, by up to `max` minutes. */
 const minutesBeforeCall = (max: number) => z.number().int().min(0).max(max);
@@ -82,8 +88,8 @@ const outageSchema = z
     reference: nonEmpty,
     cause: nonEmpty,
     barangayIds: z.array(z.string()).min(1),
-    startedMinutesBeforeCall: minutesBeforeCall(MAX_OUTAGE_OFFSET_MINUTES),
-    restorationMinutesAfterCall: minutesAfterCall(MAX_OUTAGE_OFFSET_MINUTES).nullable(),
+    startedMinutesBeforeCall: minutesBeforeCall(MAX_NETWORK_OFFSET_MINUTES),
+    restorationMinutesAfterCall: minutesAfterCall(MAX_NETWORK_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
@@ -122,12 +128,6 @@ const paymentSchema = z
   .strict();
 
 /**
- * 30 days, in minutes, like the outages: the bound on when a modem was last
- * seen. A modem silent for longer is a disconnection matter, not a line check.
- */
-const MAX_LAST_SEEN_MINUTES = 43_200;
-
-/**
  * The longest remote restart a seed may state, in seconds. The caller waits on
  * the line through it, so it stays within a few minutes.
  */
@@ -153,14 +153,11 @@ const modemSchema = z
   .object({
     accountNumber: z.string(),
     ...modemReadingShape,
-    lastSeenMinutesBeforeCall: minutesBeforeCall(MAX_LAST_SEEN_MINUTES),
+    lastSeenMinutesBeforeCall: minutesBeforeCall(MAX_NETWORK_OFFSET_MINUTES),
     restartSeconds: z.number().int().positive().max(MAX_RESTART_SECONDS),
     afterReboot: z.object(modemReadingShape).strict(),
   })
   .strict();
-
-/** 30 days, like the outages: the furthest ahead a technician slot may be. */
-const MAX_SLOT_DAYS_AFTER_CALL = 30;
 
 const HOURS_IN_DAY = 24;
 
@@ -175,7 +172,7 @@ const technicianSlotSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
     barangayId: z.string(),
-    daysAfterCall: z.number().int().positive().max(MAX_SLOT_DAYS_AFTER_CALL),
+    daysAfterCall: z.number().int().positive().max(MAX_NETWORK_OFFSET_DAYS),
     startHour: z.number().int().min(0).max(HOURS_IN_DAY - 1),
     lengthHours: z.number().int().positive(),
   })

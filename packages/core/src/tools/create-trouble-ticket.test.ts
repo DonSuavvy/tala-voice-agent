@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
-import { CALL_STARTED_AT, JOSE, testWorld } from "../testing/fixtures";
+import type { InMemorySystems } from "../systems/in-memory";
+import { CALL_STARTED_AT, JOSE, testSystems, testToolContext } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { createTroubleTicket } from "./create-trouble-ticket";
@@ -15,22 +14,8 @@ import { verifyIdentity } from "./verify-identity";
  */
 
 function newCall(now: Date = CALL_STARTED_AT): { ctx: TalaToolContext; systems: InMemorySystems } {
-  const systems = createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila");
-  const ctx: TalaToolContext = {
-    workspaceId: "test-isp",
-    runId: "call_1",
-    callId: "call_1",
-    now,
-    data: {
-      systems,
-      identity: initialIdentityState(),
-      company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-      startedAt: CALL_STARTED_AT,
-      wait: () => Promise.resolve(),
-    },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
-  };
-  return { ctx, systems };
+  const systems = testSystems();
+  return { ctx: testToolContext(systems, { now }), systems };
 }
 
 const NOTES = "GCash payment of 1,299 pesos made yesterday has not posted. Please post it.";

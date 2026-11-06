@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
 import type { SeedWorld } from "../systems/seed-world";
-import { ANA, CALL_STARTED_AT, JOSE, MARIA, testWorld } from "../testing/fixtures";
+import {
+  ANA,
+  CALL_STARTED_AT,
+  JOSE,
+  MARIA,
+  testSystems,
+  testToolContext,
+  testWorld,
+} from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { remoteRebootModem } from "./remote-reboot-modem";
@@ -21,25 +27,15 @@ import { verifyIdentity } from "./verify-identity";
  */
 
 function newCall(now: Date = CALL_STARTED_AT, world: SeedWorld = testWorld()) {
-  const systems: InMemorySystems = createInMemorySystems(world, CALL_STARTED_AT, "Asia/Manila");
+  const systems = testSystems(world);
   const waits: number[] = [];
-  const ctx: TalaToolContext = {
-    workspaceId: "test-isp",
-    runId: "call_1",
-    callId: "call_1",
+  const ctx = testToolContext(systems, {
     now,
-    data: {
-      systems,
-      identity: initialIdentityState(),
-      company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-      startedAt: CALL_STARTED_AT,
-      wait: (ms) => {
-        waits.push(ms);
-        return Promise.resolve();
-      },
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
     },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
-  };
+  });
   return { ctx, systems, waits };
 }
 

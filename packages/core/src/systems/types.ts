@@ -5,9 +5,9 @@
  * §13): `CustomerAccounts` with its CRM, `NetworkOperations` with its OSS and
  * outage tooling, `Billing` with its billing and payment collection,
  * `Ticketing` with its ticketing system, `SmsGateway` with its SMS provider
- * and `FieldService` with its technician dispatch. The demo fills them with an
- * in-memory world built from the company pack's seed (`./in-memory`), a fresh
- * copy per call.
+ * and `FieldService` with its field-service system. The demo fills them with
+ * an in-memory world built from the company pack's seed (`./in-memory`), a
+ * fresh copy per call.
  *
  * Tool handlers reach the business only through `BusinessSystems`, so a unit
  * test needs a seed world, not a database. Every method is async because every
@@ -234,7 +234,10 @@ export interface FieldService {
    * The visit booked for this ticket, looked for among this account's visits
    * only, or null when the ticket has none.
    */
-  visitForTicket(accountNumber: string, ticketReference: string): Promise<{ reference: string } | null>;
+  visitForTicket(
+    accountNumber: string,
+    ticketReference: string,
+  ): Promise<{ reference: string } | null>;
 }
 
 export interface SmsMessage {

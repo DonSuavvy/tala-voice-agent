@@ -20,6 +20,7 @@
  */
 import type { SeedWorld } from "./seed-world";
 import { slotWindow } from "./slot-window";
+import { MINUTE_MS, SECOND_MS } from "./time-units";
 import type {
   AccountRecord,
   BalanceRecord,
@@ -35,9 +36,6 @@ import type {
   TicketRecord,
 } from "./types";
 
-const SECOND_MS = 1_000;
-const MINUTE_MS = 60_000;
-
 export interface OpenedTicket extends NewTicket {
   reference: string;
   openedAt: Date;
@@ -50,7 +48,8 @@ export interface BookedVisit extends NewVisit {
 /**
  * The in-memory world, plus what a test reads back: the tickets this call
  * opened, the texts it sent and the visits it booked. A real company reads
- * those in its own ticketing system, SMS provider and dispatch; no tool can.
+ * those in its own ticketing system, SMS provider and field service; no tool
+ * can.
  */
 export interface InMemorySystems extends BusinessSystems {
   /** Tickets opened on this call, oldest first. Copies. */

@@ -2,21 +2,21 @@
  * `remote_reboot_modem`: restart the verified caller's modem remotely, wait
  * the restart out, and check the connection again.
  *
- * One call does all three, so the model never reports a re-check it did not
- * make (DESIGN section 6: "remote reboot, then a re-check"). How long the
- * restart takes and how the modem reads afterwards are the network system's;
- * the wait is the call session's (`CallData.wait`), and the time is the
- * context's `now`, so the handler never reads a clock. A reboot already
- * running when the caller talks finishes (ADR 4), so its re-check is never
- * lost.
+ * One tool does all three, so every restart is followed by its re-check: the
+ * re-check cannot be skipped (DESIGN section 6: "remote reboot, then a
+ * re-check"). How long the restart takes and how the modem reads afterwards
+ * are the network system's; the wait is the call session's (`CallData.wait`),
+ * and the time is the context's `now`, so the handler never reads a clock. A
+ * reboot already running when the caller talks finishes (ADR 4), so its
+ * re-check is never lost.
  */
 import { z } from "zod";
 
+import { SECOND_MS } from "../systems/time-units";
+
 import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
-import { spokenDiagnosis } from "./run-line-diagnostics";
-
-const SECOND_MS = 1_000;
+import { diagnosisOf, spokenDiagnosis } from "./diagnosis";
 
 export const remoteRebootModem = defineTalaTool({
   name: "remote_reboot_modem",
@@ -42,10 +42,7 @@ export const remoteRebootModem = defineTalaTool({
     const { systems, company, wait } = ctx.data;
     // The SOP offers a restart only when the check suggests one; this makes
     // sure. The check after a restart suggests none, so it is never repeated.
-    const latest = await systems.network.diagnose(account.accountNumber);
-    if (latest === null) {
-      throw new Error("no modem is on record for the account verified on this call");
-    }
+    const latest = await diagnosisOf(systems, account.accountNumber);
     if (!latest.rebootMayClear) {
       throw new Error(
         "Refused: the latest check of this connection does not suggest a remote reboot, so the " +
@@ -53,16 +50,14 @@ export const remoteRebootModem = defineTalaTool({
           "create_trouble_ticket.",
       );
     }
+    // The modem was there a moment ago; missing now, or after the restart,
+    // means the network system changed under the call.
     const reboot = await systems.network.rebootModem(account.accountNumber, ctx.now);
-    // The modem was there a moment ago; missing now means the network system
-    // changed under the call.
     if (reboot === null) {
       throw new Error("the modem could not be restarted");
     }
     await wait(reboot.restartSeconds * SECOND_MS);
     const recheck = await systems.network.diagnose(account.accountNumber);
-    // The modem was there a moment ago; missing now means the network system
-    // changed under the call.
     if (recheck === null) {
       throw new Error("the modem was restarted but could not be checked again");
     }

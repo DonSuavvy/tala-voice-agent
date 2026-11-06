@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems } from "../systems/in-memory";
-import { CALL_STARTED_AT, testWorld } from "../testing/fixtures";
+import { testSystems, testToolContext } from "../testing/fixtures";
 
-import type { TalaToolContext } from "./context";
 import { buildTalaRegistry } from "./index";
 
 /**
@@ -113,20 +110,7 @@ describe("the account gate, on every account tool", () => {
   it.each(accountTools.map((tool) => [tool.name, tool] as const))(
     "%s refuses before the caller is verified",
     async (name, tool) => {
-      const ctx: TalaToolContext = {
-        workspaceId: "test-isp",
-        runId: "call_1",
-        callId: "call_1",
-        now: CALL_STARTED_AT,
-        data: {
-          systems: createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila"),
-          identity: initialIdentityState(),
-          company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-          startedAt: CALL_STARTED_AT,
-          wait: () => Promise.resolve(),
-        },
-        policyConfig: { identity: { maxFailedAttempts: 3 } },
-      };
+      const ctx = testToolContext(testSystems());
       expect(VALID_INPUT[name], `give ${name} a valid input here`).toBeDefined();
 
       await expect(tool.handler(tool.input.parse(VALID_INPUT[name]), ctx)).rejects.toThrow(
