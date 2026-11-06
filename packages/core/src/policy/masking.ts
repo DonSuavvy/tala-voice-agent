@@ -23,8 +23,10 @@
  */
 const DIGIT_RUN = /[(+]{0,2}\d(?:[\s.,+\-\u2013\u2014/()]{1,3}\d|\d)*/g;
 
-const MIN_DIGITS = 10;
-const KEPT_DIGITS = 4;
+/** Fewest digits that make an account or phone number. */
+export const MASK_MIN_DIGITS = 10;
+/** Digits kept readable at the end of a masked number. */
+export const MASK_KEPT_DIGITS = 4;
 
 function digitsOf(run: string): string {
   return run.replace(/\D/g, "");
@@ -32,7 +34,7 @@ function digitsOf(run: string): string {
 
 /** True when the text holds an account or phone number. */
 export function hasAccountOrPhoneNumber(text: string): boolean {
-  return (text.match(DIGIT_RUN) ?? []).some((run) => digitsOf(run).length >= MIN_DIGITS);
+  return (text.match(DIGIT_RUN) ?? []).some((run) => digitsOf(run).length >= MASK_MIN_DIGITS);
 }
 
 /**
@@ -42,8 +44,8 @@ export function hasAccountOrPhoneNumber(text: string): boolean {
 export function maskNumbers(text: string): string {
   return text.replace(DIGIT_RUN, (run) => {
     const digits = digitsOf(run);
-    if (digits.length < MIN_DIGITS) return run;
-    return "*".repeat(digits.length - KEPT_DIGITS) + digits.slice(-KEPT_DIGITS);
+    if (digits.length < MASK_MIN_DIGITS) return run;
+    return "*".repeat(digits.length - MASK_KEPT_DIGITS) + digits.slice(-MASK_KEPT_DIGITS);
   });
 }
 

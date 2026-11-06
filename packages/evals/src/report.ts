@@ -27,6 +27,8 @@
  * check such as "no account data before verification" still sees real values.
  */
 import {
+  MASK_KEPT_DIGITS,
+  MASK_MIN_DIGITS,
   maskDeep,
   microsToUsdString,
   nanosToMicros,
@@ -45,6 +47,9 @@ import type { CaseResultRow } from "./types";
 
 /** The report file's format, for readers such as the diff. */
 export const REPORT_FORMAT = 1;
+
+/** What the report says it masked, built from the masking rule itself. */
+const MASKING_RULE = `numbers of ${MASK_MIN_DIGITS} or more digits, last ${MASK_KEPT_DIGITS} kept`;
 
 export interface CostLine {
   nanos: number;
@@ -77,7 +82,7 @@ export interface ReportPin extends CallPin {
 
 export interface EvalReport {
   format: typeof REPORT_FORMAT;
-  masking: "numbers of 10 or more digits, last 4 kept";
+  masking: string;
   ranAt: string;
   pin: ReportPin;
   models: { caller: LogicalModel; grader: LogicalModel };
@@ -175,7 +180,7 @@ export function buildReport(input: ReportInput): EvalReport {
 
   return {
     format: REPORT_FORMAT,
-    masking: "numbers of 10 or more digits, last 4 kept",
+    masking: MASKING_RULE,
     ranAt: input.ranAt.toISOString(),
     pin: { ...input.pin, gitSha: input.gitSha, gitDirty: input.gitDirty },
     models: { caller: input.callerModel, grader: input.graderModel },
