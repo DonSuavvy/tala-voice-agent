@@ -28,6 +28,7 @@ import {
   createClient,
   microsToUsdString,
   nanosToMicros,
+  normalizeAccountNumber,
   providerFromEnv,
   streamingMessageCreator,
   type CallEvent,
@@ -118,6 +119,8 @@ async function main(): Promise<void> {
   );
   const ended = events.find((e) => e.type === "call_ended");
   const firstSpeech = events.find((e) => e.type === "speech");
+  const verifiedAccount = (verified?.input as { account_number?: unknown } | undefined)
+    ?.account_number;
 
   const checks: [string, boolean][] = [
     [
@@ -126,8 +129,10 @@ async function main(): Promise<void> {
     ],
     [
       `verify_identity succeeded for ${SCENARIO_ACCOUNT}`,
-      verified !== undefined &&
-        JSON.stringify(verified.input).includes(SCENARIO_ACCOUNT),
+      // Normalized as the tool does: the SOP lets the model pass the number
+      // with spaces or dashes, and that is still the scenario account.
+      typeof verifiedAccount === "string" &&
+        normalizeAccountNumber(verifiedAccount) === SCENARIO_ACCOUNT,
     ],
     [
       `check_area_outage returned ${SCENARIO_OUTAGE} after verification`,
