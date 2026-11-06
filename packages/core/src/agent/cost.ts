@@ -23,10 +23,14 @@
 
 /**
  * The three models Tala runs. Named logically everywhere but `provider.ts`.
- * A turn can be served by another model (a server-side refusal fallback);
- * that one is priced at `UNKNOWN_MODEL_CEILING`.
+ * A refusal fallback can serve a turn on another model: a documented target
+ * is priced at its card in `FALLBACK_TARGET_RATES`, any other model at
+ * `UNKNOWN_MODEL_CEILING`.
  */
 export type ModelId = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
+
+/** The models a refusal fallback documents as its targets. Never requested by Tala. */
+export type FallbackTargetId = "claude-opus-5" | "claude-opus-4-8" | "claude-sonnet-5";
 
 /** Which cache TTL a write was billed at. 5 minutes is the API default. */
 export type CacheTtl = "5m" | "1h";
@@ -163,13 +167,35 @@ export const ANTHROPIC_RATES: Readonly<Record<ModelId, RateCard>> = {
   "claude-opus-5-5": rateCard(4, 20, ANTHROPIC_PROVENANCE, { cacheReadDivisor: 20 }),
 };
 
+const FALLBACK_TARGET_PROVENANCE = {
+  verifiedOn: null,
+  source:
+    "the claude-api skill's model table (cached 2026-10-06), not checked against " +
+    "the live pricing page; cache multiples assumed at OpsPilot's pre-5.5 ones " +
+    "(writes 1.25x input, reads 0.1x, the higher read price)",
+} as const;
+
+/**
+ * The models a refusal fallback documents as its targets: Opus 5.5 falls
+ * back to Opus 5 or Opus 4.8, Sonnet 5.5 to Sonnet 5 (claude-api skill). A
+ * turn one of them served bills at its rates, so it is priced at its card,
+ * not at Tala's requested model's. Unverified, so a turn priced with one is
+ * marked estimated; the cache-read price is the higher of the two Tala
+ * knows, so an unchecked multiple does not under-count.
+ */
+export const FALLBACK_TARGET_RATES: Readonly<Record<FallbackTargetId, RateCard>> = {
+  "claude-opus-5": rateCard(5, 25, FALLBACK_TARGET_PROVENANCE),
+  "claude-opus-4-8": rateCard(5, 25, FALLBACK_TARGET_PROVENANCE),
+  "claude-sonnet-5": rateCard(2, 10, FALLBACK_TARGET_PROVENANCE),
+};
+
 /**
  * What a model Tala has no card for is booked at: a ceiling, never a guess.
  *
- * A server-side refusal fallback can serve a turn on a model Tala does not
- * run (Opus 5.5's fallbacks are Opus 5 and Opus 4.8), and pricing it at a
- * cheaper card Tala happens to know would under-count, which the spend guard
- * must never do (ADR 4). So it is booked at the dearest card in the
+ * A refusal fallback could serve a turn on a model that is neither one Tala
+ * runs nor a documented target, and pricing it at a cheaper card Tala
+ * happens to know would under-count, which the spend guard must never do
+ * (ADR 4). So it is booked at the dearest card in the
  * claude-api skill's model table, Claude Fable 5.1's $10 in and $50 out,
  * with cache writes at the usual multiples of input and cache reads at the
  * full input price. `verifiedOn: null`: what it prices is an estimate.
@@ -338,21 +364,31 @@ export interface TurnModels {
 }
 
 /**
- * The card one attempt is priced at.
+ * The card the attempt at `index` in `usage.iterations` is priced at.
  *
  * A named model is priced at its own card (the ceiling, through
- * `rateCardFor`, when Tala has none). An unnamed `message` attempt is the
- * requested model's, even after a fallback, when `servedBy` names the
- * fallback model instead. An unnamed attempt of any other type has never
- * been seen; it is booked at the ceiling rather than guessed.
+ * `rateCardFor`, when Tala has none).
+ *
+ * An unnamed attempt is the hard case. Observed live (#35): an ordinary
+ * turn with `fallbacks` on has exactly one `message` attempt, with `model:
+ * null`, and it is the requested model's. Assumed, not observed: in a turn
+ * a refusal fallback served, the first attempt is still the requested
+ * model's, because the API runs it first, whatever `servedBy` names. So an
+ * unnamed `message` attempt first in the list is priced at the requested
+ * model's card. Any other unnamed attempt, a later hop or a
+ * `fallback_message`, could be any model, and is booked at the ceiling
+ * rather than at a card that might be too cheap.
  */
 function attemptRates(
   attempt: AttemptUsage,
+  index: number,
   requested: string,
   rateCardFor: (modelId: string) => RateCard,
 ): RateCard {
   if (attempt.model != null) return rateCardFor(attempt.model);
-  return attempt.type === "message" ? rateCardFor(requested) : UNKNOWN_MODEL_CEILING;
+  return attempt.type === "message" && index === 0
+    ? rateCardFor(requested)
+    : UNKNOWN_MODEL_CEILING;
 }
 
 /**
@@ -377,8 +413,8 @@ export function costOfTurn(
 ): TurnCost {
   const attempts =
     usage.iterations && usage.iterations.length > 0
-      ? usage.iterations.map((a) => ({
-          rates: attemptRates(a, models.requested, rateCardFor),
+      ? usage.iterations.map((a, index) => ({
+          rates: attemptRates(a, index, models.requested, rateCardFor),
           tokens: tokenUsageOf(a),
         }))
       : [{ rates: rateCardFor(models.servedBy ?? models.requested), tokens: tokenUsageOf(usage) }];

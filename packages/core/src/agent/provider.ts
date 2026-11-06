@@ -23,7 +23,9 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import {
   ANTHROPIC_RATES,
+  FALLBACK_TARGET_RATES,
   UNKNOWN_MODEL_CEILING,
+  type FallbackTargetId,
   type ModelId,
   type RateCard,
 } from "./cost";
@@ -94,9 +96,10 @@ export interface Provider {
   rateCard(model: LogicalModel): RateCard;
   /**
    * The card for the model a response says served it, by wire id: the way
-   * back from `modelId`. With server-side fallback that need not be the
-   * model requested. A model with no card here, or a missing id, gets
-   * `UNKNOWN_MODEL_CEILING`, so a turn is never priced below what it cost.
+   * back from `modelId`. With a refusal fallback that need not be the model
+   * requested: a documented fallback target gets its own card. A model with
+   * no card here, or a missing id, gets `UNKNOWN_MODEL_CEILING`, so a turn
+   * is never priced below what it cost.
    */
   rateCardForModelId(modelId: string | null): RateCard;
 }
@@ -120,8 +123,15 @@ export const anthropicProvider: Provider = {
   modelId: (model) => requireMapping(model),
   rateCard: (model) => ANTHROPIC_RATES[requireMapping(model)],
   rateCardForModelId: (modelId) => {
-    const model = modelId === null ? null : logicalModelOf(modelId);
-    return model === null ? UNKNOWN_MODEL_CEILING : ANTHROPIC_RATES[FIRST_PARTY_ID[model]];
+    if (modelId === null) return UNKNOWN_MODEL_CEILING;
+    const model = logicalModelOf(modelId);
+    if (model !== null) return ANTHROPIC_RATES[FIRST_PARTY_ID[model]];
+    // A refusal fallback's documented targets: wire ids a response can name,
+    // never logical models Tala requests.
+    if (Object.hasOwn(FALLBACK_TARGET_RATES, modelId)) {
+      return FALLBACK_TARGET_RATES[modelId as FallbackTargetId];
+    }
+    return UNKNOWN_MODEL_CEILING;
   },
 };
 
