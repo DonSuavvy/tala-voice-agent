@@ -11,6 +11,7 @@
 // Streaming and interruption arrive in #6. No LiveKit, Next.js or database
 // imports, ever.
 export * from "./call/disposition";
+export * from "./call/pin";
 export * from "./call/session";
 export * from "./pack/load-pack";
 export * from "./policy/identity";

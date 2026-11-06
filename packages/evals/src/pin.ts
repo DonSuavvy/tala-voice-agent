@@ -11,41 +11,12 @@
  * changed, a policy figure substituted from a different config. Those move the
  * bytes the model reads while leaving `sop_version_id` identical, which is
  * exactly the class of change that produces an unexplained regression.
- */
-import { createHash } from "node:crypto";
-
-import type { SystemBlock } from "@tala/core";
-
-/**
- * Twelve hex characters — 48 bits.
  *
- * Long enough that a collision across the handful of prompt variants a project
- * ever has is not a real risk, short enough to read in a table header and
- * quote in a commit message. It is an identity label, not a security digest.
+ * `promptVersion` lives in core since #5, so a live call and an eval run
+ * label the same prompt the same way. It is re-exported here for the eval
+ * code and tests that already import it from this module.
  */
-const PIN_LENGTH = 12;
-
-/**
- * The text a `system` argument actually sends.
- *
- * Blocks are concatenated and their `cache_control` ignored, so a prompt pins
- * the same whether or not caching is switched on. Caching changes what the
- * *provider* does with the prefix, not what the model reads, and a pin that
- * moved when it was toggled would report a prompt regression that never
- * happened.
- */
-function systemText(system: string | SystemBlock[]): string {
-  return typeof system === "string"
-    ? system
-    : system.map((block) => block.text).join("");
-}
-
-export function promptVersion(system: string | SystemBlock[]): string {
-  return createHash("sha256")
-    .update(systemText(system), "utf8")
-    .digest("hex")
-    .slice(0, PIN_LENGTH);
-}
+export { promptVersion } from "@tala/core";
 
 /** Runs `git rev-parse HEAD` and returns stdout. May throw; may return junk. */
 export type GitShaExec = () => string;
