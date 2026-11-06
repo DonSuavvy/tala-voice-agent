@@ -5,6 +5,7 @@ import {
   formatMoney,
   placeholdersIn,
   sopPlaceholders,
+  strayBraces,
   UnknownPlaceholderError,
   type SopRenderers,
 } from "./sop";
@@ -174,6 +175,19 @@ describe("placeholdersIn", () => {
   it("agrees with compileSop on what counts as a placeholder", () => {
     const body = "{{ outage.creditAfterHours }} {{credit.maxCredit}} {not} {{}} {{a b}}";
     expect(placeholdersIn(body)).toEqual(["outage.creditAfterHours", "credit.maxCredit"]);
+  });
+});
+
+describe("strayBraces", () => {
+  it("is true when a placeholder lacks a closing brace or has a space inside", () => {
+    expect(strayBraces("limit {{maxFailedVerificationAttempts} here")).toBe(true);
+    expect(strayBraces("limit {{ max attempts }} here")).toBe(true);
+    expect(strayBraces("closing only }} here")).toBe(true);
+  });
+
+  it("is false for well-formed placeholders, single braces and plain prose", () => {
+    expect(strayBraces("{{a.b}} and {{ c }} and {not} and plain")).toBe(false);
+    expect(strayBraces("")).toBe(false);
   });
 });
 
