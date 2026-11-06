@@ -360,8 +360,9 @@ describe("seedWorldSchema", () => {
       expect(seedWorldSchema.safeParse(seed).success).toBe(true);
     });
 
-    // The same 30-day bound as the outage offsets.
-    const MAX_OFFSET = 43_200;
+    // 366 days, in minutes: a billing history spans months, so billing dates
+    // have their own bound, wider than the outages' 30 days.
+    const MAX_BILLING_OFFSET = 527_040;
     const offsets = [
       ["balances", "dueMinutesBeforeCall"],
       ["balances", "disconnectionMinutesAfterCall"],
@@ -369,13 +370,13 @@ describe("seedWorldSchema", () => {
       ["payments", "paidMinutesBeforeCall"],
     ] as const;
 
-    it.each(offsets)("accepts %s %s at 43_200 and refuses 43_201", (collection, field) => {
+    it.each(offsets)("accepts %s %s at 527_040 and refuses 527_041", (collection, field) => {
       const atLimit = validSeed();
-      (atLimit[collection][0] as Record<string, unknown>)[field] = MAX_OFFSET;
+      (atLimit[collection][0] as Record<string, unknown>)[field] = MAX_BILLING_OFFSET;
       expect(seedWorldSchema.safeParse(atLimit).success).toBe(true);
 
       const over = validSeed();
-      (over[collection][0] as Record<string, unknown>)[field] = MAX_OFFSET + 1;
+      (over[collection][0] as Record<string, unknown>)[field] = MAX_BILLING_OFFSET + 1;
       const result = seedWorldSchema.safeParse(over);
       expect(result.success).toBe(false);
       expect(result.error?.issues.map((i) => i.path)).toEqual([[collection, 0, field]]);

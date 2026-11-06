@@ -112,14 +112,23 @@ describe("the Kidlat Fiber pack", () => {
       });
     });
 
-    it("gives him a billing history: the bill the payment is for, and an older posted payment", async () => {
+    it("gives him a history with a pattern: two monthly bills paid and posted, then the unposted GCash payment", async () => {
       const world = systems();
-      const [latestBill] = await world.billing.billsFor(JOSE);
+      const bills = await world.billing.billsFor(JOSE);
       const payments = await world.billing.paymentsFor(JOSE);
 
-      expect(latestBill.amountMinor).toBe(129_900);
+      expect(bills.map((b) => b.amountMinor)).toEqual([129_900, 129_900, 129_900]);
+      expect(payments.map((p) => [p.channel, p.amountMinor, p.posted])).toEqual([
+        ["gcash", 129_900, false],
+        ["gcash", 129_900, true],
+        ["gcash", 129_900, true],
+      ]);
       expect(payments[0].reference).toBe(GCASH_REFERENCE);
-      expect(payments.slice(1).some((p) => p.posted)).toBe(true);
+      // Each older bill was paid before the next one was issued.
+      for (const older of [1, 2]) {
+        expect(payments[older].paidAt.getTime()).toBeGreaterThan(bills[older].issuedAt.getTime());
+        expect(payments[older].paidAt.getTime()).toBeLessThan(bills[older - 1].issuedAt.getTime());
+      }
     });
 
     it("does not find his payment on anyone else's account", async () => {
