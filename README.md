@@ -49,9 +49,14 @@ npm run lint
 
 `npm run chat` is a phone call typed in a terminal. It needs
 `ANTHROPIC_API_KEY` in `.env.local` (first-party API only) and spends real
-credit. Each run caps its own spend at $0.50. The first live run of scenario 1
-on Opus 5.5 (2026-11-06) took 5 model calls and cost $0.037. That is one
-call, not an average.
+credit. Each run caps its own spend at $0.50. It runs Sonnet 5.5, the
+development default; a scenario 1 call costs about 2 cents on Sonnet and 4 on
+Opus (live runs, 2026-11-06).
+
+Tala's words stream as she says them. Type a line while she is still talking
+and press Enter to cut in: she stops, the call keeps only what she had said,
+and your line is the next caller turn. `/exit` or `/quit` hangs up. On
+Windows PowerShell, use `npm.cmd` if `npm.ps1` is blocked.
 
 ```bash
 npm run chat

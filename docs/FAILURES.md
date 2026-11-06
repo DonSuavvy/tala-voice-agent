@@ -394,3 +394,61 @@ read as "dirty unknown", never as clean. RED `52aedc5`, GREEN `ff4fcd6`.
 
 **Lesson:** a record meant to explain a run later must say when it is not the
 whole truth.
+
+## 13. An interruption with differently spaced words would have left Tala talking — 2026-11-06
+
+**Severity: medium (latent).** No voice transport exists yet (#7), and the
+terminal chat always passes the default heard text, so it could not happen
+there.
+
+**Caught by:** review round 3 (Spec), reading `interrupt()`'s prefix check.
+
+`interrupt(heard)` required the heard text to be an exact prefix of what Tala
+had streamed, whitespace included, and threw otherwise. A speech-to-text
+transport reports words, not layout: "Opo. Sandali" for "Opo.\n\nSandali".
+Two text blocks' deltas also join with no separator ("Opo.Sandali"). Either
+way `interrupt()` would have rejected, the turn would have run on, and Tala
+would have kept talking over a caller who had cut in.
+
+**What made it dangerous:** the check protected the conversation, and refusing
+a heard text that is not a prefix is right. But refusing meant not stopping,
+and stopping is the one thing an interruption must do.
+
+**Fix:** whitespace is left out when matching. A heard text that still does
+not match falls back to the default and is reported as `mismatchedHeard`. An
+interruption never throws. RED `e9dfd2d`, GREEN `5bd1879`.
+
+**Lesson:** a guard on a safety action must fail toward the action, not away
+from it.
+
+## 14. A required gate rested on a rule the model keeps only most of the time — 2026-11-06
+
+**Severity: medium.** It would have blocked good PRs at random once `eval gate`
+became a required check, and the caller would still have heard dead air.
+
+**Caught by:** the eval gate on PR #32, a change to the workflow alone. The
+gate ran because the workflow changed, and failed:
+
+```
+FAIL  scenario-1-outage
+      expected Tala to speak before every tool call, but these turns were
+      silent: model call 2 (verify_identity)
+```
+
+After FAILURES 11's SOP fix, Sonnet 5.5 had passed 5 runs. This was the
+sixth, and it went silent anyway. Haiku 5.5 had skipped the same line in all
+3 of its earlier runs. The SOP asked, and the model usually listened. A
+required check cannot rest on "usually".
+
+**What made it dangerous:** a passing streak looked like a fix. Three green
+runs after the SOP change were read as the problem solved, when they only
+showed that the failure had become less frequent.
+
+**Fix:** the session says the pack's fixed filler line before a tool call
+made in silence, and the fixed closing line before a silent `end_call`, and
+records the line in the turn (ADR 5). RED `fdcf60b`, GREEN `faaafb4`. Five
+runs after it passed, with the lines firing on both models.
+
+**Lesson:** a model behaviour that a required check depends on must be
+guaranteed in code. The eval then measures the model's own rate, and does not
+stand guard over it.

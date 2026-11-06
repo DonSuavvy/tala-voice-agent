@@ -1,0 +1,185 @@
+{
+  "format": 1,
+  "masking": "none (#10)",
+  "ranAt": "2026-11-06T10:12:31.720Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "07230fc8625f",
+    "policyVersion": "1b691b76de0e",
+    "model": "sonnet",
+    "modelId": "claude-sonnet-5-5",
+    "gitSha": "e7cf8ecb88dc68368d7529c194758872eafb792e",
+    "gitDirty": true
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.037476",
+      "latencyMs": 26076,
+      "agentRunId": "28d509a1-0ee8-42e3-9441-ac2bbb5dc634",
+      "cost": {
+        "tala": {
+          "nanos": 18756200,
+          "usd": "0.018756",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 13052000,
+          "usd": "0.013052",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5668000,
+          "usd": "0.005668",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 37476200,
+          "usd": "0.037476",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 4,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Warm, calm and respectful throughout, with an honest, non-defensive answer when the caller doubted the outage start time. Mostly English-led Taglish with natural 'po' and 'Opo', though a few lines drift into more Tagalog ('Verified na po kayo', 'Kung mas maaga po talagang nawala ang internet niyo'), and the outage reply runs a bit long."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Hello po, thank you for calling Kidlat Fiber! I'm Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, Tala. Si Maria Santos po ito, taga-Batasan Hills, Quezon City. Wala po kasing internet namin simula kaninang umaga. Pwede ko po bang malaman kung bakit at kailan babalik?"
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry to hear that po, Ma'am. Para ma-check ko po, can I have your Kidlat Fiber account number and the last four digits of your registered mobile number?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang account number ko po ay 8012345601. Tapos yung last four digits ng mobile number na naka-register, 0101 po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Let me verify your account first."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Ma'am Maria. Let me check your area for outages now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Opo Ma'am, there's an outage in Batasan Hills caused by a fiber cable cut along Batasan Road during road works. It started at around 3:42 PM today, and service is expected back by around 10:12 PM tonight. Gusto niyo po ba ng reference number for follow-up?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah, ganun po ba. Pero kaninang umaga pa po talaga wala kaming internet, bago mag-tanghali. Sigurado po ba kayong 3:42 PM nagsimula? Baka po magkaiba yung nakikita niyo sa outage na yan."
+        },
+        {
+          "speaker": "tala",
+          "text": "Yes po, the outage record shows 3:42 PM, and I don't see an earlier one for your area. Kung mas maaga po talagang nawala ang internet niyo, I can't explain that on this call, and I have no tool to check your line itself."
+        },
+        {
+          "speaker": "caller",
+          "text": "Ay sige po, naiintindihan ko. Baka po iba lang yung nauna, pero okay na po sa akin na alam ko yung dahilan at kung kailan babalik, mga 10:12 PM po. Sige po, pakibigay na lang yung reference number. Maraming salamat po, Tala. Paalam na po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "Opo Ma'am, the reference number is O, U, T, then 2026, then 0412. Walang anuman po, salamat po sa pagtawag sa Kidlat Fiber, ingat po!"
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 18756200,
+      "usd": "0.018756",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 13052000,
+      "usd": "0.013052",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 5668000,
+      "usd": "0.005668",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 37476200,
+      "usd": "0.037476",
+      "estimated": false
+    }
+  }
+}
