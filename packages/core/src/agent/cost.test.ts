@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   ANTHROPIC_RATES,
   costOf,
+  costOfTurn,
   nanosToMicros,
   rateCard,
+  UNKNOWN_MODEL_CEILING,
   type ModelPricing,
   type RateCard,
   type TokenUsage,
+  type TurnUsage,
 } from "./cost";
 
 /**
@@ -350,6 +353,213 @@ describe("costOf — Haiku 5.5's long-prompt card", () => {
 
     expect(c.longPrompt).toBe(false);
     expect(c.inputNanos).toBe(200_000 * 4_000);
+  });
+});
+
+/**
+ * A model Tala has no card for, such as the model a server-side fallback ran
+ * on, is booked at a ceiling, never at a cheaper card it happens to know:
+ * the spend guard's rule is never to under-count (ADR 4). The ceiling is the
+ * dearest card in the claude-api skill's model table, Claude Fable 5.1's
+ * ($10 in, $50 out), with cache writes at the usual multiples of input and
+ * cache reads at the full input price.
+ */
+describe("UNKNOWN_MODEL_CEILING", () => {
+  it("carries Claude Fable 5.1's prices, with cache reads at the full input price", () => {
+    expect(pricingOf(UNKNOWN_MODEL_CEILING)).toEqual({
+      inputNanosPerToken: 10_000,
+      outputNanosPerToken: 50_000,
+      cacheReadNanosPerToken: 10_000,
+      cacheWrite5mNanosPerToken: 12_500,
+      cacheWrite1hNanosPerToken: 20_000,
+    });
+  });
+
+  it("is never presented as measured: what it prices is an estimate", () => {
+    expect(UNKNOWN_MODEL_CEILING.verifiedOn).toBeNull();
+    expect(costOf(UNKNOWN_MODEL_CEILING, usage({ inputTokens: 1 })).estimated).toBe(true);
+  });
+});
+
+/**
+ * A turn is priced by the model(s) that served it, not the one requested.
+ *
+ * With server-side fallback, one call can run more than one model: the one
+ * that declined and the one that answered. `usage.iterations` is the
+ * per-attempt source of truth and the top-level usage covers only the
+ * attempt that produced the message (claude-api skill, refusal section,
+ * "Billing"), so each attempt is priced at its own model's card and summed.
+ * Without iterations, the turn is priced at the model that produced it.
+ */
+describe("costOfTurn", () => {
+  /** Prices the 5.5 models from the table, and anything else at the ceiling. */
+  const cardFor = (modelId: string | null): RateCard =>
+    modelId !== null && Object.hasOwn(ANTHROPIC_RATES, modelId)
+      ? ANTHROPIC_RATES[modelId as keyof typeof ANTHROPIC_RATES]
+      : UNKNOWN_MODEL_CEILING;
+
+  const wire = (over: Partial<TurnUsage> = {}): TurnUsage => ({
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    ...over,
+  });
+
+  it("prices a turn with no iterations at the card of the model that produced it", () => {
+    const c = costOfTurn(wire({ input_tokens: 1_000, output_tokens: 100 }), "claude-sonnet-5-5", cardFor);
+
+    // 1000 * 2000 + 100 * 10_000
+    expect(c.totalNanos).toBe(3_000_000);
+    expect(c.estimated).toBe(false);
+    expect(c.usage).toEqual(usage({ inputTokens: 1_000, outputTokens: 100 }));
+  });
+
+  it("prices each attempt at its own model's card and sums them, ignoring the top-level usage", () => {
+    const c = costOfTurn(
+      wire({
+        // The serving attempt only. Pricing this would miss the declined one.
+        input_tokens: 1_000,
+        output_tokens: 200,
+        cache_creation_input_tokens: 500,
+        iterations: [
+          {
+            type: "message",
+            model: "claude-opus-5-5",
+            input_tokens: 1_000,
+            output_tokens: 40,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 2_000,
+          },
+          {
+            type: "fallback_message",
+            model: "claude-sonnet-5-5",
+            input_tokens: 1_000,
+            output_tokens: 200,
+            cache_creation_input_tokens: 500,
+            cache_read_input_tokens: 0,
+          },
+        ],
+      }),
+      "claude-sonnet-5-5",
+      cardFor,
+    );
+
+    // Opus 5.5 declined: 1000 * 4000 + 40 * 20_000 + 2000 * 200 = 5_200_000.
+    // Sonnet 5.5 served: 1000 * 2000 + 200 * 10_000 + 500 * 2500 = 5_250_000.
+    expect(c.totalNanos).toBe(10_450_000);
+    expect(c).toMatchObject({
+      inputNanos: 6_000_000,
+      outputNanos: 2_800_000,
+      cacheReadNanos: 400_000,
+      cacheWriteNanos: 1_250_000,
+      estimated: false,
+    });
+    expect(c.usage).toEqual(
+      usage({
+        inputTokens: 2_000,
+        outputTokens: 240,
+        cacheReadInputTokens: 2_000,
+        cacheCreationInputTokens: 500,
+      }),
+    );
+  });
+
+  it("books an attempt by a model with no card at the ceiling, and marks the turn estimated", () => {
+    const c = costOfTurn(
+      wire({
+        iterations: [
+          {
+            type: "fallback_message",
+            model: "claude-opus-5",
+            input_tokens: 1_000,
+            output_tokens: 100,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        ],
+      }),
+      "claude-opus-5",
+      cardFor,
+    );
+
+    // 1000 * 10_000 + 100 * 50_000
+    expect(c.totalNanos).toBe(15_000_000);
+    expect(c.estimated).toBe(true);
+  });
+
+  it("books an attempt that names no model at the ceiling", () => {
+    const c = costOfTurn(
+      wire({
+        iterations: [
+          {
+            type: "message",
+            model: null,
+            input_tokens: 10,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        ],
+      }),
+      "claude-opus-5-5",
+      cardFor,
+    );
+
+    expect(c.totalNanos).toBe(100_000);
+    expect(c.estimated).toBe(true);
+  });
+
+  it("never prices an empty iterations list as free: it falls back to the top-level usage", () => {
+    const c = costOfTurn(
+      wire({ input_tokens: 1_000, iterations: [] }),
+      "claude-opus-5-5",
+      cardFor,
+    );
+
+    expect(c.totalNanos).toBe(4_000_000);
+  });
+
+  it("prices each attempt's prompt length on its own: Haiku's long-prompt card per attempt", () => {
+    const c = costOfTurn(
+      wire({
+        iterations: [
+          {
+            type: "message",
+            model: "claude-haiku-5-5",
+            input_tokens: 100_001,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          {
+            type: "message",
+            model: "claude-haiku-5-5",
+            input_tokens: 100_000,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        ],
+      }),
+      "claude-haiku-5-5",
+      cardFor,
+    );
+
+    // 100_001 * 500 on the long card + 100_000 * 100 on the base card.
+    expect(c.totalNanos).toBe(60_000_500);
+    expect(c.longPrompt).toBe(true);
+  });
+
+  it("applies the cache TTL to every attempt", () => {
+    const c = costOfTurn(
+      wire({ cache_creation_input_tokens: 1_000 }),
+      "claude-opus-5-5",
+      cardFor,
+      { cacheTtl: "1h" },
+    );
+
+    expect(c.cacheWriteNanos).toBe(8_000_000);
   });
 });
 

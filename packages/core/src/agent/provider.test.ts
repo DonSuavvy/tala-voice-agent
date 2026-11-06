@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ANTHROPIC_RATES } from "./cost";
+import { ANTHROPIC_RATES, UNKNOWN_MODEL_CEILING } from "./cost";
 import {
   anthropicProvider,
   createClient,
@@ -51,6 +51,31 @@ describe("rate cards carry their provenance", () => {
     expect(anthropicProvider.rateCard(model)).toBe(
       ANTHROPIC_RATES[anthropicProvider.modelId(model) as keyof typeof ANTHROPIC_RATES],
     );
+  });
+});
+
+/**
+ * A response names the model that served it by wire id, and with server-side
+ * fallback that need not be the model requested. Pricing it needs the way
+ * back from a wire id to a card, and that lookup lives here, beside the
+ * mapping it reverses.
+ */
+describe("the card for the model that served a turn", () => {
+  it.each(MODELS)("finds %s's own card from its wire id", (model) => {
+    expect(anthropicProvider.rateCardForModelId(anthropicProvider.modelId(model))).toBe(
+      anthropicProvider.rateCard(model),
+    );
+  });
+
+  /** Opus 5.5's server-side fallbacks run on Opus 5 or Opus 4.8. */
+  it("books a model it has no card for at the ceiling, never at a cheaper card", () => {
+    expect(anthropicProvider.rateCardForModelId("claude-opus-5")).toBe(UNKNOWN_MODEL_CEILING);
+    expect(anthropicProvider.rateCardForModelId("claude-opus-4-8")).toBe(UNKNOWN_MODEL_CEILING);
+  });
+
+  it("books a missing model id, or one Object.prototype supplies, at the ceiling", () => {
+    expect(anthropicProvider.rateCardForModelId(null)).toBe(UNKNOWN_MODEL_CEILING);
+    expect(anthropicProvider.rateCardForModelId("toString")).toBe(UNKNOWN_MODEL_CEILING);
   });
 });
 

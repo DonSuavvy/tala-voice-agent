@@ -9,7 +9,7 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
 } from "../agent/loop";
-import { anthropicProvider } from "../agent/provider";
+import { anthropicProvider, type LogicalModel } from "../agent/provider";
 import { loadPack, type PackSource } from "../pack/load-pack";
 import {
   CALL_STARTED_AT,
@@ -93,14 +93,18 @@ function clockFrom(start: Date) {
   return () => new Date((t += 1000));
 }
 
-type CallOptions = { source?: PackSource; onEvent?: (event: CallEvent) => void };
+type CallOptions = {
+  source?: PackSource;
+  onEvent?: (event: CallEvent) => void;
+  model?: LogicalModel;
+};
 
 function callWith(create: MessageCreator, options: CallOptions) {
   const events: CallEvent[] = [];
   const pack = loadPack(options.source ?? testPackSource());
   const session = createCallSession({
     pack,
-    model: "haiku",
+    model: options.model ?? "haiku",
     provider: anthropicProvider,
     createMessage: create,
     callId: "call_1",
@@ -615,6 +619,59 @@ describe("a call session — ending", () => {
     expect(types(events)).toEqual(["caller_said", "span", "speech_delta", "speech", "call_ended"]);
     expect(events[2]).toEqual({ type: "speech_delta", text: pack.persona.fallbackLine });
     expect(events[3]).toEqual({ type: "speech", text: pack.persona.fallbackLine });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Server-side refusal fallback                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * On Opus and Sonnet, a turn a safety classifier declines is re-run on a
+ * fallback model inside the same call (#35). The call goes on; what changes
+ * is who served the turn, which the cost and the call record must say.
+ */
+describe("a call session — a turn a server-side fallback served", () => {
+  const llmSpans = (events: CallEvent[]) =>
+    events.flatMap((e) => (e.type === "span" && e.span.type === "llm_call" ? [e.span] : []));
+
+  const attempt = (type: string, model: string, input_tokens: number, output_tokens: number) => ({
+    type,
+    model,
+    input_tokens,
+    output_tokens,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  });
+
+  /**
+   * Wiring, not a real fallback route: a serving model that has a card of
+   * its own shows the call prices through the provider's cards, not only
+   * the requested model's.
+   */
+  it("prices each attempt at the provider's card for the model that ran it", async () => {
+    const { session, events } = newCall(
+      [
+        turn([text("Opo.")], {
+          model: "claude-sonnet-5-5",
+          usage: {
+            ...usage,
+            iterations: [
+              attempt("message", "claude-opus-5-5", 10, 0),
+              attempt("fallback_message", "claude-sonnet-5-5", 10, 10),
+            ],
+          },
+        }),
+      ],
+      { model: "opus" },
+    );
+    session.start();
+
+    await session.callerSaid("Hello?");
+
+    // Opus 5.5 declined: 10 * 4000. Sonnet 5.5 served: 10 * 2000 + 10 * 10_000.
+    expect(llmSpans(events)[0].costNanos).toBe(160_000);
+    expect(llmSpans(events)[0].estimated).toBe(false);
   });
 });
 

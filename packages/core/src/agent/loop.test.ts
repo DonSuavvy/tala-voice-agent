@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 
 import { checkBudget, type BudgetConfig } from "./budget";
-import { rateCard, type RateCard } from "./cost";
+import { rateCard, UNKNOWN_MODEL_CEILING, type RateCard } from "./cost";
 import {
   AGENT_LOOP_STATUSES,
   runAgentLoop,
@@ -1330,6 +1330,101 @@ describe("runAgentLoop — trace and cost", () => {
   });
 });
 
+
+/* -------------------------------------------------------------------------- */
+/* Server-side refusal fallback                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * When a safety classifier declines a turn, the API can re-run it on a
+ * fallback model inside the same call. The response then names the model
+ * that produced it, reports every attempt in `usage.iterations`, and marks
+ * each switch with a `fallback` block (claude-api skill, refusal section).
+ * A turn is priced by the models that served it, never the one requested.
+ */
+describe("runAgentLoop — a turn a server-side fallback served", () => {
+  const REQUESTED = "claude-opus-5-5";
+  const FALLBACK = "claude-opus-5";
+
+  /** $2/$10 per MTok: 10 in + 10 out = 10*2000 + 10*10_000 = 120_000 nanos. */
+  const FALLBACK_RATES: RateCard = rateCard(2, 10, {
+    verifiedOn: "2026-11-06",
+    source: "test fixture",
+  });
+
+  const attempt = (type: string, model: string | null, input_tokens: number, output_tokens: number) => ({
+    type,
+    model,
+    input_tokens,
+    output_tokens,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  });
+
+  it("prices a turn at the model that produced it, at the ceiling when there is no card for it", async () => {
+    const { input, spans } = loopInput(
+      [turn([{ type: "text", text: "Opo." }], { model: FALLBACK })],
+      { model: REQUESTED },
+    );
+
+    const result = await runAgentLoop(input);
+
+    // 10 * 10_000 + 10 * 50_000 on the ceiling, not 60_000 on the requested card.
+    expect(spans[0].costNanos).toBe(600_000);
+    expect(spans[0].estimated).toBe(true);
+    expect(result.costNanos).toBe(600_000);
+    expect(result.estimated).toBe(true);
+  });
+
+  it("prices every attempt at its own model's card, through rateCardFor", async () => {
+    const cards: Record<string, RateCard> = { [REQUESTED]: VERIFIED_RATES, [FALLBACK]: FALLBACK_RATES };
+    const { input, spans } = loopInput(
+      [
+        turn([{ type: "text", text: "Opo." }], {
+          model: FALLBACK,
+          usage: {
+            ...usage(),
+            iterations: [attempt("message", REQUESTED, 10, 0), attempt("fallback_message", FALLBACK, 10, 10)],
+          },
+        }),
+      ],
+      {
+        model: REQUESTED,
+        rateCardFor: (id: string | null) => (id !== null && cards[id]) || UNKNOWN_MODEL_CEILING,
+      },
+    );
+
+    const result = await runAgentLoop(input);
+
+    // The declined attempt: 10 * 1000. The serving one: 120_000.
+    expect(spans[0].costNanos).toBe(130_000);
+    expect(spans[0].estimated).toBe(false);
+    expect(spans[0].usage).toEqual({
+      inputTokens: 20,
+      outputTokens: 10,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
+    expect(result.usage).toMatchObject({ inputTokens: 20, outputTokens: 10 });
+  });
+
+  it("books an interrupted turn a fallback served at its model's price when that tops the estimate", async () => {
+    const { input, spans } = loopInput(
+      [
+        turn([{ type: "text", text: "Opo, sandali" }], {
+          model: FALLBACK,
+          stop_reason: "interrupted",
+        }),
+      ],
+      { model: REQUESTED },
+    );
+
+    await runAgentLoop(input);
+
+    expect(spans[0].costNanos).toBe(600_000);
+    expect(spans[0].estimated).toBe(true);
+  });
+});
 
 /* -------------------------------------------------------------------------- */
 /* Strict decoding                                                            */

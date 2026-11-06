@@ -25,13 +25,15 @@ import { streamingMessageCreator } from "./streaming";
 /* -------------------------------------------------------------------------- */
 
 type StreamEvent = Anthropic.RawMessageStreamEvent;
+/** The beta stream's events: what a server-side fallback adds is typed only here. */
+type BetaStreamEvent = Anthropic.Beta.BetaRawMessageStreamEvent;
 
 /**
  * A point in the script where the transport has delivered everything before
  * it and waits. A test can look at what arrived, then resume or abort.
  */
 const PAUSE = Symbol("pause");
-type Step = StreamEvent | typeof PAUSE;
+type Step = StreamEvent | BetaStreamEvent | typeof PAUSE;
 
 function scriptedTransport(script: Step[]) {
   const requests: unknown[] = [];
@@ -436,6 +438,149 @@ describe("streamingMessageCreator — asking for server-side refusal fallback", 
 });
 
 /* -------------------------------------------------------------------------- */
+/* Server-side refusal fallback: the response                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a fallback adds to a response, shaped as the beta stream sends it
+ * (claude-api skill, refusal section; the SDK's beta types). A fallback
+ * before any output is seamless: message_start already names the fallback
+ * model, and a `fallback` block, an ordinary content block with no deltas,
+ * comes first. A fallback mid-stream keeps the partial, marks the boundary
+ * with the block and continues. `usage.iterations`, in message_delta, has
+ * one entry per attempt, and the one that served is `fallback_message`.
+ */
+const REQUESTED = anthropicProvider.modelId("opus");
+const FALLBACK_MODEL = "claude-opus-5";
+
+const betaMessageStart = (model: string): BetaStreamEvent => ({
+  type: "message_start",
+  message: {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    model,
+    content: [],
+    container: null,
+    context_management: null,
+    diagnostics: null,
+    stop_reason: null,
+    stop_sequence: null,
+    stop_details: null,
+    usage: { ...START_USAGE, fallback_credit: null, iterations: null },
+  },
+});
+
+const startFallback = (index: number, from: string, to: string): BetaStreamEvent => ({
+  type: "content_block_start",
+  index,
+  content_block: {
+    type: "fallback",
+    from: { model: from },
+    to: { model: to },
+    trigger: { type: "refusal", category: "cyber" },
+  },
+});
+
+type Iterations = NonNullable<Anthropic.Beta.BetaUsage["iterations"]>;
+
+/** An attempt as `usage.iterations` reports it. */
+const attempt = (
+  type: "message" | "fallback_message",
+  model: string,
+  input_tokens: number,
+  output_tokens: number,
+): Iterations[number] =>
+  ({
+    type,
+    model,
+    input_tokens,
+    output_tokens,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation: null,
+  });
+
+const betaMessageDelta = (
+  stop_reason: "end_turn" | "tool_use" | "refusal",
+  output_tokens: number,
+  iterations: Iterations,
+): BetaStreamEvent => ({
+  type: "message_delta",
+  context_management: null,
+  delta: { stop_reason, stop_sequence: null, stop_details: null, container: null },
+  usage: {
+    input_tokens: 2400,
+    output_tokens,
+    cache_creation_input_tokens: 512,
+    cache_read_input_tokens: 6100,
+    output_tokens_details: null,
+    server_tool_use: null,
+    fallback_credit: null,
+    iterations,
+  },
+});
+
+describe("streamingMessageCreator — a turn a server-side fallback served", () => {
+  it("returns the model that served the turn and the usage of every attempt", async () => {
+    const iterations = [
+      attempt("message", REQUESTED, 2400, 0),
+      attempt("fallback_message", FALLBACK_MODEL, 2400, 87),
+    ];
+    const transport = scriptedTransport([
+      betaMessageStart(FALLBACK_MODEL),
+      startFallback(0, REQUESTED, FALLBACK_MODEL),
+      stopBlock(0),
+      startText(1),
+      textDelta(1, "Opo, may outage po."),
+      stopBlock(1),
+      betaMessageDelta("end_turn", 87, iterations),
+      messageStop(),
+    ]);
+
+    const turn = await streamingMessageCreator(clientOver(transport))({ ...PARAMS, model: REQUESTED });
+
+    expect(turn.model).toBe(FALLBACK_MODEL);
+    expect(turn.usage.iterations).toEqual(iterations);
+    expect(turn.content).toEqual([
+      {
+        type: "fallback",
+        from: { model: REQUESTED },
+        to: { model: FALLBACK_MODEL },
+        trigger: { type: "refusal", category: "cyber" },
+      },
+      { type: "text", text: "Opo, may outage po.", citations: null },
+    ]);
+  });
+
+  it("says which model was writing when the caller interrupted a turn a fallback served", async () => {
+    const transport = scriptedTransport([
+      betaMessageStart(REQUESTED),
+      startText(0),
+      textDelta(0, "Sige po, "),
+      stopBlock(0),
+      startFallback(1, REQUESTED, FALLBACK_MODEL),
+      stopBlock(1),
+      startText(2),
+      textDelta(2, "iche-check ko po"),
+      PAUSE,
+    ]);
+    const controller = new AbortController();
+    const pending = streamingMessageCreator(clientOver(transport))(
+      { ...PARAMS, model: REQUESTED },
+      { signal: controller.signal },
+    );
+    await transport.paused;
+    controller.abort();
+
+    const turn = await settlesSoon(pending);
+
+    expect(turn.stop_reason).toBe("interrupted");
+    expect(turn.model).toBe(FALLBACK_MODEL);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Interruption                                                               */
 /* -------------------------------------------------------------------------- */
 
@@ -472,6 +617,8 @@ describe("streamingMessageCreator — an interruption", () => {
       stop_details: null,
       // message_delta never came, so this is what message_start reported.
       usage: START_USAGE,
+      // The model that was writing, so the turn is priced at its card.
+      model: "claude-haiku-5-5",
     });
   });
 
