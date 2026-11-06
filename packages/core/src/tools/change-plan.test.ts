@@ -135,8 +135,7 @@ describe("change_plan — without the caller's confirmation", () => {
   });
 
   it("refuses a change with no customer_confirmed at all", () => {
-    const { customer_confirmed: _confirmed, ...unconfirmed } = confirmed;
-    expect(parses(unconfirmed)).toBe(false);
+    expect(parses({ account_number: MARIA.accountNumber, quote_id: "QTE-2026-00001" })).toBe(false);
   });
 
   it("tells the model the field must be true", () => {
