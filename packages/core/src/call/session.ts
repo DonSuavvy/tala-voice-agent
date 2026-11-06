@@ -80,17 +80,21 @@ export type CallEndReason = "end_call" | "refused" | "failed" | "budget_refused"
 export type CallEvent =
   | { type: "call_started"; callId: string; pin: CallPin; at: Date }
   /**
-   * Words Tala says, in order: each text block of a model turn, whole, once
-   * the turn has arrived and before its llm_call span. For a turn the caller
-   * interrupted, only what they heard. Never for a refused turn. The opening
-   * and fallback lines are fixed and arrive as `speech` alone, with no deltas.
+   * The record of what Tala said, one utterance at a time and always after
+   * its words went out as `speech_delta`: each text block of a model turn,
+   * whole, once the turn has arrived and before its llm_call span; for a
+   * turn the caller interrupted, only what they heard; never for a refused
+   * turn. The opening and fallback lines each get one too.
    */
   | { type: "speech"; text: string }
   /**
-   * A piece of Tala's words as Claude writes them, in order, before that
-   * turn's `speech`. A voice speaks these. A refusal can only be seen once
-   * the turn is complete, so the deltas of a refused turn were already heard
-   * even though its `speech` never comes. None follow an `interrupt()`.
+   * Tala's words as they go out, in order. A voice speaks these and nothing
+   * else, and hears every line: model turns stream piece by piece as Claude
+   * writes them, and the fixed opening and fallback lines go out as one
+   * delta carrying the whole line. A refusal can only be seen once the turn
+   * is complete, so the deltas of a refused turn were already heard even
+   * though its `speech` never comes. None of a turn's own deltas follow an
+   * `interrupt()`.
    */
   | { type: "speech_delta"; text: string }
   | { type: "caller_said"; text: string; at: Date }
@@ -354,9 +358,18 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     return "ended";
   };
 
+  /**
+   * A fixed line, said the way every line is: its words go out, then its
+   * record. Not a model turn, so nothing here is streamed or interrupted.
+   */
+  const sayLine = (text: string): void => {
+    onEvent({ type: "speech_delta", text });
+    onEvent({ type: "speech", text });
+  };
+
   /** Anything but end_call ends with the pack's apology, never with silence. */
   const endBadly = (reason: Exclude<CallEndReason, "end_call">, error: string | null): TurnEnd => {
-    onEvent({ type: "speech", text: pack.persona.fallbackLine });
+    sayLine(pack.persona.fallbackLine);
     return end(reason, null, error);
   };
 
@@ -376,7 +389,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
         { role: "user", content: CALL_CONNECTED },
         { role: "assistant", content: [{ type: "text", text: pack.persona.openingLine }] },
       ];
-      onEvent({ type: "speech", text: pack.persona.openingLine });
+      sayLine(pack.persona.openingLine);
       onEvent({ type: "awaiting_caller" });
       rethrowSubscriberError();
     },
