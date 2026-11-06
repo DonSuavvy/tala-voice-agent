@@ -252,6 +252,8 @@ describe("loadPack's plan catalog", () => {
     ["a price of zero", { monthlyPriceMinor: 0 }, "plans[0].monthlyPriceMinor"],
     ["a price in fractions of a minor unit", { monthlyPriceMinor: 1299.5 }, "plans[0].monthlyPriceMinor"],
     ["a price given as text", { monthlyPriceMinor: "129900" }, "plans[0].monthlyPriceMinor"],
+    ["a price above a million pesos", { monthlyPriceMinor: 100_000_001 }, "plans[0].monthlyPriceMinor"],
+    ["a speed above 10,000 Mbps", { downloadMbps: 10_001 }, "plans[0].downloadMbps"],
     ["an unknown key", { uploadMbps: 50 }, "plans[0]"],
   ])("refuses a plan with %s, by path", (_what, change, path) => {
     const source = testPackSource();
@@ -262,6 +264,19 @@ describe("loadPack's plan catalog", () => {
 
     expect(issues).toHaveLength(1);
     expect(issues[0].startsWith(`${path}: `), issues[0]).toBe(true);
+  });
+
+  /**
+   * A well-formed catalog can still be absurd, so the schema bounds every
+   * figure absolutely (ADR 1): a price of at most a million pesos a month in
+   * minor units, a speed of at most 10,000 Mbps. Both caps are allowed.
+   */
+  it("accepts a plan at the absolute caps", () => {
+    const source = testPackSource();
+    const [first, ...rest] = testPlans();
+    source.plans = [{ ...first, downloadMbps: 10_000, monthlyPriceMinor: 100_000_000 }, ...rest];
+
+    expect(loadPack(source).plans[0]).toMatchObject({ downloadMbps: 10_000, monthlyPriceMinor: 100_000_000 });
   });
 
   it("refuses a pack with no plans", () => {
