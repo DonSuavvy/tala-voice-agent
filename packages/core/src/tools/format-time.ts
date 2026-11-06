@@ -28,3 +28,16 @@ export function formatLocalTime(date: Date, company: { timeZone: string; locale:
     .format(date)
     .replace(NO_BREAK_SPACES, " ");
 }
+
+/**
+ * e.g. `Tue, Oct 27` for 2026-10-27T05:00:00Z in Asia/Manila, en-PH: the
+ * local date with no time, for things that fall on a day, such as a due date.
+ */
+export function formatLocalDate(date: Date, company: { timeZone: string; locale: string }): string {
+  return new Intl.DateTimeFormat(company.locale, {
+    timeZone: company.timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
