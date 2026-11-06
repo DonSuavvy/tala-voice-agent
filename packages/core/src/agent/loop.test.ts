@@ -257,20 +257,56 @@ describe("runAgentLoop — reaching an outcome", () => {
   });
 
   /**
-   * A model that talks without acting is not done — every run has to end with
-   * a structured outcome. Without this the loop would exit on `end_turn` with
-   * `outcome: null` and the eval scorers would have nothing to score.
+   * On a call, a reply with no tool call is Tala speaking and then listening.
+   * OpsPilot nudged the model to keep going ("you have not finished"), because
+   * a ticket had no one to wait for. A caller is someone to wait for, so the
+   * loop hands the turn back and the call session waits for their next words.
+   *
+   * The nudge's purpose, that every run ends with a structured outcome the
+   * evals can score, moves up a level: a *call* ends only through `end_call`.
    */
-  it("keeps going when the model ends a turn without calling a tool", async () => {
-    const { input } = loopInput([
-      turn([{ type: "text", text: "Let me look into that." }]),
+  it("ends the turn as awaiting_caller when the model replies without a tool call", async () => {
+    const { input, client } = loopInput([
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
       resolveTurn(),
     ]);
 
     const result = await runAgentLoop(input);
 
-    expect(result.status).toBe("completed");
+    expect(result.status).toBe("awaiting_caller");
+    expect(result.outcome).toBeNull();
+    expect(result.iterations).toBe(1);
+    // The queued end_call turn is never requested: the caller speaks next.
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the conversation ending on what Tala said, with nothing appended", async () => {
+    const { input } = loopInput([
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.messages).toEqual([
+      { role: "user", content: "Caller: where is my credit?" },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Ano po ang account number ninyo?" }],
+      },
+    ]);
+  });
+
+  it("runs the turn's tools first, then waits for the caller after the spoken reply", async () => {
+    const { input, client } = loopInput([
+      turn([toolUse("search_knowledge_base", { q: "modem lights" })]),
+      turn([{ type: "text", text: "Pakitingnan po ang PON light." }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("awaiting_caller");
     expect(result.iterations).toBe(2);
+    expect(client.create).toHaveBeenCalledTimes(2);
   });
 
   it("gives up after maxIterations rather than looping forever", async () => {
