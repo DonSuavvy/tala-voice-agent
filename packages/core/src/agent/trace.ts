@@ -139,6 +139,16 @@ export function spanToRow(
   };
 }
 
+const SPEECH_DELTA = "speech_delta";
+
+function isSpeechDelta(payload: unknown): boolean {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { type?: unknown }).type === SPEECH_DELTA
+  );
+}
+
 /**
  * Frame one Server-Sent Event.
  *
@@ -149,8 +159,13 @@ export function spanToRow(
  * `n`, which is why the tests assert it rather than assume it.
  *
  * The payload is masked first (#10): the stream reaches the supervisor's
- * browser and never carries an account or phone number.
+ * browser and never carries an account or phone number. A frame is masked on
+ * its own, so a number split across two `speech_delta` frames would get
+ * through. Speech therefore crosses SSE as whole `speech` lines only: a
+ * `speech_delta` is dropped (an empty string, which writes nothing to the
+ * stream) and the voice transport reads deltas in process.
  */
 export function encodeSseEvent(event: string, payload: unknown): string {
+  if (event === SPEECH_DELTA || isSpeechDelta(payload)) return "";
   return `event: ${event}\ndata: ${JSON.stringify(maskDeep(payload))}\n\n`;
 }

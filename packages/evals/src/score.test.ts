@@ -279,6 +279,192 @@ describe("score: toolsCalled", () => {
   });
 });
 
+describe("score: toolsCalledInOrder", () => {
+  const ORDER = ["verify_identity", "verify_payment", "create_trouble_ticket"];
+  const IN_ORDER = 'expected "verify_identity", "verify_payment", "create_trouble_ticket" to run in that order';
+
+  it("passes when the tools ran successfully in that relative order, with other calls between", () => {
+    const result = score(
+      { toolsCalledInOrder: ORDER },
+      observed({
+        events: [
+          tool("verify_identity"),
+          tool("get_account_overview"),
+          tool("verify_payment"),
+          tool("create_trouble_ticket"),
+          tool("end_call"),
+        ],
+      }),
+    );
+
+    expect(result.assertions).toEqual([
+      {
+        name: "toolsCalledInOrder",
+        expected: ORDER,
+        actual: ["verify_identity", "get_account_overview", "verify_payment", "create_trouble_ticket", "end_call"],
+        passed: true,
+      },
+    ]);
+  });
+
+  it("fails when a tool ran only before the one it must follow", () => {
+    const result = score(
+      { toolsCalledInOrder: ORDER },
+      observed({
+        events: [tool("verify_identity"), tool("create_trouble_ticket"), tool("verify_payment")],
+      }),
+    );
+
+    expect(result.failureReason).toBe(
+      `${IN_ORDER}, but "create_trouble_ticket" did not run after "verify_payment"`,
+    );
+  });
+
+  it("fails when a tool never ran", () => {
+    const result = score(
+      { toolsCalledInOrder: ORDER },
+      observed({ events: [tool("verify_identity"), tool("verify_payment")] }),
+    );
+
+    expect(result.failureReason).toBe(`${IN_ORDER}, but "create_trouble_ticket" never ran`);
+  });
+
+  /** An errored call is not a step the case can rely on having happened. */
+  it("does not count a call that errored", () => {
+    const result = score(
+      { toolsCalledInOrder: ORDER },
+      observed({
+        events: [
+          tool("verify_identity"),
+          tool("verify_payment", { error: "x" }, { isError: true }),
+          tool("create_trouble_ticket"),
+        ],
+      }),
+    );
+
+    expect(result.failureReason).toBe(`${IN_ORDER}, but every call to "verify_payment" failed`);
+    expect(result.assertions[0].actual).toEqual(["verify_identity", "create_trouble_ticket"]);
+  });
+
+  it("needs one successful call per mention when a tool is listed twice", () => {
+    const twice = { toolsCalledInOrder: ["send_sms", "send_sms"] };
+
+    expect(score(twice, observed({ events: [tool("send_sms")] })).failureReason).toBe(
+      'expected "send_sms", "send_sms" to run in that order, but "send_sms" did not run after "send_sms"',
+    );
+    expect(score(twice, observed({ events: [tool("send_sms"), tool("send_sms")] })).passed).toBe(true);
+  });
+});
+
+describe("score: toolResults", () => {
+  const payment = (result: unknown, input: unknown = { reference: "1234567890123" }) =>
+    tool("verify_payment", result, { input });
+  const ticket = (category: string, reference: string) =>
+    tool("create_trouble_ticket", { created: true, reference }, { input: { category, notes: "n" } });
+
+  it("passes when a successful call's result holds the expected fields", () => {
+    const result = score(
+      { toolResults: [{ tool: "verify_payment", result: { found: true, posted: false } }] },
+      observed({
+        events: [payment({ found: true, channel: "gcash", amount: "P1,299.00", posted: false })],
+      }),
+    );
+
+    expect(result.assertions).toEqual([
+      {
+        name: "toolResults:verify_payment",
+        expected: { tool: "verify_payment", result: { found: true, posted: false } },
+        actual: [
+          {
+            input: { reference: "1234567890123" },
+            result: { found: true, channel: "gcash", amount: "P1,299.00", posted: false },
+          },
+        ],
+        passed: true,
+      },
+    ]);
+  });
+
+  it("matches nested objects field by field, and arrays element by element", () => {
+    const nested = { toolResults: [{ tool: "verify_payment", result: { account: { posted: false } } }] };
+    const list = { toolResults: [{ tool: "verify_payment", result: { tags: ["late"] } }] };
+
+    expect(score(nested, observed({ events: [payment({ account: { posted: false, id: 1 } })] })).passed).toBe(true);
+    expect(score(list, observed({ events: [payment({ tags: ["late"] })] })).passed).toBe(true);
+    expect(score(list, observed({ events: [payment({ tags: ["late", "gcash"] })] })).passed).toBe(false);
+  });
+
+  it("compares values exactly, so false is not \"false\"", () => {
+    const result = score(
+      { toolResults: [{ tool: "verify_payment", result: { posted: false } }] },
+      observed({ events: [payment({ posted: "false" })] }),
+    );
+
+    expect(result.passed).toBe(false);
+  });
+
+  it("fails when no successful call matched, with a sentence naming what was expected", () => {
+    const result = score(
+      { toolResults: [{ tool: "verify_payment", result: { found: true, posted: false } }] },
+      observed({ events: [payment({ found: false })] }),
+    );
+
+    expect(result.failureReason).toBe(
+      'expected "verify_payment" to run with result {"found":true,"posted":false}, ' +
+        "but no successful call to it matched",
+    );
+  });
+
+  /** Input and result are checked on the same call, not across two. */
+  it("needs one call that matches both the input and the result", () => {
+    const result = score(
+      {
+        toolResults: [
+          { tool: "create_trouble_ticket", input: { category: "billing" }, result: { reference: "TKT-2026-00001" } },
+        ],
+      },
+      observed({
+        events: [ticket("connection", "TKT-2026-00001"), ticket("billing", "TKT-2026-00002")],
+      }),
+    );
+
+    expect(result.failureReason).toBe(
+      'expected "create_trouble_ticket" to run with input {"category":"billing"} and result ' +
+        '{"reference":"TKT-2026-00001"}, but no successful call to it matched',
+    );
+  });
+
+  it("fails when the tool never ran, and when every call to it failed", () => {
+    const expected = { toolResults: [{ tool: "create_trouble_ticket", input: { category: "billing" } }] };
+    const errored = tool("create_trouble_ticket", { error: "x" }, { isError: true, input: { category: "billing" } });
+
+    expect(score(expected, observed()).failureReason).toBe(
+      'expected "create_trouble_ticket" to run with input {"category":"billing"}, but it never did',
+    );
+    expect(score(expected, observed({ events: [errored] })).failureReason).toBe(
+      'expected "create_trouble_ticket" to run with input {"category":"billing"}, but every call to it failed',
+    );
+  });
+
+  /** Names are the diff's join key, so two entries for one tool get two names. */
+  it("names each entry after its tool, numbering a tool's second entry", () => {
+    const result = score(
+      {
+        toolResults: [
+          { tool: "create_trouble_ticket", input: { category: "billing" } },
+          { tool: "create_trouble_ticket", input: { category: "connection" } },
+        ],
+      },
+      observed({ events: [ticket("billing", "TKT-2026-00001"), ticket("connection", "TKT-2026-00002")] }),
+    );
+
+    expect(result.assertions.map((a) => [a.name, a.passed])).toEqual([
+      ["toolResults:create_trouble_ticket", true],
+      ["toolResults:create_trouble_ticket#2", true],
+    ]);
+  });
+});
+
 describe("score: toolsNever", () => {
   it("passes when the tool is absent from the trace", () => {
     const result = score(

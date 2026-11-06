@@ -266,4 +266,23 @@ describe("masking at the boundary", () => {
         '{"account_number":"******5601","mobile":"*******0101"}}\n\n',
     );
   });
+
+  /**
+   * A frame is masked alone, so a number split across two deltas would pass.
+   * Speech goes out as whole lines; the voice transport reads deltas in process.
+   */
+  it("sends no speech delta, so a number split across two cannot get through", () => {
+    const first = { type: "speech_delta", text: "Account 8012 34" };
+    const second = { type: "speech_delta", text: "5601, po." };
+
+    expect(encodeSseEvent("speech_delta", first)).toBe("");
+    expect(encodeSseEvent("speech_delta", second)).toBe("");
+    expect(encodeSseEvent("event", first)).toBe("");
+  });
+
+  it("sends a whole speech line, masked", () => {
+    expect(encodeSseEvent("speech", { type: "speech", text: "Account 8012345601, po." })).toBe(
+      'event: speech\ndata: {"type":"speech","text":"Account ******5601, po."}\n\n',
+    );
+  });
 });

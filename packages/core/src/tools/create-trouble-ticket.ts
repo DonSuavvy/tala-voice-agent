@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 
+import { holdsAccountNumbers } from "../policy/account-numbers";
 import { TICKET_CATEGORIES } from "../systems/types";
 
 import { requireVerifiedAccount } from "./account-gate";
@@ -41,7 +42,20 @@ export const createTroubleTicket = defineTalaTool({
   idempotent: false,
   handler: async (input, ctx) => {
     const accountNumber = requireVerifiedAccount(ctx);
-    const { reference } = await ctx.data.systems.tickets.createTicket({
+    const { systems } = ctx.data;
+    const account = await systems.accounts.findAccount(accountNumber);
+    // The gate passed, so this account was found when it was verified. Missing
+    // now means the business system changed under the call: say so plainly.
+    if (account === null) {
+      throw new Error("the account verified on this call could not be found");
+    }
+    if (holdsAccountNumbers(input.notes, account)) {
+      throw new Error(
+        "Refused: the notes contain the account number or the registered mobile number. " +
+          "Leave out the account and mobile numbers; the ticket is already on the account.",
+      );
+    }
+    const { reference } = await systems.tickets.createTicket({
       accountNumber,
       category: input.category,
       notes: input.notes,

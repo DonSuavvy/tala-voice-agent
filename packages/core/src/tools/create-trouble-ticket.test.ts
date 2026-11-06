@@ -95,6 +95,42 @@ describe("create_trouble_ticket — on the verified account", () => {
   });
 });
 
+/**
+ * The tool's own description says the notes hold no account or phone
+ * numbers; the handler makes sure. The ticket is on the account already, so
+ * the account's own numbers never need to be in it.
+ */
+describe("create_trouble_ticket — never the account's own numbers", () => {
+  it.each([
+    ["the account number", "Account 8012345602: GCash payment has not posted."],
+    ["the account number, spaced", "Account 801 234 5602: GCash payment has not posted."],
+    ["the mobile in E.164", "Call back on +639175550102 once posted."],
+    ["the mobile with its 0 prefix", "Call back on 09175550102 once posted."],
+    ["the mobile's last ten digits, spaced", "Call back on 917-555-0102 once posted."],
+  ])("refuses notes holding %s, and opens nothing", async (_what, notes) => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, JOSE);
+
+    await expect(openTicket(ctx, { category: "billing", notes })).rejects.toThrow(
+      "Refused: the notes contain the account number or the registered mobile number. " +
+        "Leave out the account and mobile numbers; the ticket is already on the account.",
+    );
+    expect(systems.openedTickets()).toEqual([]);
+  });
+
+  it("keeps a payment reference in the notes: billing needs it to post the payment", async () => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, JOSE);
+    const notes =
+      "GCash payment 1234567890123 of 1,299 pesos, paid Thu, Nov 5, has not posted. " +
+      "Disconnection is scheduled for Sat, Nov 7.";
+
+    await openTicket(ctx, { category: "billing", notes });
+
+    expect(systems.openedTickets().map((t) => t.notes)).toEqual([notes]);
+  });
+});
+
 describe("create_trouble_ticket — its input", () => {
   const valid = { category: "billing", notes: NOTES };
   const parses = (input: unknown) => createTroubleTicket.input.safeParse(input).success;

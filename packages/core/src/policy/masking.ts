@@ -14,8 +14,14 @@
  * the tools and the scorer need the real values.
  */
 
-/** A run of digits, with the separators allowed between them and an optional leading plus. */
-const DIGIT_RUN = /\+?\d(?:[ .+-]+\d|\d)*/g;
+/**
+ * A run of digits. Between two digits may stand up to 3 separators: any
+ * whitespace, and the characters . , + - / ( ) and the en and em dashes (U+2013,
+ * U+2014). That covers "801, 234, 5602" (Tala reads digits in groups), "(0917) 555 0101",
+ * dashes of every length, slashes and line breaks. The run may start with a
+ * bracket or a plus. The dashes are escapes, never literal characters.
+ */
+const DIGIT_RUN = /[(+]{0,2}\d(?:[\s.,+\-\u2013\u2014/()]{1,3}\d|\d)*/g;
 
 const MIN_DIGITS = 10;
 const KEPT_DIGITS = 4;
