@@ -35,6 +35,7 @@ import { parseArgs } from "node:util";
 
 import {
   ESTIMATED_RUN_NANOS,
+  compilePackSop,
   createClient,
   microsToUsdString,
   nanosToMicros,
@@ -145,6 +146,8 @@ async function main(): Promise<number> {
 
   // Everything that can be checked for free is checked before any call.
   const pack = loadKidlatFiber();
+  // The SOP text Tala is briefed with: the grader takes the company's style from it.
+  const sop = compilePackSop(pack);
   const all = loadCases(CASES_DIR);
   const cases = only === null ? all : all.filter((c) => c.slug === only);
   if (cases.length === 0) {
@@ -205,6 +208,7 @@ async function main(): Promise<number> {
     });
     const grade = await gradeTranscript({
       transcript: transcriptOf(call.events),
+      sop,
       provider,
       createMessage: graderCreator,
       model: DEFAULT_GRADER_MODEL,

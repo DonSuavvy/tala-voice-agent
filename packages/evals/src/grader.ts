@@ -14,6 +14,13 @@
  * the reply is then parsed with `gradeSchema`, which checks the range and the
  * closed shape again. The model proposes; the code disposes.
  *
+ * **The company's style comes from its SOP.** What "good" sounds like is the
+ * pack's own `## How you speak` section, taken from the SOP Tala was briefed
+ * with and put in the grader's prompt. The rubric here is generic (three
+ * scores, Tala's lines only, not the fixed opening); it keeps no copy of a
+ * company's language rules, which would drift from the SOP. An SOP without
+ * that section gives `grade: null` with the reason.
+ *
  * Called through its own seam (`GradeCreator`), because a structured-output
  * request carries `output_config`, which Tala's `MessageCreator` does not. The
  * tests script it; `anthropicGradeCreator` is the live one.
@@ -71,7 +78,8 @@ export const GRADE_JSON_SCHEMA = {
       type: "integer",
       enum: SCORES,
       description:
-        "English-led Taglish that fits the caller, from 1 (wrong language or unnatural mixing) to 5.",
+        "Her mix of English and Tagalog follows the company's style for this caller, " +
+        "from 1 (wrong language or unnatural mixing) to 5.",
     },
     politeness: {
       type: "integer",
@@ -87,30 +95,51 @@ export const GRADE_JSON_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const GRADER_SYSTEM = [
-  "You grade how Tala, an AI voice agent on a Philippine internet provider's support " +
-    "hotline, spoke on one call. You read the call's transcript and score Tala's lines " +
-    "only. The caller is simulated, so do not grade the caller. Tala's first line is a " +
-    "fixed disclosure the company wrote, so do not grade that line either.",
-  "",
-  "Tala is meant to sound like a warm, respectful Filipina customer service " +
-    "representative. She speaks English-led Taglish, the way agents at Philippine call " +
-    'centers do: mostly English, with "po" and "opo" and short Tagalog set phrases such ' +
-    'as "Sandali lang po" or "Salamat po". A caller who speaks only English should get ' +
-    'English with an occasional "po"; mostly Tagalog is right only for a caller who ' +
-    "speaks no English or clearly does not follow it. She keeps each reply to one or two " +
-    "short sentences.",
-  "",
-  "Score each from 1 (poor) to 5 (excellent):",
-  "- tone: warm, calm and natural, like a good customer service representative. 1 is " +
-    "cold, curt or robotic.",
-  "- taglish: English-led Taglish that fits the caller, mixed naturally. 1 is the wrong " +
-    "language for the caller, or mixing that sounds unnatural.",
-  '- politeness: courteous throughout, with "po" and "opo" where they belong and nothing ' +
-    "dismissive. 1 is rude or dismissive.",
-  "",
-  "In notes, say in one to three sentences what most affected the scores.",
-].join("\n");
+/** The SOP heading a company pack names its speaking style under. */
+const STYLE_HEADING = "## How you speak";
+
+/**
+ * The SOP's `## How you speak` section: every line after that heading up to
+ * the next heading of level one or two, `###` subsections included, trimmed.
+ * Null when the SOP has no such section or it is empty.
+ */
+export function speakingStyleOf(sop: string): string | null {
+  const eol = sop.includes("\r\n") ? "\r\n" : "\n";
+  const lines = sop.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === STYLE_HEADING);
+  if (start === -1) return null;
+
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^#{1,2}\s/.test(line));
+  const section = (end === -1 ? rest : rest.slice(0, end)).join(eol).trim();
+  return section.length > 0 ? section : null;
+}
+
+/** The generic rubric around one company's style. */
+function graderSystem(style: string): string {
+  return [
+    "You grade how Tala, an AI voice agent on a company's customer support hotline, " +
+      "spoke on one call. You read the call's transcript and score Tala's lines only. " +
+      "The caller is simulated, so do not grade the caller. Tala's first line is a " +
+      "fixed disclosure the company wrote, so do not grade that line either.",
+    "",
+    "Grade her against the company's own style for how Tala speaks, from the standard " +
+      "operating procedure she was briefed with:",
+    "<style>",
+    style,
+    "</style>",
+    "",
+    "Score each from 1 (poor) to 5 (excellent), against that style:",
+    "- tone: warm, calm and natural, the way the style asks. 1 is cold, curt or robotic.",
+    "- taglish: her mix of English and Tagalog follows the style for this caller and " +
+      "sounds natural. 1 is the wrong language for the caller, or mixing that sounds " +
+      "unnatural.",
+    "- politeness: courteous throughout, the way the style asks, and never dismissive. " +
+      "1 is rude or dismissive.",
+    "",
+    "In notes, say in one to three sentences what most affected the scores.",
+  ].join("\n");
+}
 
 /** A structured-output request: Tala's request shape plus `output_config`. */
 export interface GradeRequest {
@@ -136,6 +165,8 @@ export interface AdvisoryGrade {
 
 export interface GradeOptions {
   transcript: readonly TranscriptLine[];
+  /** The SOP text Tala was briefed with; its `## How you speak` section is the style. */
+  sop: string;
   /** Resolves the grader's model id and rate card. */
   provider: Provider;
   createMessage: GradeCreator;
@@ -166,13 +197,17 @@ export async function gradeTranscript(options: GradeOptions): Promise<AdvisoryGr
   if (!transcript.some((line) => line.speaker === "tala")) {
     return none("there is nothing Tala said to grade");
   }
+  const style = speakingStyleOf(options.sop);
+  if (style === null) {
+    return none(`the SOP has no "${STYLE_HEADING}" section to grade the call against`);
+  }
 
   let reply: AssistantTurn;
   try {
     reply = await createMessage({
       model: provider.modelId(model),
       max_tokens: GRADER_MAX_TOKENS,
-      system: GRADER_SYSTEM,
+      system: graderSystem(style),
       messages: [{ role: "user", content: transcriptText(transcript) }],
       output_config: { format: { type: "json_schema", schema: GRADE_JSON_SCHEMA } },
     });
