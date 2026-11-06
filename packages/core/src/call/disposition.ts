@@ -26,6 +26,19 @@ export const DISPOSITION_TOPICS = [
   "other",
 ] as const;
 
+/**
+ * True when the text holds a run of 10 or more digits once the spaces, dots,
+ * hyphens and plus signs between digits are removed: a 10-digit account number
+ * or a PH mobile in any common spacing. Short numbers and the outage reference
+ * format ("OUT-2026-0412", 8 digits joined) pass.
+ *
+ * This only keeps numbers out of the disposition. Masking of everything that
+ * is stored is #10 and #18.
+ */
+function hasAccountOrPhoneNumber(text: string): boolean {
+  return /\d{10,}/.test(text.replace(/(?<=\d)[ .+-]+(?=\d)/g, ""));
+}
+
 export const dispositionSchema = z
   .object({
     outcome: z
@@ -41,6 +54,9 @@ export const dispositionSchema = z
       .string()
       .min(10)
       .max(400)
+      .refine((summary) => !hasAccountOrPhoneNumber(summary), {
+        error: "summary must not contain an account or phone number",
+      })
       .describe(
         "One or two plain English sentences for the supervisor: what the " +
           "caller needed and what happened. No account or phone numbers.",
