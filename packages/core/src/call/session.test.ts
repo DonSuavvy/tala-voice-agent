@@ -871,9 +871,15 @@ describe("a call session — an interruption", () => {
     expectValidConversation(call.claude);
   });
 
-  it("refuses a heard text that is not a prefix of what Tala said, and lets her turn run on", async () => {
+  /**
+   * Review round 2: a heard text that did not match was refused, and Tala
+   * talked on over a caller who had cut in. An interruption always stops
+   * her. What the transport reported is kept in the event, and the call
+   * keeps what had streamed before the interruption.
+   */
+  it("stops Tala even when the heard text does not match, keeping what streamed and reporting the mismatch", async () => {
     const call = interruptWhen(
-      [{ parts: [say("Opo, ", "sandali lang po.")] }],
+      [{ parts: [say("Opo, ", "sandali lang po.")] }, { parts: [say("Ano po ulit?")] }],
       nthDelta(1),
       "Hello po",
     );
@@ -883,14 +889,83 @@ describe("a call session — an interruption", () => {
 
     const interrupting = call.interrupting();
     expect(interrupting, "interrupt() was called on the first delta").not.toBeNull();
-    await expect(interrupting!).rejects.toThrow(
-      /heard "Hello po" is not a prefix of what Tala has said/,
-    );
-    expect(ended).toBe("awaiting_caller");
-    expect(call.events.filter((e) => e.type === "speech")).toContainEqual({
-      type: "speech",
-      text: "Opo, sandali lang po.",
+    await expect(interrupting!).resolves.toBeUndefined();
+    expect(ended).toBe("interrupted");
+    expect(call.events.at(-1)).toEqual({
+      type: "interrupted",
+      heard: "Opo, ",
+      mismatchedHeard: "Hello po",
     });
+
+    await call.session.callerSaid("Ha?");
+
+    expect(call.claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "Opo, " }],
+    });
+    expectValidConversation(call.claude);
+  });
+
+  /**
+   * A speech-to-text transport reports what was heard with its own spacing:
+   * "Opo. Sandali" for "Opo.\n\nSandali". Whitespace is not compared, and the
+   * cut falls at the matching place in what Tala said.
+   */
+  it("matches a heard text whose whitespace differs from what streamed", async () => {
+    const call = interruptWhen(
+      [
+        { parts: [say("Opo.\n\n", "Sandali ", "lang po, ", "iche-check ko.")], lag: Infinity },
+        { parts: [say("Ano po ulit?")] },
+      ],
+      nthDelta(3),
+      "Opo. Sandali lang",
+    );
+    call.session.start();
+
+    const ended = await call.session.callerSaid("Wala po kaming internet.");
+
+    expect(ended).toBe("interrupted");
+    expect(call.events.at(-1)).toEqual({ type: "interrupted", heard: "Opo. Sandali lang" });
+
+    await call.session.callerSaid("Ha?");
+
+    expect(call.claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "Opo.\n\nSandali lang" }],
+    });
+    expectValidConversation(call.claude);
+  });
+
+  /**
+   * Two text blocks stream as one run of deltas with nothing between them,
+   * while the caller heard a pause.
+   */
+  it("matches a heard text across the join of two text blocks", async () => {
+    const call = interruptWhen(
+      [
+        { parts: [say("Opo."), say("Sandali ", "lang po.")], lag: Infinity },
+        { parts: [say("Ano po ulit?")] },
+      ],
+      nthDelta(2),
+      "Opo. Sandali",
+    );
+    call.session.start();
+
+    const ended = await call.session.callerSaid("Wala po kaming internet.");
+
+    expect(ended).toBe("interrupted");
+    expect(call.events.at(-1)).toEqual({ type: "interrupted", heard: "Opo. Sandali" });
+
+    await call.session.callerSaid("Ha?");
+
+    expect(call.claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "Opo." },
+        { type: "text", text: "Sandali" },
+      ],
+    });
+    expectValidConversation(call.claude);
   });
 
   /**
