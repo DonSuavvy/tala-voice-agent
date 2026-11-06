@@ -948,9 +948,12 @@ describe("runAgentLoop — trace and cost", () => {
    * from cache must cost less than the same run that did not.
    */
   it("prices cache reads separately from uncached input", async () => {
+    // The first turn calls a tool so the loop asks for a second one. It used
+    // to be an empty end_turn, which reached the second turn only through
+    // OpsPilot's "you have not finished" nudge; an empty reply now hands the
+    // turn to the caller instead (#5).
     const { input } = loopInput([
-      turn([], {
-        stop_reason: "end_turn",
+      turn([toolUse("search_knowledge_base", { q: "cached" })], {
         usage: usage({ input_tokens: 0, cache_read_input_tokens: 100 }),
       }),
       resolveTurn(),

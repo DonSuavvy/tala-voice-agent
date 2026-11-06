@@ -226,6 +226,7 @@ export interface ResumeDecision {
 
 export type AgentLoopStatus =
   | "completed"
+  | "awaiting_caller"
   | "paused_for_approval"
   | "refused"
   | "failed"
@@ -256,7 +257,11 @@ export interface AgentLoopResult {
 /* Implementation                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** OpsPilot's loop guard. Twelve was generous for its seeded scenarios. */
+/**
+ * OpsPilot's loop guard, now per caller turn: the most model calls one thing
+ * the caller says can trigger. Twelve was generous for OpsPilot's tickets and
+ * is more so for a turn, which rarely needs more than three.
+ */
 const DEFAULT_MAX_ITERATIONS = 12;
 
 /**
@@ -568,15 +573,12 @@ export async function runAgentLoop<C extends ToolContext>(
     const toolUses = assistant.content.filter(isToolUse);
 
     if (toolUses.length === 0) {
-      // Talking is not finishing. Every run must end through the terminal
-      // tool, because the eval scorers read its structured output.
-      messages.push({
-        role: "user",
-        content:
-          `You have not finished. Call ${registry.terminalToolName} exactly ` +
-          `once with a structured outcome to end this run.`,
-      });
-      continue;
+      // On a call, a reply with no tool call is Tala speaking and then
+      // listening, so the turn goes back to the caller. OpsPilot nudged the
+      // model to keep going here, because a ticket had no one to wait for.
+      // A *call* still ends only through the terminal tool: the call session
+      // keeps it open until `end_call` runs.
+      return { ...base(), status: "awaiting_caller" };
     }
 
     /**
