@@ -8,7 +8,7 @@ import type {
   ToolResultBlock,
 } from "../agent/loop";
 import { anthropicProvider } from "../agent/provider";
-import { loadPack } from "../pack/load-pack";
+import { loadPack, type PackSource } from "../pack/load-pack";
 import {
   CALL_STARTED_AT,
   JOSE,
@@ -16,6 +16,7 @@ import {
   testPackSource,
 } from "../testing/fixtures";
 
+import { promptVersion } from "./pin";
 import { createCallSession, type CallEvent } from "./session";
 
 /**
@@ -90,10 +91,13 @@ function clockFrom(start: Date) {
   return () => new Date((t += 1000));
 }
 
-function newCall(turns: AssistantTurn[]) {
+function newCall(
+  turns: AssistantTurn[],
+  options: { source?: PackSource; onEvent?: (event: CallEvent) => void } = {},
+) {
   const claude = scriptedClaude(turns);
   const events: CallEvent[] = [];
-  const pack = loadPack(testPackSource());
+  const pack = loadPack(options.source ?? testPackSource());
   const session = createCallSession({
     pack,
     model: "haiku",
@@ -107,6 +111,7 @@ function newCall(turns: AssistantTurn[]) {
     },
     onEvent: (event) => {
       events.push(event);
+      options.onEvent?.(event);
     },
   });
   return { session, events, claude, pack };
@@ -136,16 +141,50 @@ describe("a call session — the opening", () => {
     expect(claude.requests).toHaveLength(0);
   });
 
-  it("pins the call to the pack, SOP version and model it runs with", () => {
+  it("pins the call to its pack, SOP version, prompt, policy and model", () => {
     const { session, events } = newCall([]);
 
     session.start();
 
-    expect(events[0]).toMatchObject({
+    expect(events[0]).toEqual({
       type: "call_started",
       callId: "call_1",
-      pin: { packId: "test-isp", sopVersion: "v7", model: "haiku" },
+      at: CALL_STARTED_AT,
+      pin: {
+        packId: "test-isp",
+        sopVersion: "v7",
+        promptVersion: expect.stringMatching(/^[0-9a-f]{12}$/) as string,
+        policyVersion: expect.stringMatching(/^[0-9a-f]{12}$/) as string,
+        model: "haiku",
+        modelId: "claude-haiku-5-5",
+      },
     });
+  });
+
+  it("labels the pin with the version of the exact prompt Claude is sent", async () => {
+    const { session, claude } = newCall([turn([text("Sige po.")])]);
+
+    session.start();
+    await session.callerSaid("Hello?");
+
+    expect(session.pin.promptVersion).toBe(promptVersion(claude.requests[0].system));
+  });
+
+  /**
+   * Review round 1: the pin named only the pack, SOP version and model, so a
+   * policy edit, which changes both the enforced limit and the compiled
+   * prompt, left two different calls with identical pins.
+   */
+  it("tells apart two calls whose policies differ under the same SOP version", () => {
+    const strict = testPackSource();
+    strict.policy = { identity: { maxFailedAttempts: 2 } };
+
+    const a = newCall([]).session.pin;
+    const b = newCall([], { source: strict }).session.pin;
+
+    expect(a.sopVersion).toBe(b.sopVersion);
+    expect(a.promptVersion).not.toBe(b.promptVersion);
+    expect(a.policyVersion).not.toBe(b.policyVersion);
   });
 
   it("puts the opening line in the conversation Claude sees, before the caller's words", async () => {
@@ -337,5 +376,61 @@ describe("a call session — ending", () => {
       reason: "refused",
       disposition: null,
     });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Subscribers                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Review round 1: speech was delivered from inside the model call, so a
+ * subscriber that threw (a console whose socket closed) was booked as a model
+ * failure. The turn Claude was paid for cost $0 in the trace, and the call
+ * never emitted call_ended.
+ */
+describe("a call session — a subscriber that throws", () => {
+  const boom = new Error("console socket closed");
+
+  function llmSpans(events: CallEvent[]) {
+    return events.flatMap((e) => (e.type === "span" && e.span.type === "llm_call" ? [e.span] : []));
+  }
+
+  it("still delivers the rest of the turn and books its cost, then reports the error", async () => {
+    let armed = false;
+    const { session, events } = newCall([turn([text("Ano po ang account number ninyo?")])], {
+      onEvent: (event) => {
+        if (armed && event.type === "speech") throw boom;
+      },
+    });
+    session.start();
+    armed = true;
+
+    await expect(session.callerSaid("Hello po.")).rejects.toBe(boom);
+
+    const [llm] = llmSpans(events);
+    expect(llm.isError).toBe(false);
+    expect(llm.costNanos).toBeGreaterThan(0);
+    expect(events.at(-1)).toEqual({ type: "awaiting_caller" });
+    expect(session.state).toBe("in_progress");
+  });
+
+  it("still ends the call when the turn that ends it meets a throwing subscriber", async () => {
+    let armed = false;
+    const { session, events } = newCall(
+      [turn([text("Salamat po!"), toolUse("end_call", DISPOSITION)])],
+      {
+        onEvent: (event) => {
+          if (armed && event.type === "speech") throw boom;
+        },
+      },
+    );
+    session.start();
+    armed = true;
+
+    await expect(session.callerSaid("Bye po.")).rejects.toBe(boom);
+
+    expect(events.at(-1)).toMatchObject({ type: "call_ended", reason: "end_call" });
+    expect(session.state).toBe("ended");
   });
 });
