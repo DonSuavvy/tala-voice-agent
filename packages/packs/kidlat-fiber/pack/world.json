@@ -61,6 +61,8 @@
   ],
   "bills": [
     { "reference": "SOA-2610-5601", "accountNumber": "8012345601", "amountMinor": 169900, "issuedMinutesBeforeCall": 36000 },
+    { "reference": "SOA-2608-5602", "accountNumber": "8012345602", "amountMinor": 129900, "issuedMinutesBeforeCall": 123840 },
+    { "reference": "SOA-2609-5602", "accountNumber": "8012345602", "amountMinor": 129900, "issuedMinutesBeforeCall": 79200 },
     { "reference": "SOA-2610-5602", "accountNumber": "8012345602", "amountMinor": 129900, "issuedMinutesBeforeCall": 36000 },
     { "reference": "SOA-2610-5603", "accountNumber": "8012345603", "amountMinor": 209900, "issuedMinutesBeforeCall": 36000 }
   ],
@@ -74,11 +76,19 @@
       "posted": true
     },
     {
-      "reference": "BYD4471029",
+      "reference": "5647382910564",
       "accountNumber": "8012345602",
-      "channel": "bayad",
+      "channel": "gcash",
       "amountMinor": 129900,
-      "paidMinutesBeforeCall": 41760,
+      "paidMinutesBeforeCall": 105120,
+      "posted": true
+    },
+    {
+      "reference": "1029384756102",
+      "accountNumber": "8012345602",
+      "channel": "gcash",
+      "amountMinor": 129900,
+      "paidMinutesBeforeCall": 60480,
       "posted": true
     },
     {

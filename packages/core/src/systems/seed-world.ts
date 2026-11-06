@@ -10,7 +10,8 @@
  * announce a restoration time that passed months ago the first time anyone ran
  * the demo. The in-memory world anchors the offsets to the moment the call
  * begins. Each offset's name says its direction (`...MinutesBeforeCall`,
- * `...MinutesAfterCall`), so none is ever negative. Money is whole minor units.
+ * `...MinutesAfterCall`), so none is ever negative, and each is bounded:
+ * outages to 30 days, billing dates to 366. Money is whole minor units.
  *
  * Cross-references (unique ids and references, every barangay and account
  * named is declared) are checked in a refinement with one issue per broken
@@ -57,18 +58,27 @@ const accountSchema = z
  */
 const MAX_OFFSET_MINUTES = 43_200;
 
-/** At or before the call's start, by up to 30 days. */
-const minutesBeforeCall = z.number().int().min(0).max(MAX_OFFSET_MINUTES);
-/** After the call's start, by up to 30 days. */
-const minutesAfterCall = z.number().int().positive().max(MAX_OFFSET_MINUTES);
+/**
+ * 366 days, in minutes: the bound on billing dates (due dates, disconnections,
+ * bills, payments). A billing history spans months, so it cannot live inside
+ * the outages' 30 days, but it is bounded for the same reason: an unbounded
+ * offset loads fine and then fails mid-call once it is added to the call's
+ * start, and a bad config must fail at boot instead.
+ */
+const MAX_BILLING_OFFSET_MINUTES = 527_040;
+
+/** At or before the call's start, by up to `max` minutes. */
+const minutesBeforeCall = (max: number) => z.number().int().min(0).max(max);
+/** After the call's start, by up to `max` minutes. */
+const minutesAfterCall = (max: number) => z.number().int().positive().max(max);
 
 const outageSchema = z
   .object({
     reference: nonEmpty,
     cause: nonEmpty,
     barangayIds: z.array(z.string()).min(1),
-    startedMinutesBeforeCall: minutesBeforeCall,
-    restorationMinutesAfterCall: minutesAfterCall.nullable(),
+    startedMinutesBeforeCall: minutesBeforeCall(MAX_OFFSET_MINUTES),
+    restorationMinutesAfterCall: minutesAfterCall(MAX_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
@@ -80,8 +90,8 @@ const balanceSchema = z
   .object({
     accountNumber: z.string(),
     amountDueMinor: minorUnits,
-    dueMinutesBeforeCall: minutesBeforeCall.nullable(),
-    disconnectionMinutesAfterCall: minutesAfterCall.nullable(),
+    dueMinutesBeforeCall: minutesBeforeCall(MAX_BILLING_OFFSET_MINUTES).nullable(),
+    disconnectionMinutesAfterCall: minutesAfterCall(MAX_BILLING_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
@@ -90,7 +100,7 @@ const billSchema = z
     reference: nonEmpty,
     accountNumber: z.string(),
     amountMinor: minorUnits.positive(),
-    issuedMinutesBeforeCall: minutesBeforeCall,
+    issuedMinutesBeforeCall: minutesBeforeCall(MAX_BILLING_OFFSET_MINUTES),
   })
   .strict();
 
@@ -101,7 +111,7 @@ const paymentSchema = z
     accountNumber: z.string(),
     channel: z.enum(PAYMENT_CHANNELS),
     amountMinor: minorUnits.positive(),
-    paidMinutesBeforeCall: minutesBeforeCall,
+    paidMinutesBeforeCall: minutesBeforeCall(MAX_BILLING_OFFSET_MINUTES),
     posted: z.boolean(),
   })
   .strict();
