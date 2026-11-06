@@ -15,7 +15,7 @@ import { verifyIdentity } from "./verify-identity";
  *
  * The call starts at 1:00 PM Manila on Fri, Nov 6. San Antonio, where Ana's
  * line is, has five open windows over the next four days; Commonwealth and
- * Batasan Hills have one each.
+ * Batasan Hills have one each. The tool gives three at most.
  */
 
 function newCall(world: SeedWorld = testWorld()): { ctx: TalaToolContext; systems: InMemorySystems } {
@@ -84,7 +84,7 @@ describe("get_technician_slots — the account gate", () => {
 });
 
 describe("get_technician_slots — the verified account's area", () => {
-  it("offers the four soonest open windows in Ana's barangay, as they are spoken", async () => {
+  it("offers the three soonest open windows in Ana's barangay, as they are spoken", async () => {
     const { ctx } = newCall();
     await verifyAs(ctx, ANA);
 
@@ -94,7 +94,6 @@ describe("get_technician_slots — the verified account's area", () => {
         { slot_id: "san-antonio-1", window: "Sat, Nov 7, 9:00 AM to 12:00 PM" },
         { slot_id: "san-antonio-2", window: "Sat, Nov 7, 1:00 PM to 4:00 PM" },
         { slot_id: "san-antonio-3", window: "Sun, Nov 8, 9:00 AM to 12:00 PM" },
-        { slot_id: "san-antonio-4", window: "Mon, Nov 9, 1:00 PM to 4:00 PM" },
       ],
     });
   });
@@ -112,8 +111,7 @@ describe("get_technician_slots — the verified account's area", () => {
       slots: [
         { slot_id: "san-antonio-2" },
         { slot_id: "san-antonio-3" },
-        { slot_id: "san-antonio-4" },
-        { slot_id: "san-antonio-5", window: "Tue, Nov 10, 9:00 AM to 12:00 PM" },
+        { slot_id: "san-antonio-4", window: "Mon, Nov 9, 1:00 PM to 4:00 PM" },
       ],
     });
   });
@@ -128,6 +126,17 @@ describe("get_technician_slots — the verified account's area", () => {
       service_area: "San Antonio, Pasig",
       slots: [],
     });
+  });
+});
+
+describe("get_technician_slots — its description", () => {
+  /** What the model is told it gets is what it gets: three windows at most. */
+  it("states the most windows it gives, which is how many it gives when more are open", async () => {
+    const { ctx } = newCall();
+    await verifyAs(ctx, ANA);
+
+    expect(getTechnicianSlots.description).toMatch(/\bat most 3\b/);
+    expect(await slots(ctx, ANA.accountNumber)).toMatchObject({ slots: [{}, {}, {}] });
   });
 });
 

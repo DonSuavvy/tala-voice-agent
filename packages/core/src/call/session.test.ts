@@ -797,7 +797,7 @@ describe("a call session — scenario 3", () => {
     });
     expect(resultFor(claude.requests, ticket)).toEqual({ created: true, reference: "TKT-2026-00001" });
     expect(resultFor(claude.requests, slots)).toMatchObject({
-      slots: [{ slot_id: "san-antonio-1", window: "Sat, Nov 7, 9:00 AM to 12:00 PM" }, {}, {}, {}],
+      slots: [{ slot_id: "san-antonio-1", window: "Sat, Nov 7, 9:00 AM to 12:00 PM" }, {}, {}],
     });
     expect(resultFor(claude.requests, booking)).toEqual({
       booked: true,

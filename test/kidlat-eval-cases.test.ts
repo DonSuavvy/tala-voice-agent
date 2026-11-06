@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { buildTalaRegistry, compilePackSop } from "@tala/core";
+import { buildTalaRegistry, compilePackSop, createInMemorySystems } from "@tala/core";
 import { loadCases, speakingStyleOf } from "@tala/evals";
 import { loadKidlatFiber } from "@tala/kidlat-fiber";
 
@@ -84,12 +84,17 @@ describe("Kidlat Fiber's eval cases", () => {
     return found;
   }
 
-  /** The ticket's expectations for scenario 3 (#11), as literals. */
-  it("scenario 3 expects what the ticket says, in order, with a connection ticket and a booked visit", () => {
+  /**
+   * The ticket's expectations for scenario 3 (#11), as literals: the area is
+   * checked before the line, as the SOP says, and the earliest window is
+   * booked, as the caller asks.
+   */
+  it("scenario 3 expects what the ticket says, in order, with a connection ticket and the earliest window booked", () => {
     expect(scenarioThree().expect).toEqual({
       endedBy: "end_call",
       toolsCalledInOrder: [
         "verify_identity",
+        "check_area_outage",
         "run_line_diagnostics",
         "remote_reboot_modem",
         "create_trouble_ticket",
@@ -100,12 +105,27 @@ describe("Kidlat Fiber's eval cases", () => {
       ],
       toolResults: [
         { tool: "create_trouble_ticket", input: { category: "connection" } },
-        { tool: "book_technician_visit", result: { booked: true } },
+        { tool: "book_technician_visit", input: { slot_id: "san-antonio-1" }, result: { booked: true } },
       ],
       disposition: { outcome: "resolved", topic: "slow_internet" },
       noAccountDataBeforeVerification: true,
       speaksBeforeEveryToolCall: true,
     });
+  });
+
+  /**
+   * The slot the case expects is the seed's earliest in San Antonio. Slots
+   * are stated by days after the call, so the order is the same whenever the
+   * call starts.
+   */
+  it("scenario 3's expected slot is the earliest open window in Ana's barangay", async () => {
+    const pack = loadKidlatFiber();
+    const booking = scenarioThree().expect.toolResults?.find((r) => r.tool === "book_technician_visit");
+    const callStartedAt = new Date("2026-11-06T05:00:00Z");
+    const world = createInMemorySystems(pack.world, callStartedAt, pack.company.timeZone);
+
+    const [earliest] = await world.fieldService.availableSlots("san-antonio");
+    expect(booking?.input).toEqual({ slot_id: earliest.slotId });
   });
 
   /** The caller can only verify with what the brief says. */
@@ -180,9 +200,23 @@ describe("Kidlat Fiber's SOP, as Tala reads it", () => {
     return sop.slice(start, end === -1 ? undefined : end);
   }
 
-  /** Windows, waits and signal levels come from the tools, so the section types none. */
-  it("types no figure into its slow-internet section", () => {
-    expect(sectionOf(compilePackSop(loadKidlatFiber()), "Slow or no internet")).not.toMatch(/\d/);
+  /**
+   * How many windows to offer, the windows themselves, the wait and the signal
+   * level all come from the tools, so the section states no number, in digits
+   * or in words.
+   */
+  it("states no number in its slow-internet section", () => {
+    const section = sectionOf(compilePackSop(loadKidlatFiber()), "Slow or no internet");
+
+    expect(section).not.toMatch(/\d/);
+    expect(section).not.toMatch(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/i);
+  });
+
+  /** Windows are read as the tool gives them, so an example naming days would mislead. */
+  it("names no weekday in its slow-internet section", () => {
+    const section = sectionOf(compilePackSop(loadKidlatFiber()), "Slow or no internet");
+
+    expect(section).not.toMatch(/\b(mon|tues|wednes|thurs|fri|satur|sun)day\b/i);
   });
 
   /** An example that copied scenario 3's data would tell Tala the answer (R2-15). */
