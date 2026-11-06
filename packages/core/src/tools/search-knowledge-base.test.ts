@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { toStrictJsonSchema } from "../agent/registry";
+import { MAX_HELP_RESULTS } from "../systems/types";
 import { MARIA, testSystems, testToolContext } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
@@ -63,6 +64,21 @@ describe("search_knowledge_base", () => {
     expect(await search(ctx, "lipat")).toEqual({
       articles: [{ id: "moving", title: "Moving house", text: "Tell us first." }],
     });
+  });
+
+  /** Its description promises at most MAX_HELP_RESULTS, so that holds whatever system fills the seam. */
+  it("gives at most the number of articles its description promises", async () => {
+    const systems = testSystems();
+    const many = ["a", "b", "c", "d", "e"].map((id) => ({ id, title: id, tags: [id], body: id }));
+    const ctx = testToolContext({
+      ...systems,
+      knowledgeBase: { search: () => Promise.resolve(many) },
+    });
+
+    const { articles } = (await search(ctx, "anything")) as { articles: { id: string }[] };
+
+    expect(articles.map((a) => a.id)).toEqual(many.slice(0, MAX_HELP_RESULTS).map((a) => a.id));
+    expect(searchKnowledgeBase.description).toContain(`up to ${MAX_HELP_RESULTS} articles`);
   });
 
   it("gives an empty list when no article matches", async () => {
