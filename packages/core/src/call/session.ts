@@ -45,16 +45,28 @@ import { createInMemorySystems } from "../systems/in-memory";
 import { buildTalaRegistry, type CallData } from "../tools";
 
 import { dispositionSchema, type Disposition } from "./disposition";
+import { promptVersion, versionOf } from "./pin";
 
 /* -------------------------------------------------------------------------- */
 /* Events                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** What a call ran with. Enough to explain any decision it made, later. */
+/**
+ * What a call ran with: enough to explain any decision it made, later (spec
+ * user story 43). The SOP version alone is not enough. A policy edit changes
+ * both what the tools enforce and the prompt the SOP compiles to, while the
+ * SOP version stays the same.
+ */
 export interface CallPin {
   packId: string;
   sopVersion: string;
+  /** The compiled system prompt's version: the same label eval runs use. */
+  promptVersion: string;
+  /** The version of the policy the tools enforced on this call. */
+  policyVersion: string;
   model: LogicalModel;
+  /** The id actually sent to the API, e.g. `claude-opus-5-5`. */
+  modelId: string;
 }
 
 export type CallEndReason = "end_call" | "refused" | "failed" | "budget_refused";
@@ -101,6 +113,12 @@ export interface CallSessionOptions {
   budget: { config: BudgetConfig; spentTodayNanos: number };
   /** What one model call is assumed to cost, for the spend pre-flight. */
   estimatedCallNanos?: number;
+  /**
+   * Receives every event, in order. If it throws, the call carries on: the
+   * rest of the turn is still delivered, the call's state stays consistent,
+   * and the first error is rethrown from `start()` or `callerSaid()` once the
+   * turn is over. A console whose socket closed must not cost a paid turn.
+   */
   onEvent: (event: CallEvent) => void;
 }
 
@@ -125,15 +143,41 @@ function isSpokenText(block: ContentBlock): block is TextBlock {
 }
 
 export function createCallSession(options: CallSessionOptions): CallSession {
-  const { pack, model, provider, createMessage, callId, clock, onEvent } = options;
+  const { pack, model, provider, createMessage, callId, clock } = options;
 
-  const pin: CallPin = { packId: pack.id, sopVersion: pack.sop.version, model };
   const registry = buildTalaRegistry();
   // Compiled once and pinned: the same bytes on every request, so the
   // tools + system prefix caches, and a mid-call policy edit cannot reach a
   // call already running.
   const system = cachedSystem(compilePackSop(pack));
+  const pin: CallPin = {
+    packId: pack.id,
+    sopVersion: pack.sop.version,
+    promptVersion: promptVersion(system),
+    // The parsed policy's keys come out in schema order, so the same policy
+    // always serializes, and therefore versions, the same way.
+    policyVersion: versionOf(JSON.stringify(pack.policy)),
+    model,
+    modelId: provider.modelId(model),
+  };
   const startedAt = clock();
+
+  let subscriberError: Error | null = null;
+  /** Every event goes through here, so a throwing subscriber cannot unwind the call. */
+  const onEvent = (event: CallEvent): void => {
+    try {
+      options.onEvent(event);
+    } catch (error) {
+      subscriberError ??= error instanceof Error ? error : new Error(String(error));
+    }
+  };
+  /** Called once a turn's state is settled: the subscriber learns it failed. */
+  const rethrowSubscriberError = (): void => {
+    if (subscriberError === null) return;
+    const error = subscriberError;
+    subscriberError = null;
+    throw error;
+  };
   const data: CallData = {
     systems: createInMemorySystems(pack.world, startedAt),
     identity: initialIdentityState(),
@@ -199,6 +243,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       ];
       onEvent({ type: "speech", text: pack.persona.openingLine });
       onEvent({ type: "awaiting_caller" });
+      rethrowSubscriberError();
     },
 
     async callerSaid(text) {
@@ -213,69 +258,78 @@ export function createCallSession(options: CallSessionOptions): CallSession {
 
       turnRunning = true;
       try {
-        const now = clock();
-        onEvent({ type: "caller_said", text: words, at: now });
-
-        const result = await runAgentLoop({
-          registry,
-          createMessage: speakingCreator,
-          model: provider.modelId(model),
-          rates: provider.rateCard(model),
-          system,
-          messages: [...history, { role: "user", content: words }],
-          toolContext: {
-            workspaceId: pack.id,
-            runId: callId,
-            callId,
-            now,
-            data,
-            policyConfig: pack.policy,
-          },
-          budget: {
-            config: options.budget.config,
-            spentTodayNanos: options.budget.spentTodayNanos + spentNanos,
-          },
-          estimatedCallNanos: options.estimatedCallNanos ?? ESTIMATED_RUN_NANOS,
-          // One call is one span sequence, however many caller turns it has.
-          startSeq: nextSeq,
-          clock,
-          emit: (span) => {
-            nextSeq = span.seq + 1;
-            onEvent({ type: "span", span });
-          },
-        });
-
-        spentNanos += result.costNanos;
-        // The loop returns the conversation it was given plus what it
-        // appended. Nothing earlier is rewritten.
-        history = result.messages;
-
-        switch (result.status) {
-          case "awaiting_caller":
-            onEvent({ type: "awaiting_caller" });
-            return "awaiting_caller";
-          case "completed":
-            // The loop parsed this with end_call's own schema already;
-            // parsing again turns `unknown` into a type without a cast.
-            return end("end_call", dispositionSchema.parse(result.outcome), null);
-          case "refused":
-          case "failed":
-          case "budget_refused":
-            return endBadly(result.status, result.error);
-          case "paused_for_approval":
-            // No tool in #5 is confirm-write, so nothing can pause. In-call
-            // approvals are #13; until then a pause is a bug, said plainly.
-            return endBadly(
-              "failed",
-              `call session: ${result.pendingApproval?.toolName ?? "a tool"} paused for ` +
-                `approval, and in-call approvals are not built yet (#13)`,
-            );
-          default:
-            return result.status satisfies never;
-        }
+        const ended = await runTurn(words);
+        // Only now, with the turn's events delivered and the call's state
+        // settled, does a failing subscriber hear about it.
+        rethrowSubscriberError();
+        return ended;
       } finally {
         turnRunning = false;
       }
     },
   };
+
+  /** One caller turn through the agent loop, to its end. */
+  async function runTurn(words: string): Promise<TurnEnd> {
+    const now = clock();
+    onEvent({ type: "caller_said", text: words, at: now });
+
+    const result = await runAgentLoop({
+      registry,
+      createMessage: speakingCreator,
+      model: pin.modelId,
+      rates: provider.rateCard(model),
+      system,
+      messages: [...history, { role: "user", content: words }],
+      toolContext: {
+        workspaceId: pack.id,
+        runId: callId,
+        callId,
+        now,
+        data,
+        policyConfig: pack.policy,
+      },
+      budget: {
+        config: options.budget.config,
+        spentTodayNanos: options.budget.spentTodayNanos + spentNanos,
+      },
+      estimatedCallNanos: options.estimatedCallNanos ?? ESTIMATED_RUN_NANOS,
+      // One call is one span sequence, however many caller turns it has.
+      startSeq: nextSeq,
+      clock,
+      emit: (span) => {
+        nextSeq = span.seq + 1;
+        onEvent({ type: "span", span });
+      },
+    });
+
+    spentNanos += result.costNanos;
+    // The loop returns the conversation it was given plus what it appended.
+    // Nothing earlier is rewritten.
+    history = result.messages;
+
+    switch (result.status) {
+      case "awaiting_caller":
+        onEvent({ type: "awaiting_caller" });
+        return "awaiting_caller";
+      case "completed":
+        // The loop parsed this with end_call's own schema already; parsing
+        // again turns `unknown` into a type without a cast.
+        return end("end_call", dispositionSchema.parse(result.outcome), null);
+      case "refused":
+      case "failed":
+      case "budget_refused":
+        return endBadly(result.status, result.error);
+      case "paused_for_approval":
+        // No tool in #5 is confirm-write, so nothing can pause. In-call
+        // approvals are #13; until then a pause is a bug, said plainly.
+        return endBadly(
+          "failed",
+          `call session: ${result.pendingApproval?.toolName ?? "a tool"} paused for ` +
+            `approval, and in-call approvals are not built yet (#13)`,
+        );
+      default:
+        return result.status satisfies never;
+    }
+  }
 }
