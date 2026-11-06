@@ -50,6 +50,15 @@ The fixed apology Tala says when a call has to end for any reason other than
 the call reaching its disposition.
 _Avoid_: error message
 
+**Filler line**:
+The fixed short line Tala says when she starts a check without having said
+anything, so the caller is never left in silence.
+_Avoid_: hold message, placeholder
+
+**Closing line**:
+The fixed goodbye Tala says when a call reaches its disposition without one.
+_Avoid_: sign-off, outro
+
 ## Identity
 
 **Customer**:
