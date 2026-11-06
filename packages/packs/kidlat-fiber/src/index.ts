@@ -19,33 +19,66 @@
  */
 import { readFileSync } from "node:fs";
 
-import { loadPack, type CompanyPack, type PackSource } from "@tala/core";
+import { loadPack, PackValidationError, type CompanyPack, type PackSource } from "@tala/core";
 
 /** The SOP version every call made with this pack is pinned to. */
 export const KIDLAT_SOP_VERSION = "v1";
 
 const PACK_ROOT = new URL("../", import.meta.url);
 
-function readText(path: string): string {
-  return readFileSync(new URL(path, PACK_ROOT), "utf8");
+const JSON_FILES = ["company", "persona", "policy", "world"] as const;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function readJson(path: string): unknown {
-  return JSON.parse(readText(path));
-}
+/**
+ * The pack's files as raw input, before `loadPack` checks them.
+ *
+ * `root` is the pack's directory (a URL ending in a slash); only tests pass it.
+ * Every file is read first and every unreadable or unparseable one is listed in
+ * one `PackValidationError`, so a syntax error in one file does not hide the
+ * others. Schema problems are reported by `loadPack` once the JSON parses.
+ */
+export function kidlatFiberSource(root: URL = PACK_ROOT): PackSource {
+  const issues: string[] = [];
 
-/** The pack's files as raw input, before `loadPack` checks them. */
-export function kidlatFiberSource(): PackSource {
+  function read(path: string): string | undefined {
+    try {
+      return readFileSync(new URL(path, root), "utf8");
+    } catch (error) {
+      issues.push(`${path}: cannot be read (${messageOf(error)})`);
+      return undefined;
+    }
+  }
+
+  function readJson(path: string): unknown {
+    const text = read(path);
+    if (text === undefined) return undefined;
+    try {
+      return JSON.parse(text) as unknown;
+    } catch (error) {
+      issues.push(`${path}: not valid JSON (${messageOf(error)})`);
+      return undefined;
+    }
+  }
+
+  const body = read(`sop/${KIDLAT_SOP_VERSION}.md`);
+  const json = Object.fromEntries(
+    JSON_FILES.map((name) => [name, readJson(`pack/${name}.json`)]),
+  ) as Record<(typeof JSON_FILES)[number], unknown>;
+
+  if (issues.length > 0 || body === undefined) {
+    throw new PackValidationError("kidlat-fiber", issues);
+  }
+
   return {
     id: "kidlat-fiber",
-    sop: {
-      version: KIDLAT_SOP_VERSION,
-      body: readText(`sop/${KIDLAT_SOP_VERSION}.md`),
-    },
-    company: readJson("pack/company.json"),
-    persona: readJson("pack/persona.json"),
-    policy: readJson("pack/policy.json"),
-    world: readJson("pack/world.json"),
+    sop: { version: KIDLAT_SOP_VERSION, body },
+    company: json.company,
+    persona: json.persona,
+    policy: json.policy,
+    world: json.world,
   };
 }
 
