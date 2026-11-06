@@ -106,8 +106,8 @@ describe("get_account_overview — the verified account", () => {
     const { reference } = await systems.plans.createQuote(
       {
         accountNumber: MARIA.accountNumber,
-        currentPlanName: "Kidlat 300",
-        newPlanName: "Kidlat 100",
+        currentPlanId: "kidlat-300",
+        newPlanId: "kidlat-100",
         newMonthlyPriceMinor: 129_900,
         proratedAmountMinor: 0,
         effectiveAt: new Date("2026-11-12T05:00:00Z"),

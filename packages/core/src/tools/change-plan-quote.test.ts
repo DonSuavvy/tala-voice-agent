@@ -87,15 +87,15 @@ describe("change_plan_quote — an upgrade", () => {
     expect(await systems.plans.findQuote(MARIA.accountNumber, "QTE-2026-00001")).toEqual({
       reference: "QTE-2026-00001",
       accountNumber: MARIA.accountNumber,
-      currentPlanName: "Kidlat 300",
-      newPlanName: "Kidlat 500",
+      currentPlanId: "kidlat-300",
+      newPlanId: "kidlat-500",
       newMonthlyPriceMinor: 209_900,
       proratedAmountMinor: 7_742,
       effectiveAt: CALL_STARTED_AT,
       quotedAt: CALL_STARTED_AT,
       used: false,
     });
-    expect((await systems.accounts.findAccount(MARIA.accountNumber))?.planName).toBe("Kidlat 300");
+    expect((await systems.accounts.findAccount(MARIA.accountNumber))?.planId).toBe("kidlat-300");
   });
 
   /** Three days later, at 1:00 PM on Mon, Nov 9, 3 days are left: 40,000 x 3 / 31 = 3,870.97. */

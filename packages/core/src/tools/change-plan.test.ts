@@ -75,7 +75,7 @@ describe("change_plan — the account gate", () => {
       "Refused: the caller has not been verified on this call. " +
         "Verify them with verify_identity first.",
     );
-    expect((await systems.accounts.findAccount(MARIA.accountNumber))?.planName).toBe("Kidlat 300");
+    expect((await systems.accounts.findAccount(MARIA.accountNumber))?.planId).toBe("kidlat-300");
   });
 
   it("refuses any account but the one verified on this call, and changes nothing", async () => {
@@ -88,7 +88,7 @@ describe("change_plan — the account gate", () => {
       "Refused: this call is verified for a different account, " +
         "and only that account can be checked.",
     );
-    expect((await systems.accounts.findAccount(MARIA.accountNumber))?.planName).toBe("Kidlat 300");
+    expect((await systems.accounts.findAccount(MARIA.accountNumber))?.planId).toBe("kidlat-300");
   });
 });
 
@@ -175,8 +175,8 @@ describe("change_plan — without a matching quote", () => {
     const { reference } = await systems.plans.createQuote(
       {
         accountNumber: JOSE.accountNumber,
-        currentPlanName: "Kidlat 300",
-        newPlanName: "Kidlat 500",
+        currentPlanId: "kidlat-300",
+        newPlanId: "kidlat-500",
         newMonthlyPriceMinor: 209_900,
         proratedAmountMinor: 7_742,
         effectiveAt: CALL_STARTED_AT,
@@ -200,8 +200,8 @@ describe("change_plan — without a matching quote", () => {
     const { reference } = await systems.plans.createQuote(
       {
         accountNumber: MARIA.accountNumber,
-        currentPlanName: "Kidlat 300",
-        newPlanName: "Kidlat 500",
+        currentPlanId: "kidlat-300",
+        newPlanId: "kidlat-500",
         newMonthlyPriceMinor: 209_900,
         proratedAmountMinor: 7_742,
         effectiveAt: CALL_STARTED_AT,

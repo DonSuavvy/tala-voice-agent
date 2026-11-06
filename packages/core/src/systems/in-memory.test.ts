@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEST_COMPANY } from "../testing/fixtures";
+import { TEST_COMPANY, testPlans } from "../testing/fixtures";
 
 import { createInMemorySystems } from "./in-memory";
 import type { SeedWorld } from "./seed-world";
@@ -132,7 +132,7 @@ function seed(): SeedWorld {
 }
 
 /** The pack's data the world is built from, around this seed. */
-const dataFor = (world: SeedWorld) => ({ world });
+const dataFor = (world: SeedWorld) => ({ world, plans: testPlans() });
 
 describe("createInMemorySystems", () => {
   describe("accounts.findAccount", () => {
@@ -143,7 +143,7 @@ describe("createInMemorySystems", () => {
         holderName: "Maria Santos",
         registeredMobile: "+639175550101",
         status: "active",
-        planName: "Kidlat 300",
+        planId: "kidlat-300",
         serviceArea: {
           barangayId: "batasan-hills",
           barangayName: "Batasan Hills",
@@ -166,6 +166,15 @@ describe("createInMemorySystems", () => {
       const second = await systems.accounts.findAccount("1234567890");
       expect(second!.holderName).toBe("Maria Santos");
       expect(second!.serviceArea.city).toBe("Quezon City");
+    });
+
+    /** The pack's boot check makes every seeded plan name a catalog plan; the world matches ids after. */
+    it("refuses to build from a seed whose plan name is not in the catalog", () => {
+      const world = seed();
+      world.accounts[1].planName = "Kidlat 200";
+      expect(() => createInMemorySystems(dataFor(world), CALL_STARTED_AT, MANILA)).toThrow(
+        'account 2234567890 names unknown plan "Kidlat 200"',
+      );
     });
 
     it("rejects, rather than serving a half record, when a seed skipped the schema and dangles", async () => {
@@ -579,8 +588,8 @@ describe("createInMemorySystems", () => {
     /** Maria, from Kidlat 300 to Kidlat 500, priced five minutes into the call. */
     const QUOTE = {
       accountNumber: "1234567890",
-      currentPlanName: "Kidlat 300",
-      newPlanName: "Kidlat 500",
+      currentPlanId: "kidlat-300",
+      newPlanId: "kidlat-500",
       newMonthlyPriceMinor: 209_900,
       proratedAmountMinor: 7_742,
       effectiveAt: new Date("2026-11-06T06:05:00Z"),
@@ -633,10 +642,10 @@ describe("createInMemorySystems", () => {
       given.effectiveAt.setUTCFullYear(1999);
       const found = await systems.plans.findQuote("1234567890", reference);
       found!.quotedAt.setUTCFullYear(1999);
-      found!.newPlanName = "Kidlat 1000";
+      found!.newPlanId = "kidlat-1000";
 
       expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({
-        newPlanName: "Kidlat 500",
+        newPlanId: "kidlat-500",
         effectiveAt: QUOTE.effectiveAt,
         quotedAt: QUOTED_AT,
       });
@@ -648,13 +657,13 @@ describe("createInMemorySystems", () => {
 
       await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
 
-      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 500");
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
       expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({ used: true });
       expect(await systems.plans.scheduledChange("1234567890")).toBeNull();
     });
 
     /** Maria, from Kidlat 300 down to Kidlat 100, starting with her next billing cycle. */
-    const LATER = { ...QUOTE, newPlanName: "Kidlat 100", effectiveAt: new Date("2026-11-12T06:00:00Z") };
+    const LATER = { ...QUOTE, newPlanId: "kidlat-100", effectiveAt: new Date("2026-11-12T06:00:00Z") };
 
     it("schedules a quote that takes effect later, and keeps the account on its plan until then", async () => {
       const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
@@ -662,9 +671,9 @@ describe("createInMemorySystems", () => {
 
       await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
 
-      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 300");
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
       expect(await systems.plans.scheduledChange("1234567890")).toEqual({
-        planName: "Kidlat 100",
+        planId: "kidlat-100",
         effectiveAt: new Date("2026-11-12T06:00:00Z"),
       });
       expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({ used: true });
@@ -689,7 +698,7 @@ describe("createInMemorySystems", () => {
 
       await systems.plans.applyQuote("1234567890", now.reference, QUOTED_AT);
 
-      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 500");
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
       expect(await systems.plans.scheduledChange("1234567890")).toBeNull();
     });
 
@@ -699,10 +708,10 @@ describe("createInMemorySystems", () => {
       await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
       const scheduled = await systems.plans.scheduledChange("1234567890");
       scheduled!.effectiveAt.setUTCFullYear(1999);
-      scheduled!.planName = "Kidlat 1000";
+      scheduled!.planId = "kidlat-1000";
 
       expect(await systems.plans.scheduledChange("1234567890")).toEqual({
-        planName: "Kidlat 100",
+        planId: "kidlat-100",
         effectiveAt: new Date("2026-11-12T06:00:00Z"),
       });
     });
@@ -712,14 +721,14 @@ describe("createInMemorySystems", () => {
       const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
       await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
       await systems.plans.createQuote(
-        { ...QUOTE, currentPlanName: "Kidlat 500", newPlanName: "Kidlat 100" },
+        { ...QUOTE, currentPlanId: "kidlat-500", newPlanId: "kidlat-100" },
         QUOTED_AT,
       );
 
       await expect(systems.plans.applyQuote("1234567890", reference, QUOTED_AT)).rejects.toThrow(
         'quote "QTE-2026-00001" cannot be applied',
       );
-      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 500");
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
     });
 
     it("rejects another account's quote, or a reference never given, and changes no plan", async () => {
@@ -732,8 +741,8 @@ describe("createInMemorySystems", () => {
       await expect(systems.plans.applyQuote("1234567890", "QTE-2026-00009", QUOTED_AT)).rejects.toThrow(
         'quote "QTE-2026-00009" cannot be applied',
       );
-      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 300");
-      expect((await systems.accounts.findAccount("2234567890"))?.planName).toBe("Kidlat 100");
+      expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
+      expect((await systems.accounts.findAccount("2234567890"))?.planId).toBe("kidlat-100");
     });
 
     it("changes the plan in this call's copy only, never in the seed", async () => {
@@ -744,7 +753,7 @@ describe("createInMemorySystems", () => {
 
       const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       expect(shared.accounts[0].planName).toBe("Kidlat 300");
-      expect((await two.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 300");
+      expect((await two.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
       expect(await two.plans.findQuote("1234567890", reference)).toBeNull();
     });
   });
