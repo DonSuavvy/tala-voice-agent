@@ -121,6 +121,42 @@ describe("send_sms — only to the mobile on file", () => {
   });
 });
 
+/**
+ * The SOP says a text never holds the account number or the full mobile
+ * number; the handler makes sure. Digits are compared with everything else
+ * removed, so no spacing or prefix gets a number through.
+ */
+describe("send_sms — never the account's own numbers", () => {
+  it.each([
+    ["the account number", "Your account 8012345602 is noted."],
+    ["the account number, spaced", "Your account 801-234-5602 is noted."],
+    ["the mobile in E.164", "We will call you at +639175550102."],
+    ["the mobile with its 0 prefix", "We will call you at 09175550102."],
+    ["the mobile's last ten digits, spaced", "We will call you at 917 555 0102."],
+  ])("refuses a message holding %s, and sends nothing", async (_what, message) => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, JOSE);
+
+    await expect(send(ctx, { message })).rejects.toThrow(
+      "Refused: the message contains the account number or the registered mobile number. " +
+        "Leave out the account and mobile numbers; the text already goes to the mobile on file.",
+    );
+    expect(systems.outbox()).toEqual([]);
+  });
+
+  it("sends a payment reference, a ticket reference and the mobile's last four digits", async () => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, JOSE);
+    const message =
+      "Kidlat Fiber: GCash payment 1234567890123 is being posted under ticket TKT-2026-00001. " +
+      "Sent to your mobile ending 0102.";
+
+    await send(ctx, { message });
+
+    expect(systems.outbox()).toEqual([{ to: "+639175550102", message }]);
+  });
+});
+
 describe("send_sms — its input", () => {
   const parses = (message: string) => sendSms.input.safeParse({ message }).success;
 
