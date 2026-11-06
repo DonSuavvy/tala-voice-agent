@@ -81,6 +81,8 @@ export function testPackSource(): PackSource {
       openingLine:
         "Hello po! Ako po si Tala, an AI assistant, at nire-record po ang call na ito.",
       fallbackLine: "Pasensya na po, may problema ang system. Tumawag po ulit mamaya.",
+      fillerLine: "Sandali lang po, iche-check ko.",
+      closingLine: "Salamat po sa pagtawag sa Test ISP. Ingat po!",
     },
     policy: { identity: { maxFailedAttempts: 3 } },
     world: testWorld(),

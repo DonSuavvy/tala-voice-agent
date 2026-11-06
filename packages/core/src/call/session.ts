@@ -42,9 +42,10 @@ import {
   type MessageCreator,
   type MessageParam,
   type SpanEvent,
+  type ToolUseBlock,
 } from "../agent/loop";
 import type { LogicalModel, Provider } from "../agent/provider";
-import { compilePackSop, type CompanyPack } from "../pack/load-pack";
+import { compilePackSop, type CompanyPack, type Persona } from "../pack/load-pack";
 import { initialIdentityState } from "../policy/identity";
 import { createInMemorySystems } from "../systems/in-memory";
 import { buildTalaRegistry, type CallData } from "../tools";
@@ -287,6 +288,36 @@ function keepHeard(content: ContentBlock[], heard: string): ContentBlock[] {
   return kept;
 }
 
+/**
+ * The pack's fixed line a model turn needs said for it, or null.
+ *
+ * A turn that calls a tool with nothing said would leave the caller in
+ * silence while the tool runs, or end the call with no goodbye. The SOP asks
+ * Tala to speak first, and the model's own words are better than a fixed
+ * line; this is the code's backstop for when it does not. `end_call` alone
+ * gets the closing line; any other tool call gets the filler line.
+ */
+function fixedLineFor(
+  content: ContentBlock[],
+  persona: Persona,
+  terminalToolName: string,
+): string | null {
+  const calls = content.filter((b): b is ToolUseBlock => b.type === "tool_use");
+  if (calls.length === 0 || content.some(isSpokenText)) return null;
+  const endsTheCall = calls.length === 1 && calls[0].name === terminalToolName;
+  return endsTheCall ? persona.closingLine : persona.fillerLine;
+}
+
+/**
+ * `content` with `line` as a text block just before its first tool call, so
+ * the conversation says it was said. Whatever came before, a signed
+ * thinking block included, stays where it was and as it was.
+ */
+function withLineBeforeTools(content: ContentBlock[], line: string): ContentBlock[] {
+  const at = content.findIndex((b) => b.type === "tool_use");
+  return [...content.slice(0, at), { type: "text", text: line }, ...content.slice(at)];
+}
+
 export function createCallSession(options: CallSessionOptions): CallSession {
   const { pack, model, provider, createMessage, callId, clock } = options;
 
@@ -355,7 +386,9 @@ export function createCallSession(options: CallSessionOptions): CallSession {
    * spoken: the model declined to stand behind it.
    *
    * A turn the caller talked over is cut to what they heard here, before the
-   * loop sees it, so the loop never holds a tool call that was dropped.
+   * loop sees it, so the loop never holds a tool call that was dropped. A
+   * turn that calls a tool with nothing said gets one of the pack's fixed
+   * lines here, said before its llm_call span and kept in the turn.
    */
   const speakingCreator: MessageCreator = async (params, callOptions) => {
     const thisCall: ModelCall = {
@@ -374,6 +407,18 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     const interruption = running?.interruption;
     if (interruption && interruption.modelCall === thisCall.number) {
       turn = { ...turn, content: keepHeard(turn.content, interruption.heard) };
+    }
+
+    // Not for a refused turn, and never over a caller who is already talking.
+    const fixedLine =
+      turn.stop_reason === "refusal" || turn.stop_reason === "interrupted" || interruption
+        ? null
+        : fixedLineFor(turn.content, pack.persona, registry.terminalToolName);
+    if (fixedLine !== null) {
+      turn = { ...turn, content: withLineBeforeTools(turn.content, fixedLine) };
+      // The only words in the turn, so this is its speech too.
+      sayLine(fixedLine);
+      return turn;
     }
 
     if (turn.stop_reason !== "refusal") {
