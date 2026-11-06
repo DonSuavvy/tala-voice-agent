@@ -101,9 +101,17 @@ describe("Kidlat Fiber's SOP, as Tala reads it", () => {
     }
   });
 
-  it("briefs Tala on scenario 2's tools", () => {
+  it("briefs Tala on the billing, ticket and text tools", () => {
     const named = namesIn(compilePackSop(loadKidlatFiber()));
 
-    expect(named).toEqual(expect.arrayContaining(["verify_payment", "create_trouble_ticket", "send_sms"]));
+    expect(named).toEqual(
+      expect.arrayContaining([
+        "get_account_overview",
+        "get_billing_history",
+        "verify_payment",
+        "create_trouble_ticket",
+        "send_sms",
+      ]),
+    );
   });
 });

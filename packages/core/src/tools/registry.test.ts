@@ -26,6 +26,8 @@ describe("buildTalaRegistry", () => {
       "check_area_outage",
       "create_trouble_ticket",
       "end_call",
+      "get_account_overview",
+      "get_billing_history",
       "send_sms",
       "verify_identity",
       "verify_payment",
@@ -42,6 +44,8 @@ describe("buildTalaRegistry", () => {
     expect(classes).toEqual({
       verify_identity: "read",
       check_area_outage: "read",
+      get_account_overview: "read",
+      get_billing_history: "read",
       verify_payment: "read",
       create_trouble_ticket: "auto_write",
       send_sms: "auto_write",
@@ -79,6 +83,8 @@ describe("the account gate, on every account tool", () => {
   const NOT_ACCOUNT_TOOLS = ["verify_identity", "end_call"];
   const VALID_INPUT: Record<string, unknown> = {
     check_area_outage: { account_number: "8012345601" },
+    get_account_overview: { account_number: "8012345601" },
+    get_billing_history: { account_number: "8012345601" },
     verify_payment: { reference: "1234567890123" },
     create_trouble_ticket: { category: "billing", notes: "A payment has not posted yet." },
     send_sms: { message: "Salamat po." },
