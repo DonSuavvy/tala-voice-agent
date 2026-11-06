@@ -35,9 +35,9 @@ export interface OpenedTicket extends NewTicket {
 }
 
 /**
- * The in-memory world, plus what a test or the eval reads back: the tickets
- * this call opened and the texts it sent. A real company reads those in its
- * own ticketing system and SMS provider; no tool can.
+ * The in-memory world, plus what a test reads back: the tickets this call
+ * opened and the texts it sent. A real company reads those in its own
+ * ticketing system and SMS provider; no tool can.
  */
 export interface InMemorySystems extends BusinessSystems {
   /** Tickets opened on this call, oldest first. Copies. */

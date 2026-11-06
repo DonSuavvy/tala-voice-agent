@@ -328,7 +328,7 @@ describe("seedWorldSchema", () => {
   });
 
   describe("balance, bill and payment shape", () => {
-    // Amounts are whole minor units (centavos for PHP), as the policy holds money.
+    // Amounts are whole minor units (centavos for PHP), never fractions.
     const cases: Array<[string, (s: ReturnType<typeof validSeed>) => void, (string | number)[]]> = [
       ["negative amount due", (s) => (s.balances[0].amountDueMinor = -1), ["balances", 0, "amountDueMinor"]],
       ["fractional amount due", (s) => (s.balances[0].amountDueMinor = 1299.5), ["balances", 0, "amountDueMinor"]],

@@ -1,10 +1,14 @@
 /**
- * Times as the model will say them: in the company's own time zone and locale.
+ * Times and money as the model will say them: in the company's own time zone,
+ * locale and currency.
  *
  * Tool results carry formatted local times rather than ISO instants because
  * the model reads them aloud, and converting UTC to Manila time in its head is
- * a calculation it can get wrong. The code converts; the model only speaks.
+ * a calculation it can get wrong. Money is the same: integer minor units in,
+ * the company's own currency text out. The code converts; the model only
+ * speaks.
  */
+import { formatMoney } from "../agent/sop";
 
 /** U+202F (narrow no-break space) and U+00A0 (no-break space). */
 const NO_BREAK_SPACES = /[\u202F\u00A0]/g;
@@ -40,4 +44,15 @@ export function formatLocalDate(date: Date, company: { timeZone: string; locale:
     month: "short",
     day: "numeric",
   }).format(date);
+}
+
+/**
+ * An amount in the company's currency: 129900 minor units in PHP, en-PH, is
+ * the peso sign followed by `1,299.00`.
+ */
+export function formatCompanyMoney(
+  minorUnits: number,
+  company: { locale: string; currency: string },
+): string {
+  return formatMoney(minorUnits, { code: company.currency, locale: company.locale });
 }

@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { holdsAccountNumbers } from "../policy/account-numbers";
+import { MOBILE_LAST_DIGITS } from "../policy/identity";
 
 import { requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
@@ -34,21 +35,14 @@ export const sendSms = defineTalaTool({
   safetyClass: "auto_write",
   idempotent: false,
   handler: async (input, ctx) => {
-    const accountNumber = requireVerifiedAccount(ctx);
-    const { systems } = ctx.data;
-    const account = await systems.accounts.findAccount(accountNumber);
-    // The gate passed, so this account was found when it was verified. Missing
-    // now means the business system changed under the call: say so plainly.
-    if (account === null) {
-      throw new Error("the account verified on this call could not be found");
-    }
+    const account = await requireVerifiedAccount(ctx);
     if (holdsAccountNumbers(input.message, account)) {
       throw new Error(
         "Refused: the message contains the account number or the registered mobile number. " +
           "Leave out the account and mobile numbers; the text already goes to the mobile on file.",
       );
     }
-    await systems.sms.send({ to: account.registeredMobile, message: input.message });
-    return { sent: true, to_last4: account.registeredMobile.slice(-4) };
+    await ctx.data.systems.sms.send({ to: account.registeredMobile, message: input.message });
+    return { sent: true, to_last4: account.registeredMobile.slice(-MOBILE_LAST_DIGITS) };
   },
 });

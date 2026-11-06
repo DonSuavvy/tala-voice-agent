@@ -8,11 +8,9 @@
  */
 import { z } from "zod";
 
-import { formatMoney } from "../agent/sop";
-
-import { requireVerifiedAccount } from "./account-gate";
+import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
-import { formatLocalDate } from "./format-time";
+import { formatCompanyMoney, formatLocalDate } from "./format-time";
 
 /** Enough to show a pattern of months; more is too much to say on a call. */
 const MAX_ENTRIES = 6;
@@ -28,24 +26,19 @@ export const getBillingHistory = defineTalaTool({
     "Tell the caller only the entries they asked about.",
   input: z
     .object({
-      account_number: z
-        .string()
-        .min(1)
-        .max(40)
-        .describe("The account number as the caller said it; spaces and dashes are fine."),
+      account_number: accountNumberInput,
     })
     .strict(),
   safetyClass: "read",
   idempotent: true,
   handler: async (input, ctx) => {
-    const accountNumber = requireVerifiedAccount(ctx, input.account_number);
+    const { accountNumber } = await requireVerifiedAccount(ctx, input.account_number);
     const { systems, company } = ctx.data;
     const [bills, payments] = await Promise.all([
       systems.billing.billsFor(accountNumber),
       systems.billing.paymentsFor(accountNumber),
     ]);
-    const money = (minor: number) =>
-      formatMoney(minor, { code: company.currency, locale: company.locale });
+    const money = (minor: number) => formatCompanyMoney(minor, company);
 
     const entries = [
       ...bills.map((bill) => ({

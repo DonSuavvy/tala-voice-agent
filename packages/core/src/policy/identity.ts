@@ -37,7 +37,13 @@ export function normalizeAccountNumber(raw: string): string {
   return raw.replace(/[\s.\-\u2010-\u2015]/g, "");
 }
 
-const FOUR_DIGITS = /^[0-9]{4}$/;
+/**
+ * How many trailing digits of the registered mobile verification asks for,
+ * and the most of that number Tala ever says.
+ */
+export const MOBILE_LAST_DIGITS = 4;
+
+const LAST_DIGITS = new RegExp(`^[0-9]{${MOBILE_LAST_DIGITS}}$`);
 
 /**
  * True only when `last4`, once all whitespace is removed, is exactly 4 digits
@@ -50,8 +56,8 @@ const FOUR_DIGITS = /^[0-9]{4}$/;
  */
 export function mobileLast4Matches(registeredMobile: string, last4: string): boolean {
   const given = last4.replace(/\s/g, "");
-  if (!FOUR_DIGITS.test(given)) return false;
-  return registeredMobile.replace(/[^0-9]/g, "").slice(-4) === given;
+  if (!LAST_DIGITS.test(given)) return false;
+  return registeredMobile.replace(/[^0-9]/g, "").slice(-MOBILE_LAST_DIGITS) === given;
 }
 
 export type VerificationGate =

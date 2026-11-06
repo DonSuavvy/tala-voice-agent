@@ -8,11 +8,11 @@
  */
 import { z } from "zod";
 
-import { formatMoney } from "../agent/sop";
+import { PAYMENT_CHANNELS } from "../systems/types";
 
 import { requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
-import { formatLocalTime } from "./format-time";
+import { formatCompanyMoney, formatLocalTime } from "./format-time";
 
 /**
  * Removes what speech-to-text puts inside a long reference (whitespace, the
@@ -28,11 +28,11 @@ export const verifyPayment = defineTalaTool({
   name: "verify_payment",
   description:
     "Looks up a payment the verified caller made, by the reference number the payment " +
-    "channel gave them (GCash, Maya, bank, 7-Eleven or Bayad). Use it when a verified caller " +
-    "says a payment has not posted. It searches only the account verified " +
-    "on this call with verify_identity. Returns found false when no payment of that account " +
-    "has the reference: ask the caller to check the number, and never suggest it might be on " +
-    "another account. When found, returns the channel, the amount and the time it was paid, " +
+    "channel gave them. Use it when a verified caller says a payment has not posted. It " +
+    "searches only the account verified on this call with verify_identity. Returns found " +
+    "false when no payment of that account has the reference: ask the caller to check the " +
+    "number, and never suggest it might be on another account. When found, returns the " +
+    `channel (one of ${PAYMENT_CHANNELS.join(", ")}), the amount and the time it was paid, ` +
     "as they should be said, and posted: whether the payment has been applied to the " +
     "account yet.",
   input: z
@@ -47,7 +47,7 @@ export const verifyPayment = defineTalaTool({
   safetyClass: "read",
   idempotent: true,
   handler: async (input, ctx) => {
-    const accountNumber = requireVerifiedAccount(ctx);
+    const { accountNumber } = await requireVerifiedAccount(ctx);
     const { systems, company } = ctx.data;
     const payment = await systems.billing.findPayment(
       accountNumber,
@@ -57,7 +57,7 @@ export const verifyPayment = defineTalaTool({
     return {
       found: true,
       channel: payment.channel,
-      amount: formatMoney(payment.amountMinor, { code: company.currency, locale: company.locale }),
+      amount: formatCompanyMoney(payment.amountMinor, company),
       paid_at: formatLocalTime(payment.paidAt, company),
       posted: payment.posted,
     };

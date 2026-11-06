@@ -52,11 +52,11 @@ const accountSchema = z
   .strict();
 
 /**
- * 30 days, in minutes. An unbounded offset loads fine and then fails mid-call
- * ("Invalid time value") once it is added to the call's start; a bad config
- * must fail at boot instead (spec user story 69).
+ * 30 days, in minutes: the bound on outage times. An unbounded offset loads
+ * fine and then fails mid-call ("Invalid time value") once it is added to the
+ * call's start; a bad config must fail at boot instead (spec user story 69).
  */
-const MAX_OFFSET_MINUTES = 43_200;
+const MAX_OUTAGE_OFFSET_MINUTES = 43_200;
 
 /**
  * 366 days, in minutes: the bound on billing dates (due dates, disconnections,
@@ -77,12 +77,12 @@ const outageSchema = z
     reference: nonEmpty,
     cause: nonEmpty,
     barangayIds: z.array(z.string()).min(1),
-    startedMinutesBeforeCall: minutesBeforeCall(MAX_OFFSET_MINUTES),
-    restorationMinutesAfterCall: minutesAfterCall(MAX_OFFSET_MINUTES).nullable(),
+    startedMinutesBeforeCall: minutesBeforeCall(MAX_OUTAGE_OFFSET_MINUTES),
+    restorationMinutesAfterCall: minutesAfterCall(MAX_OUTAGE_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
-/** Whole minor units (centavos for PHP), as the policy holds money. */
+/** Whole minor units (centavos for PHP), so no amount is ever a fraction. */
 const minorUnits = z.number().int().min(0);
 
 /** What an account owes as the call starts. At most one per account. */
@@ -116,17 +116,20 @@ const paymentSchema = z
   })
   .strict();
 
-type Collection = "barangays" | "accounts" | "outages" | "balances" | "bills" | "payments";
+const seedWorldShape = {
+  barangays: z.array(barangaySchema).min(1),
+  accounts: z.array(accountSchema).min(1),
+  outages: z.array(outageSchema),
+  balances: z.array(balanceSchema),
+  bills: z.array(billSchema),
+  payments: z.array(paymentSchema),
+};
+
+/** A top-level list of the seed world, such as 'accounts': derived, so a new list is one too. */
+type Collection = keyof typeof seedWorldShape;
 
 export const seedWorldSchema = z
-  .object({
-    barangays: z.array(barangaySchema).min(1),
-    accounts: z.array(accountSchema).min(1),
-    outages: z.array(outageSchema),
-    balances: z.array(balanceSchema),
-    bills: z.array(billSchema),
-    payments: z.array(paymentSchema),
-  })
+  .object(seedWorldShape)
   .strict()
   .superRefine((world, ctx) => {
     // The first of two clashing entries is the one that is kept; the later one

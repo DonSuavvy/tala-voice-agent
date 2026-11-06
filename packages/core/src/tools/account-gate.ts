@@ -6,12 +6,22 @@
  * same way. The SOP tells the model to verify first; this is the code making
  * sure of it.
  */
+import { z } from "zod";
+
 import { attemptsRemaining, checkAccountAccess, normalizeAccountNumber } from "../policy/identity";
+import type { AccountRecord } from "../systems/types";
 
 import type { TalaToolContext } from "./context";
 
+/** The `account_number` input of every tool that takes one, written once. */
+export const accountNumberInput = z
+  .string()
+  .min(1)
+  .max(40)
+  .describe("The account number as the caller said it; spaces and dashes are fine.");
+
 /**
- * The verified account's number, normalized, or a thrown refusal.
+ * The verified account's record, or a thrown refusal.
  *
  * `requested` is the account number the model named, for a tool whose input
  * has one; any other account is refused. A tool that only ever acts on the
@@ -21,11 +31,14 @@ import type { TalaToolContext } from "./context";
  * refuses any other), so a handler may await after this and still act on the
  * account it was let through for.
  */
-export function requireVerifiedAccount(ctx: TalaToolContext, requested?: string): string {
+export async function requireVerifiedAccount(
+  ctx: TalaToolContext,
+  requested?: string,
+): Promise<AccountRecord> {
   const { identity } = ctx.data;
-  const account =
+  const accountNumber =
     requested === undefined ? identity.verifiedAccount : normalizeAccountNumber(requested);
-  const access = checkAccountAccess(identity, account ?? "");
+  const access = checkAccountAccess(identity, accountNumber ?? "");
   if (!access.allowed) {
     // Unverified because verification is locked is a dead end, not a next
     // step: telling the model to verify would contradict verify_identity.
@@ -35,8 +48,14 @@ export function requireVerifiedAccount(ctx: TalaToolContext, requested?: string)
         : access.reason;
     throw new Error(refusal(reason));
   }
-  // Allowed means verified, so the account is not null here.
-  return account!;
+  // Allowed means verified, so the number is not null here.
+  const account = await ctx.data.systems.accounts.findAccount(accountNumber!);
+  // The gate passed, so this account was found when it was verified. Missing
+  // now means the business system changed under the call: say so plainly.
+  if (account === null) {
+    throw new Error("the account verified on this call could not be found");
+  }
+  return account;
 }
 
 /** What the model reads when the account gate refuses: what happened, and what to do instead. */

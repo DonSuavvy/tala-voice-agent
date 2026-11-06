@@ -15,7 +15,7 @@
  *
  * #5 added accounts and outages; #10 added billing, tickets and SMS. Later
  * tickets add diagnostics and technician slots (#11) and plans (#16). Each
- * grows this file by one interface; none changes the ones here.
+ * adds its own interfaces; none changes the ones already here.
  */
 
 /** Where an account's line is: the unit outages are declared against. */
@@ -71,8 +71,9 @@ export interface NetworkOperations {
 }
 
 /**
- * The ways a payment can reach the company. The seed schema and the payment
- * tool read this list, so a channel added here is added everywhere.
+ * The ways a payment can reach the company. The seed schema and
+ * `verify_payment`'s description read this list, so a channel added here is
+ * added to both.
  */
 export const PAYMENT_CHANNELS = ["gcash", "maya", "bank", "seven_eleven", "bayad"] as const;
 export type PaymentChannel = (typeof PAYMENT_CHANNELS)[number];
@@ -144,7 +145,11 @@ export interface SmsMessage {
   message: string;
 }
 
-/** The SMS provider. It sends to the number it is given; choosing that number is the caller's job. */
+/**
+ * The SMS provider. It sends to the number it is given. The model never
+ * chooses that number: `send_sms` passes only the verified account's
+ * registered mobile.
+ */
 export interface SmsGateway {
   send(sms: SmsMessage): Promise<void>;
 }

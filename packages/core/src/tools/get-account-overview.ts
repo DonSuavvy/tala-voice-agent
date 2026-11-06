@@ -8,11 +8,9 @@
  */
 import { z } from "zod";
 
-import { formatMoney } from "../agent/sop";
-
-import { requireVerifiedAccount } from "./account-gate";
+import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
-import { formatLocalDate } from "./format-time";
+import { formatCompanyMoney, formatLocalDate } from "./format-time";
 
 export const getAccountOverview = defineTalaTool({
   name: "get_account_overview",
@@ -26,25 +24,15 @@ export const getAccountOverview = defineTalaTool({
     "scheduled.",
   input: z
     .object({
-      account_number: z
-        .string()
-        .min(1)
-        .max(40)
-        .describe("The account number as the caller said it; spaces and dashes are fine."),
+      account_number: accountNumberInput,
     })
     .strict(),
   safetyClass: "read",
   idempotent: true,
   handler: async (input, ctx) => {
-    const accountNumber = requireVerifiedAccount(ctx, input.account_number);
+    const account = await requireVerifiedAccount(ctx, input.account_number);
     const { systems, company } = ctx.data;
-    const account = await systems.accounts.findAccount(accountNumber);
-    // The gate passed, so this account was found when it was verified. Missing
-    // now means the business system changed under the call: say so plainly.
-    if (account === null) {
-      throw new Error("the account verified on this call could not be found");
-    }
-    const balance = await systems.billing.balanceOf(accountNumber);
+    const balance = await systems.billing.balanceOf(account.accountNumber);
     if (balance === null) {
       throw new Error("no balance is on record for the account verified on this call");
     }
@@ -52,10 +40,7 @@ export const getAccountOverview = defineTalaTool({
     return {
       plan: account.planName,
       account_status: account.status,
-      balance_due: formatMoney(balance.amountDueMinor, {
-        code: company.currency,
-        locale: company.locale,
-      }),
+      balance_due: formatCompanyMoney(balance.amountDueMinor, company),
       due_date: balance.dueAt === null ? null : formatLocalDate(balance.dueAt, company),
       // Decided here, not by the model: comparing dates is a calculation it
       // can get wrong.
