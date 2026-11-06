@@ -2,10 +2,10 @@ name: Evals
 
 # The eval gate (#9): plays every eval case against Tala on real Claude and
 # fails the PR if any case fails the deterministic gate. It spends API credit
-# (capped at $1.00 per run), so it runs only on pull requests that touch what
-# Tala reads or runs: the SOP and pack data, the tools, the policy, the pack
-# loader, the call session, the agent loop, and the eval package itself.
-# Unit tests, which need no key, are ci.yml.
+# (scripts/eval.ts says exactly what its $1.00 cap covers), so it runs only on
+# pull requests that touch what Tala reads or runs: the SOP and pack data, the
+# tools, the policy, the pack loader, the call session, the agent loop, and
+# the eval package itself. Unit tests, which need no key, are ci.yml.
 on:
   pull_request:
     paths:

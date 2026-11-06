@@ -8,7 +8,7 @@
  *   npm run eval -- --case scenario-1-outage      # one case
  *
  * Needs ANTHROPIC_API_KEY (.env.local on a laptop, a repository secret in CI;
- * first-party API only) and spends real credit, capped at $1.00 per run. The
+ * first-party API only) and spends real credit; see the cap below. The
  * simulated caller and the grader run on Sonnet 5.5.
  *
  * It prints each case's gate result with the advisory grade beside it, the
@@ -17,9 +17,14 @@
  * packages/evals/reports/<UTC time>-<model>.json. It exits 1 if any case
  * fails the gate; the grade never changes that.
  *
- * The cap works through the call session's budget: each case's session is
- * told what the run has spent so far, so Tala's model calls are refused once
- * the run reaches $1.00 and the case ends budget_refused.
+ * The $1.00 cap, exactly: Tala's model calls are checked against it before
+ * each call, through the call session's budget. Each case's session is told
+ * what the run's finished cases spent on Tala and on the simulated caller,
+ * and adds its own Tala spend as the call goes; a call the cap would breach is
+ * refused and the case ends budget_refused. The caller is not checked against
+ * the cap but is bounded by the case's maxTurns, and the grader by one call
+ * per case. Both are in the run's reported cost. The grader's spend never
+ * counts toward the cap, so the advisory grade cannot fail a later case.
  */
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -54,6 +59,7 @@ import {
   resolveGitDirty,
   resolveGitSha,
   runSimulatedCall,
+  sessionSpendNanos,
   transcriptOf,
   type CaseReportRow,
 } from "@tala/evals";
@@ -61,7 +67,7 @@ import { loadKidlatFiber } from "@tala/kidlat-fiber";
 
 const MODELS: readonly LogicalModel[] = ["haiku", "sonnet", "opus"];
 
-/** $1.00 per run, through the same budget check every model call passes. */
+/** Checked before each of Tala's model calls; see the header for what counts toward it. */
 const RUN_CAP_NANOS = 1_000_000_000;
 
 /**
@@ -75,10 +81,11 @@ const CASES_DIR = fileURLToPath(new URL("../packages/packs/kidlat-fiber/evals/ca
 const REPORTS_DIR = fileURLToPath(new URL("../packages/evals/reports/", import.meta.url));
 
 /**
- * What the finished cases cost, which each next case's session is told. Also
- * printed if the run dies halfway; a case cut off mid-call is not in it.
+ * The finished cases. Their Tala and caller spend is what each next case's
+ * session is told (`sessionSpendNanos`); their whole cost is printed if the
+ * run dies halfway. A case cut off mid-call is not in it.
  */
-let spentNanos = 0;
+const finished: CaseReportRow[] = [];
 
 const usd = (nanos: number) => `$${microsToUsdString(nanosToMicros(nanos))}`;
 
@@ -165,12 +172,13 @@ async function main(): Promise<number> {
   const budget: BudgetConfig = { dailyCapNanos: RUN_CAP_NANOS, killSwitch: false, runsPerMinute: 10 };
 
   const ranAt = new Date();
-  const rows: CaseReportRow[] = [];
+  const rows = finished;
   let pin: CallPin | null = null;
 
   console.log(
     `eval: ${cases.length} case(s); Tala on ${model}, caller and grader on ` +
-      `${DEFAULT_CALLER_MODEL}; cap ${usd(RUN_CAP_NANOS)}`,
+      `${DEFAULT_CALLER_MODEL}; cap ${usd(RUN_CAP_NANOS)} on Tala's and the caller's spend, ` +
+      "checked before each of Tala's model calls",
   );
 
   for (const kase of cases) {
@@ -187,8 +195,8 @@ async function main(): Promise<number> {
         createMessage: talaCreator,
         callId,
         clock: () => new Date(),
-        // The run's spend so far: Tala, the callers and the grader.
-        budget: { config: budget, spentTodayNanos: spentNanos },
+        // The finished cases' Tala and caller spend; never the grader's.
+        budget: { config: budget, spentTodayNanos: sessionSpendNanos(finished) },
         estimatedCallNanos: ESTIMATED_RUN_NANOS,
       },
       callerCreateMessage: callerCreator,
@@ -212,7 +220,6 @@ async function main(): Promise<number> {
 
     pin ??= pinOf(call.events);
     rows.push(row);
-    spentNanos += row.cost.total.nanos;
     console.log(formatCaseResult(row));
   }
 
@@ -250,7 +257,8 @@ main().then(
   (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`eval: ${message}`);
-    if (spentNanos > 0) console.error(`eval: the finished cases cost ${usd(spentNanos)}`);
+    const spent = finished.reduce((sum, row) => sum + row.cost.total.nanos, 0);
+    if (spent > 0) console.error(`eval: the finished cases cost ${usd(spent)}`);
     process.exitCode = 1;
   },
 );

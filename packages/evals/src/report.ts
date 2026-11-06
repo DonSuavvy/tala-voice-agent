@@ -15,6 +15,8 @@
  *
  * **Cost is the real spend, split Tala / caller / grader.** Tala's is the sum
  * of her spans, the caller's and the grader's the priced usage of their calls.
+ * Only Tala's and the caller's spend counts toward the run's cap
+ * (`sessionSpendNanos`); the grader's is reported and never budgets anything.
  * A figure is marked estimated when any part of it was, for example an
  * interrupted model call booked at its pre-flight estimate.
  *
@@ -161,6 +163,21 @@ export function buildReport(input: ReportInput): EvalReport {
     cases: rows,
     cost: split(sum("tala"), sum("caller"), sum("grader")),
   };
+}
+
+/**
+ * What the run has spent that counts toward its cap, for the next case's
+ * session budget: Tala's model calls and the simulated callers'. The cap is
+ * checked before each of Tala's model calls, against this plus what that
+ * call's own case has spent on Tala so far.
+ *
+ * The grader's spend is left out on purpose. It is in the run's reported
+ * cost, but if it budgeted anything, the advisory grade of one case could
+ * push a later case into budget_refused, and the grade would have failed a
+ * run.
+ */
+export function sessionSpendNanos(rows: readonly CaseReportRow[]): number {
+  return rows.reduce((sum, row) => sum + row.cost.tala.nanos + row.cost.caller.nanos, 0);
 }
 
 /**
