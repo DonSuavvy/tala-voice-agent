@@ -72,6 +72,33 @@ the mobile ending `0101`. The other test accounts are in
 `npm run verify:first-call` plays the same call with a scripted caller and
 checks the trace.
 
+### Run the evals
+
+`npm run eval` plays each eval case against Tala on real Claude. A simulated
+caller (Sonnet 5.5) talks to her through the same call session the chat and
+the voice paths use, and every call is scored by deterministic checks: how the
+call ended, which tools ran, the disposition, no account data before
+verification, and a line before every tool call. An advisory Claude grade for
+tone, Taglish and politeness is printed beside the result and never decides
+it. Each run prints its actual cost (about 4 cents a case on Sonnet) and saves
+a report pinned to the pack, SOP, prompt, policy, model and git commit in
+[`packages/evals/reports/`](packages/evals/reports).
+
+```bash
+npm run eval
+```
+
+```bash
+npm run eval:diff -- packages/evals/reports/<before>.json packages/evals/reports/<after>.json
+```
+
+The diff lists what regressed, was fixed, was added, was removed or stayed the
+same. On pull requests the suite runs as the `eval gate` check, which is
+required on `main`. A pull request that told Tala never to end the call was
+blocked by it:
+
+![The eval gate failing a deliberately broken SOP: "Evals / eval gate (pull_request), Failing after 38s, Required", and the merge button disabled](docs/img/eval-gate-blocks-a-broken-sop.png)
+
 How the repo is checked: [`docs/FAILURES.md`](docs/FAILURES.md) logs what
 broke, [`docs/REVIEWS.md`](docs/REVIEWS.md) records review passes, and
 [`docs/SECURITY.md`](docs/SECURITY.md) is the threat model.
