@@ -340,3 +340,57 @@ state is settled. RED `993f1d4`, GREEN `b4a553b`.
 
 **Lesson:** code that calls back into someone else's code from inside an
 accounting boundary inherits their failures as its own.
+
+## 11. Tala went silent before a second tool call, and hung up without a goodbye — 2026-11-06
+
+**Severity: medium.** Both are what a voice caller hears as dead air, the
+second as being hung up on. Neither failed a test: the earlier live checks
+looked at the trace, not at what the caller heard.
+
+**Caught by:** the eval gate's first live run (#9), on its first case. The
+new check `speaksBeforeEveryToolCall` failed, and the advisory grader noticed
+the second on its own: "she gave no closing line to the caller's goodbye".
+
+```
+FAIL  scenario-1-outage
+      expected Tala to speak before every tool call, but these turns were
+      silent: model call 3 (check_area_outage); model call 5 (end_call)
+```
+
+On Sonnet 5.5, after `verify_identity` returned, Tala called
+`check_area_outage` with no line before it. When the simulated Maria said
+"Paalam na po!", Tala called `end_call` with no goodbye. The SOP asked for a
+line before a tool call and a closing line with `end_call`, but it said so
+once, and the second tool call in a row and the caller's own goodbye read as
+exceptions.
+
+**Fix:** the SOP says every reply that calls a tool speaks first, the second
+call in a row included, with an example, and that the closing line is never
+skipped, even after the caller's goodbye (`6c7a08b`). Three runs then passed
+(`f0dc3ae`); `eval:diff` shows `speaksBeforeEveryToolCall: failed -> passed`.
+Until #8 makes fillers fixed phrases the session says itself, this rests on
+the model and the gate.
+
+**Lesson:** a rule the model follows most of the time needs a check that runs
+every time. The first run of a new check is worth more than a passing one.
+
+## 12. The eval pin named a commit that was not what ran — 2026-11-06
+
+**Severity: low.** The reports were honest about the prompt; only the commit
+was wrong.
+
+**Caught by:** review round 2 (Spec and Standards, independently).
+
+`resolveGitSha` recorded `HEAD` and never asked whether the working tree was
+clean. The SOP fix was being tried before it was committed, so two of the
+three passing reports pin `3c80c9c`, a commit that still has the broken SOP.
+The first report pins `ca8a192`, older than the runner that wrote it. Only
+the prompt hash said what had actually run.
+
+**Fix:** the pin records `gitDirty` from `git status --porcelain` (the
+reports directory excluded), the runner warns when it is true, and the diff
+prints it and counts it as a pin change. Reports written before the flag
+read as "dirty unknown", never as clean. RED `52aedc5`, GREEN `ff4fcd6`.
+
+**Lesson:** a record meant to explain a run later must say when it is not the
+whole truth.
