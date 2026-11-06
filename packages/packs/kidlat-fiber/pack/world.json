@@ -38,5 +38,64 @@
       "startedMinutesBeforeCall": 150,
       "restorationMinutesAfterCall": 240
     }
+  ],
+  "balances": [
+    {
+      "accountNumber": "8012345601",
+      "amountDueMinor": 0,
+      "dueMinutesBeforeCall": null,
+      "disconnectionMinutesAfterCall": null
+    },
+    {
+      "accountNumber": "8012345602",
+      "amountDueMinor": 129900,
+      "dueMinutesBeforeCall": 14400,
+      "disconnectionMinutesAfterCall": 1440
+    },
+    {
+      "accountNumber": "8012345603",
+      "amountDueMinor": 0,
+      "dueMinutesBeforeCall": null,
+      "disconnectionMinutesAfterCall": null
+    }
+  ],
+  "bills": [
+    { "reference": "SOA-2610-5601", "accountNumber": "8012345601", "amountMinor": 169900, "issuedMinutesBeforeCall": 36000 },
+    { "reference": "SOA-2610-5602", "accountNumber": "8012345602", "amountMinor": 129900, "issuedMinutesBeforeCall": 36000 },
+    { "reference": "SOA-2610-5603", "accountNumber": "8012345603", "amountMinor": 209900, "issuedMinutesBeforeCall": 36000 }
+  ],
+  "payments": [
+    {
+      "reference": "MAYA7K2Q9",
+      "accountNumber": "8012345601",
+      "channel": "maya",
+      "amountMinor": 169900,
+      "paidMinutesBeforeCall": 20160,
+      "posted": true
+    },
+    {
+      "reference": "BYD4471029",
+      "accountNumber": "8012345602",
+      "channel": "bayad",
+      "amountMinor": 129900,
+      "paidMinutesBeforeCall": 41760,
+      "posted": true
+    },
+    {
+      "reference": "1234567890123",
+      "accountNumber": "8012345602",
+      "channel": "gcash",
+      "amountMinor": 129900,
+      "paidMinutesBeforeCall": 1440,
+      "posted": false
+    },
+    {
+      "reference": "BNK20261021",
+      "accountNumber": "8012345603",
+      "channel": "bank",
+      "amountMinor": 209900,
+      "paidMinutesBeforeCall": 23040,
+      "posted": true
+    }
   ]
 }

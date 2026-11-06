@@ -105,7 +105,7 @@ _Avoid_: rules, settings
 
 **Seed world**:
 The demo company's data that every call starts from a fresh copy of: its
-accounts, barangays and outages.
+accounts, barangays, outages, balances, bills and payments.
 _Avoid_: mock data, fixtures, database
 
 **Barangay**:
@@ -125,6 +125,41 @@ _Avoid_: downtime, incident
 **Estimated restoration time**:
 When service is expected back after an outage.
 _Avoid_: ETA, ETR
+
+## Billing
+
+**Bill**:
+The statement of what an account owes for one month of service.
+_Avoid_: invoice, statement of account
+
+**Balance**:
+What an account owes now, and the date it is due.
+_Avoid_: dues, outstanding
+
+**Payment**:
+Money a customer has paid towards an account's balance, through a payment
+channel.
+_Avoid_: transaction, remittance
+
+**Payment channel**:
+The service a payment was made through: GCash, Maya, a bank, 7-Eleven or
+Bayad.
+_Avoid_: payment method, payment provider
+
+**Payment reference**:
+The number a payment channel gives the customer for one payment, by which the
+payment is found.
+_Avoid_: transaction ID, receipt number, ref number
+
+**Posted**:
+Said of a payment the billing system has applied to the balance. A payment can
+be received and not yet posted.
+_Avoid_: reflected, credited, cleared
+
+**Disconnection**:
+Service cut off for an unpaid balance, on a scheduled date after the balance
+was due.
+_Avoid_: cut-off, termination
 
 ## People
 

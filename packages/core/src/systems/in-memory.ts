@@ -7,8 +7,9 @@
  *
  * - Each call gets a fresh copy of the seed (spec: "each call starts from a
  *   fresh copy of the seed world"). The seed is cloned on creation, so two
- *   calls never share state and nothing a call does can reach the seed.
- * - It never reads the wall clock. The seed stores outage times relative to the
+ *   calls never share state and nothing a call does can reach the seed. The
+ *   tickets a call opens and the texts it sends live in that copy too.
+ * - It never reads the wall clock. The seed stores times relative to the
  *   call's start (see `./seed-world`); `callStartedAt` is the only time source
  *   and turns those offsets into dates. That also makes tests deterministic.
  *
@@ -16,12 +17,39 @@
  * nothing stored.
  */
 import type { SeedWorld } from "./seed-world";
-import type { AccountRecord, BusinessSystems, OutageRecord } from "./types";
+import type {
+  AccountRecord,
+  BalanceRecord,
+  BillRecord,
+  BusinessSystems,
+  NewTicket,
+  OutageRecord,
+  PaymentRecord,
+  SmsMessage,
+} from "./types";
 
 const MINUTE_MS = 60_000;
 
-export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): BusinessSystems {
+export interface OpenedTicket extends NewTicket {
+  reference: string;
+}
+
+/**
+ * The in-memory world, plus what a test or the eval reads back: the tickets
+ * this call opened and the texts it sent. A real company reads those in its
+ * own ticketing system and SMS provider; no tool can.
+ */
+export interface InMemorySystems extends BusinessSystems {
+  /** Tickets opened on this call, oldest first. Copies. */
+  openedTickets(): OpenedTicket[];
+  /** Texts sent on this call, oldest first. Copies. */
+  outbox(): SmsMessage[];
+}
+
+export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): InMemorySystems {
   const world = structuredClone(seed);
+  const tickets: OpenedTicket[] = [];
+  const outbox: SmsMessage[] = [];
   const minutesFromStart = (minutes: number) =>
     new Date(callStartedAt.getTime() + minutes * MINUTE_MS);
 
@@ -66,10 +94,87 @@ export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): Bus
             : minutesFromStart(o.restorationMinutesAfterCall),
       }));
 
+  const balanceOf = (accountNumber: string): BalanceRecord | null => {
+    const balance = world.balances.find((b) => b.accountNumber === accountNumber);
+    if (!balance) return null;
+    return {
+      amountDueMinor: balance.amountDueMinor,
+      dueAt:
+        balance.dueMinutesBeforeCall === null
+          ? null
+          : minutesFromStart(-balance.dueMinutesBeforeCall),
+      disconnectionAt:
+        balance.disconnectionMinutesAfterCall === null
+          ? null
+          : minutesFromStart(balance.disconnectionMinutesAfterCall),
+    };
+  };
+
+  // Newest first is the smallest offset first; the sort is stable, so equal
+  // times keep seed order.
+  const billsFor = (accountNumber: string): BillRecord[] =>
+    world.bills
+      .filter((b) => b.accountNumber === accountNumber)
+      .sort((a, b) => a.issuedMinutesBeforeCall - b.issuedMinutesBeforeCall)
+      .map((b) => ({
+        reference: b.reference,
+        amountMinor: b.amountMinor,
+        issuedAt: minutesFromStart(-b.issuedMinutesBeforeCall),
+      }));
+
+  const toPaymentRecord = (p: SeedWorld["payments"][number]): PaymentRecord => ({
+    reference: p.reference,
+    channel: p.channel,
+    amountMinor: p.amountMinor,
+    paidAt: minutesFromStart(-p.paidMinutesBeforeCall),
+    posted: p.posted,
+  });
+
+  const paymentsFor = (accountNumber: string): PaymentRecord[] =>
+    world.payments
+      .filter((p) => p.accountNumber === accountNumber)
+      .sort((a, b) => a.paidMinutesBeforeCall - b.paidMinutesBeforeCall)
+      .map(toPaymentRecord);
+
+  const findPayment = (accountNumber: string, reference: string): PaymentRecord | null => {
+    const payment = world.payments.find(
+      (p) => p.accountNumber === accountNumber && p.reference === reference,
+    );
+    return payment ? toPaymentRecord(payment) : null;
+  };
+
+  // Deterministic within a call: the call's first ticket is always 00001, in
+  // the year the call started (UTC; the world does not know the company's
+  // time zone).
+  const createTicket = (ticket: NewTicket): { reference: string } => {
+    const sequence = String(tickets.length + 1).padStart(5, "0");
+    const reference = `TKT-${callStartedAt.getUTCFullYear()}-${sequence}`;
+    const { accountNumber, category, notes } = ticket;
+    tickets.push({ reference, accountNumber, category, notes });
+    return { reference };
+  };
+
   // Every real implementation is a network call, so these are async. Wrapping
   // in a promise (rather than an async body) turns a throw into a rejection.
+  const later = <T>(work: () => T): Promise<T> => Promise.resolve().then(work);
+
   return {
-    accounts: { findAccount: (n) => Promise.resolve().then(() => findAccount(n)) },
-    network: { outagesAffecting: (id) => Promise.resolve().then(() => outagesAffecting(id)) },
+    accounts: { findAccount: (n) => later(() => findAccount(n)) },
+    network: { outagesAffecting: (id) => later(() => outagesAffecting(id)) },
+    billing: {
+      balanceOf: (n) => later(() => balanceOf(n)),
+      billsFor: (n) => later(() => billsFor(n)),
+      paymentsFor: (n) => later(() => paymentsFor(n)),
+      findPayment: (n, reference) => later(() => findPayment(n, reference)),
+    },
+    tickets: { createTicket: (ticket) => later(() => createTicket(ticket)) },
+    sms: {
+      send: (sms) =>
+        later(() => {
+          outbox.push({ to: sms.to, message: sms.message });
+        }),
+    },
+    openedTickets: () => tickets.map((t) => ({ ...t })),
+    outbox: () => outbox.map((m) => ({ ...m })),
   };
 }
