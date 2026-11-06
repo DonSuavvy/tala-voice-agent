@@ -19,10 +19,15 @@
  * how a run silently books zero cache cost.
  *
  * **What the loop owns.** Ordering and refusal handling, the per-call spend
- * pre-flight, tool dispatch and error containment, the approval pause, and the
- * span stream. What it does not own: the database, HTTP, the wall clock, or
- * pricing. Those arrive as arguments, which is what keeps this testable
- * without a database and deterministic in the eval suite.
+ * pre-flight, tool dispatch and error containment, the approval pause, the
+ * span stream, and how a turn ends. A reply the caller can hear hands the
+ * turn back to them; a silent one is dropped and the model asked again,
+ * because dead air is not an answer. The terminal tool completes the run only
+ * as the sole call in its turn, so nothing runs after the outcome is decided
+ * and no result is cut off before the caller hears it. What it does not own:
+ * the database, HTTP, the wall clock, or pricing. Those arrive as arguments,
+ * which is what keeps this testable without a database and deterministic in
+ * the eval suite.
  */
 import { checkBudget, type BudgetConfig, type BudgetRefusal } from "./budget";
 import type { SystemBlock } from "./cache";
@@ -281,6 +286,14 @@ const DEFAULT_MAX_ITERATIONS = 12;
  */
 const DEFAULT_MAX_TOKENS = 8_192;
 
+/**
+ * What the model is told after a turn with nothing to hear and no tool call.
+ * It stands in for the dropped turn, so the next request ends on a user
+ * message and the model knows why it is being asked again.
+ */
+export const SILENT_TURN_NOTICE =
+  "(The caller heard nothing. Answer them out loud, or call a tool.)";
+
 const EMPTY_USAGE: TokenUsage = {
   inputTokens: 0,
   outputTokens: 0,
@@ -321,6 +334,15 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 
 function isToolUse(block: ContentBlock): block is ToolUseBlock {
   return block.type === "tool_use";
+}
+
+/** Text the caller would actually hear. Whitespace is dead air. */
+function isSpoken(block: ContentBlock): boolean {
+  return (
+    block.type === "text" &&
+    typeof block.text === "string" &&
+    block.text.trim() !== ""
+  );
 }
 
 /**
@@ -584,6 +606,19 @@ export async function runAgentLoop<C extends ToolContext>(
     const toolUses = assistant.content.filter(isToolUse);
 
     if (toolUses.length === 0) {
+      // No tool call and nothing to hear (empty, thinking only, or blank
+      // text) is silence, not a reply: handing it back would leave the caller
+      // waiting on dead air. The turn is dropped rather than kept, because
+      // the Messages API rejects an empty assistant message anywhere but last
+      // and keeping it would fail the next request. It was never sent back,
+      // so dropping it edits nothing the model has seen; its llm_call span
+      // and cost stand. The notice counts toward maxIterations, so a model
+      // that stays silent ends at the cap.
+      if (!assistant.content.some(isSpoken)) {
+        messages.pop();
+        messages.push({ role: "user", content: SILENT_TURN_NOTICE });
+        continue;
+      }
       // On a call, a reply with no tool call is Tala speaking and then
       // listening, so the turn goes back to the caller. OpsPilot nudged the
       // model to keep going here, because a ticket had no one to wait for.
@@ -642,8 +677,42 @@ export async function runAgentLoop<C extends ToolContext>(
     let terminalOutcome: unknown = null;
     let sawTerminal = false;
 
+    // The terminal tool decides the run's outcome, so it must be the only
+    // call in its turn. Beside other calls, either one runs after the outcome
+    // is decided, or the run ends before the model can relay a result, and on
+    // a call the caller never hears it. Refusing it with is_error lets the
+    // other calls run and Tala speak; the model calls it again on its own.
+    const terminalName = registry.terminalToolName;
+    const terminalMustWait = toolUses.length > 1;
+
     for (const call of toolUses) {
       const startedAt = clock();
+
+      if (terminalMustWait && call.name === terminalName) {
+        const detail =
+          `${terminalName} must be called on its own, in a reply with no ` +
+          `other tool calls, once the caller has heard everything else. ` +
+          `Call it again in a later reply.`;
+        results.push({
+          type: "tool_result",
+          tool_use_id: call.id,
+          content: detail,
+          is_error: true,
+        });
+        await span({
+          type: "tool_exec",
+          name: call.name,
+          input: call.input,
+          output: { error: detail },
+          isError: true,
+          usage: null,
+          costNanos: 0,
+          estimated,
+          startedAt,
+        });
+        continue;
+      }
+
       const definition = registry.get(call.name);
 
       // Unknown names are model output, so this is an input to survive
