@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { buildTalaRegistry, compilePackSop, createInMemorySystems } from "@tala/core";
+import { buildTalaRegistry, compilePackSop, createInMemorySystems, formatMoney } from "@tala/core";
 import { loadCases, speakingStyleOf } from "@tala/evals";
 import { loadKidlatFiber } from "@tala/kidlat-fiber";
 
@@ -152,17 +152,22 @@ describe("Kidlat Fiber's plan-change and help cases", () => {
   };
 
   /**
-   * The quote is for Kidlat 500, the change is confirmed and made, and only
-   * then does the call end.
+   * The quote is for Kidlat 500, Tala reads its price back, the change to
+   * Kidlat 500 is confirmed and made, and only then does the call end.
    */
-  it("the accepted upgrade expects a quote, a confirmed change, in that order", () => {
+  it("the accepted upgrade expects a quote, the price read back, a confirmed change, in that order", () => {
     expect(caseNamed("scenario-plan-upgrade-accepted").expect).toEqual({
       endedBy: "end_call",
       toolsCalledInOrder: ["verify_identity", "change_plan_quote", "change_plan", "end_call"],
       toolResults: [
         { tool: "change_plan_quote", input: { plan_id: "kidlat-500" } },
-        { tool: "change_plan", input: { customer_confirmed: true }, result: { changed: true } },
+        {
+          tool: "change_plan",
+          input: { customer_confirmed: true },
+          result: { changed: true, plan: "Kidlat 500" },
+        },
       ],
+      saidMentions: ["2,099"],
       disposition: { outcome: "resolved", topic: "plan_change" },
       noAccountDataBeforeVerification: true,
       speaksBeforeEveryToolCall: true,
@@ -179,6 +184,20 @@ describe("Kidlat Fiber's plan-change and help cases", () => {
     expect(planNamed("Kidlat 500").monthlyPriceMinor).toBeGreaterThan(maria.monthlyPriceMinor);
   });
 
+  /** The words Tala must say are the new plan's name and its monthly price, as the quote gives it. */
+  it("the accepted upgrade expects Kidlat 500 by name and its catalog price read back", () => {
+    const { expect: expected } = caseNamed("scenario-plan-upgrade-accepted");
+    const change = expected.toolResults?.find((r) => r.tool === "change_plan");
+    const fiveHundred = planNamed("Kidlat 500");
+    const price = formatMoney(fiveHundred.monthlyPriceMinor, {
+      code: pack.company.currency,
+      locale: pack.company.locale,
+    });
+
+    expect(change?.result).toMatchObject({ plan: fiveHundred.name });
+    for (const words of expected.saidMentions ?? []) expect(price).toContain(words);
+  });
+
   it("the accepted upgrade's caller is Maria, with her numbers, asking for Kidlat 500", () => {
     const { brief } = caseNamed("scenario-plan-upgrade-accepted").caller;
 
@@ -189,10 +208,11 @@ describe("Kidlat Fiber's plan-change and help cases", () => {
   });
 
   /** Jose hears the price and keeps his plan: no change is ever attempted. */
-  it("the declined upgrade expects a quote and no change", () => {
+  it("the declined upgrade expects a quote for Kidlat 300 and no change", () => {
     expect(caseNamed("scenario-plan-upgrade-declined").expect).toEqual({
       endedBy: "end_call",
       toolsCalledInOrder: ["verify_identity", "change_plan_quote", "end_call"],
+      toolResults: [{ tool: "change_plan_quote", input: { plan_id: "kidlat-300" } }],
       toolsNever: ["change_plan"],
       disposition: { outcome: "resolved", topic: "plan_change" },
       noAccountDataBeforeVerification: true,
@@ -211,11 +231,20 @@ describe("Kidlat Fiber's plan-change and help cases", () => {
     expect(planNamed("Kidlat 300").monthlyPriceMinor).toBeGreaterThan(jose.monthlyPriceMinor);
   });
 
+  it("the declined upgrade quotes Kidlat 300 by its catalog id", () => {
+    const quote = caseNamed("scenario-plan-upgrade-declined").expect.toolResults?.find(
+      (r) => r.tool === "change_plan_quote",
+    );
+
+    expect(quote?.input).toEqual({ plan_id: planNamed("Kidlat 300").id });
+  });
+
   it("the modem-lights question expects a search of the help articles and the article's advice", () => {
     expect(caseNamed("help-modem-lights").expect).toEqual({
       endedBy: "end_call",
       toolsCalled: ["search_knowledge_base", "end_call"],
-      saidMentions: ["bent"],
+      toolResults: [{ tool: "search_knowledge_base", result: { articles: [{ id: "modem-lights" }] } }],
+      saidMentions: ["loss of signal"],
       disposition: { topic: "help" },
       noAccountDataBeforeVerification: true,
       speaksBeforeEveryToolCall: true,
