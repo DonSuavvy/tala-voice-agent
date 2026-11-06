@@ -1,0 +1,172 @@
+{
+  "format": 1,
+  "masking": "none (#10)",
+  "ranAt": "2026-11-06T09:05:52.140Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "ac1713349226",
+    "policyVersion": "1b691b76de0e",
+    "model": "sonnet",
+    "modelId": "claude-sonnet-5-5",
+    "gitSha": "ca8a1927f48eb4b9cf55e16140671f9198653e0f"
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": false,
+  "cases": [
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": false,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [
+            "model call 3 (check_area_outage)",
+            "model call 5 (end_call)"
+          ],
+          "passed": false,
+          "detail": "expected Tala to speak before every tool call, but these turns were silent: model call 3 (check_area_outage); model call 5 (end_call)"
+        }
+      ],
+      "failureReason": "expected Tala to speak before every tool call, but these turns were silent: model call 3 (check_area_outage); model call 5 (end_call)",
+      "costUsd": "0.028409",
+      "latencyMs": 19062,
+      "agentRunId": "8e2c273d-1f89-4428-b9b7-86b1afc37429",
+      "cost": {
+        "tala": {
+          "nanos": 18485400,
+          "usd": "0.018485",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 5758000,
+          "usd": "0.005758",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 4166000,
+          "usd": "0.004166",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 28409400,
+          "usd": "0.028409",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 3,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 5,
+          "politeness": 4,
+          "notes": "Tala's English-led Taglish fits a Tagalog-leaning caller well, with natural 'Naku', 'Sandali lang po' and 'verified na po kayo'. Her replies were warm and clear, though the outage explanation was a bit matter-of-fact with no empathy for the long wait, and she gave no closing line to the caller's goodbye."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Hello po, thank you for calling Kidlat Fiber! I'm Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, magandang araw. Wala po kasing internet namin dito since kaninang umaga. Gusto ko lang po malaman kung bakit at kailan babalik."
+        },
+        {
+          "speaker": "tala",
+          "text": "Naku, sorry to hear that po. Before I check, may I have your Kidlat Fiber account number and the last four digits of the mobile number registered on the account?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, account number ko po is 8012345601. Tapos yung last four digits ng mobile number po is 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po, Maria, verified na po kayo. There's an outage in Batasan Hills caused by a fiber cable cut along Batasan Road during road works, and service is expected back around 9 PM tonight."
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah, ganun po ba. Salamat po sa info. Medyo matagal pa po pala, pero at least alam ko na po kung bakit at kailan babalik. Sige po, maraming salamat po, Tala. Paalam na po!"
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 18485400,
+      "usd": "0.018485",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 5758000,
+      "usd": "0.005758",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 4166000,
+      "usd": "0.004166",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 28409400,
+      "usd": "0.028409",
+      "estimated": false
+    }
+  }
+}

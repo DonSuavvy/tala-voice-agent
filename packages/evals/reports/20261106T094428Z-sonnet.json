@@ -1,0 +1,185 @@
+{
+  "format": 1,
+  "masking": "none (#10)",
+  "ranAt": "2026-11-06T09:44:28.347Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "07230fc8625f",
+    "policyVersion": "1b691b76de0e",
+    "model": "sonnet",
+    "modelId": "claude-sonnet-5-5",
+    "gitSha": "254dcfb916000103dff3978b14a73ed6624bde7e",
+    "gitDirty": false
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.042325",
+      "latencyMs": 23604,
+      "agentRunId": "85b31ddd-6d67-49d5-b02b-c5fa02103f15",
+      "cost": {
+        "tala": {
+          "nanos": 25441000,
+          "usd": "0.025441",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 11376000,
+          "usd": "0.011376",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5508000,
+          "usd": "0.005508",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 42325000,
+          "usd": "0.042325",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 4,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Warm, respectful, and apologetic with natural 'Naku', 'po', and 'Walang anuman po'; she handled the caller's correction about the timing gracefully. The outage reply ran long with a Tagalog question (\"Gusto n'yo po bang ibigay ko...\") that is less English-led than the style asks, and some replies exceeded two sentences."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Hello po, thank you for calling Kidlat Fiber! I'm Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, magandang araw. Wala po kasi kaming internet dito sa bahay since kanina pong umaga. Gusto ko lang po sanang malaman kung bakit at kailan kaya babalik."
+        },
+        {
+          "speaker": "tala",
+          "text": "Naku, sorry to hear that po. Let me help you check, but first may I have your Kidlat Fiber account number and the last four digits of the mobile number registered on the account?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang account number ko po ay 8012345601. Tapos yung last four digits ng mobile number ko po ay 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Let me verify your account first."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Ma'am Maria. Let me check your area now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Opo Ma'am Maria, there's an outage in Batasan Hills caused by a fiber cable cut along Batasan Road during road works. Our records show it started around 3:14 PM, and service is expected back around 9:44 PM tonight.\n\nGusto n'yo po bang ibigay ko ang reference number para sa follow up?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah, ganoon po ba. Sandali lang po, kanina pong umaga pa po kasi kami walang internet, hindi pa po hapon. Pero sige po, kung 9:44 PM po babalik, okay na po iyon. Sige po, pakibigay na lang po yung reference number."
+        },
+        {
+          "speaker": "tala",
+          "text": "Opo, the reference is O, U, T, dash, 20 26, dash, 04 12. Sorry po, the outage on record started at 3:14 PM, so I can't say what caused the problem this morning. If your internet is still down after 9:44 PM, please call us again po."
+        },
+        {
+          "speaker": "caller",
+          "text": "Okay po, naintindihan ko. Salamat po sa tulong, Tala. Sige po, tatawag na lang ulit ako kung wala pa rin mamayang after 9:44 PM. Paalam na po, ingat po kayo!"
+        },
+        {
+          "speaker": "tala",
+          "text": "Walang anuman po, Ma'am Maria. Salamat po sa pagtawag sa Kidlat Fiber, ingat po kayo!"
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 25441000,
+      "usd": "0.025441",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 11376000,
+      "usd": "0.011376",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 5508000,
+      "usd": "0.005508",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 42325000,
+      "usd": "0.042325",
+      "estimated": false
+    }
+  }
+}
