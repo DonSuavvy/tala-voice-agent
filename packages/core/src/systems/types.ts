@@ -72,10 +72,42 @@ export interface CustomerAccounts {
 export const MODEM_STATUSES = ["online", "degraded", "offline"] as const;
 export type ModemStatus = (typeof MODEM_STATUSES)[number];
 
+/**
+ * The network's own diagnosis of the connection at an account's home, as its
+ * monitoring reads the modem. What it found is the system's, not Tala's: no
+ * code turns a signal level into a verdict.
+ */
+export interface Diagnosis {
+  modemStatus: ModemStatus;
+  /** Optical power the modem receives, in dBm, e.g. `-19.5`. */
+  receivedPowerDbm: number;
+  /** When the network last heard from the modem. */
+  lastSeenAt: Date;
+  /** For speech, e.g. `high signal loss on the fiber line`. Null when the system found none. */
+  fault: string | null;
+  /** Whether the system says a remote reboot may clear the fault. */
+  rebootMayClear: boolean;
+}
+
 /** The network operations side. */
 export interface NetworkOperations {
   /** Ongoing outages that include this barangay, oldest first. Empty if none. */
   outagesAffecting(barangayId: string): Promise<OutageRecord[]>;
+  /**
+   * The diagnosis of this account's connection now, or null when no modem is
+   * on record for it. Returns a copy.
+   */
+  diagnose(accountNumber: string): Promise<Diagnosis | null>;
+  /**
+   * Restarts this account's modem remotely. Resolves once the restart has
+   * begun, with how long it takes in seconds, or null when no modem is on
+   * record. A diagnosis once that time has passed reads the modem as it came
+   * back.
+   *
+   * `requestedAt` is when the restart was asked for: the in-memory world has
+   * no clock of its own, so it is told, and dates the modem's return from it.
+   */
+  rebootModem(accountNumber: string, requestedAt: Date): Promise<{ restartSeconds: number } | null>;
 }
 
 /**

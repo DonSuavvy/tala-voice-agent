@@ -8,10 +8,12 @@
  * - Each call gets a fresh copy of the seed (spec: "each call starts from a
  *   fresh copy of the seed world"). The seed is cloned on creation, so two
  *   calls never share state and nothing a call does can reach the seed. The
- *   tickets a call opens and the texts it sends live in that copy too.
+ *   tickets a call opens, the texts it sends and the modems it reboots live
+ *   in that copy too.
  * - It never reads the wall clock. The seed stores times relative to the
- *   call's start (see `./seed-world`); `callStartedAt` is the only time source
- *   and turns those offsets into dates. That also makes tests deterministic.
+ *   call's start (see `./seed-world`); `callStartedAt` turns those offsets
+ *   into dates, and a reboot is told when it was asked for. That also makes
+ *   tests deterministic.
  *
  * Everything handed out is a copy, so a caller that mutates a result changes
  * nothing stored.
@@ -22,12 +24,14 @@ import type {
   BalanceRecord,
   BillRecord,
   BusinessSystems,
+  Diagnosis,
   NewTicket,
   OutageRecord,
   PaymentRecord,
   SmsMessage,
 } from "./types";
 
+const SECOND_MS = 1_000;
 const MINUTE_MS = 60_000;
 
 export interface OpenedTicket extends NewTicket {
@@ -143,6 +147,43 @@ export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): InM
     return payment ? toPaymentRecord(payment) : null;
   };
 
+  type ModemSeed = SeedWorld["modems"][number];
+  const toDiagnosis = (
+    reading: ModemSeed | ModemSeed["afterReboot"],
+    lastSeenAt: Date,
+  ): Diagnosis => ({
+    modemStatus: reading.status,
+    receivedPowerDbm: reading.receivedPowerDbm,
+    lastSeenAt,
+    fault: reading.fault,
+    rebootMayClear: reading.rebootMayClear,
+  });
+
+  // Each account's modem as the network reads it now: the seed's diagnosis
+  // until a reboot, then the seed's state after one, back when it finished.
+  const modems = new Map<string, Diagnosis>(
+    world.modems.map((m) => [
+      m.accountNumber,
+      toDiagnosis(m, minutesFromStart(-m.lastSeenMinutesBeforeCall)),
+    ]),
+  );
+
+  const diagnose = (accountNumber: string): Diagnosis | null => {
+    const diagnosis = modems.get(accountNumber);
+    return diagnosis ? { ...diagnosis, lastSeenAt: new Date(diagnosis.lastSeenAt) } : null;
+  };
+
+  const rebootModem = (
+    accountNumber: string,
+    requestedAt: Date,
+  ): { restartSeconds: number } | null => {
+    const modem = world.modems.find((m) => m.accountNumber === accountNumber);
+    if (!modem) return null;
+    const backAt = new Date(requestedAt.getTime() + modem.restartSeconds * SECOND_MS);
+    modems.set(accountNumber, toDiagnosis(modem.afterReboot, backAt));
+    return { restartSeconds: modem.restartSeconds };
+  };
+
   // Deterministic within a call: the call's first ticket is always 00001, in
   // the year the call started (UTC; the world does not know the company's
   // time zone).
@@ -160,7 +201,11 @@ export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): InM
 
   return {
     accounts: { findAccount: (n) => later(() => findAccount(n)) },
-    network: { outagesAffecting: (id) => later(() => outagesAffecting(id)) },
+    network: {
+      outagesAffecting: (id) => later(() => outagesAffecting(id)),
+      diagnose: (n) => later(() => diagnose(n)),
+      rebootModem: (n, requestedAt) => later(() => rebootModem(n, requestedAt)),
+    },
     billing: {
       balanceOf: (n) => later(() => balanceOf(n)),
       billsFor: (n) => later(() => billsFor(n)),
