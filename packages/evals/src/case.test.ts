@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { DISPOSITION_OUTCOMES, DISPOSITION_TOPICS, type CallEndReason } from "@tala/core";
 
-import { expectationsSchema, type Expectations } from "./case";
+import { caseSchema, expectationsSchema, type Expectations } from "./case";
 
 /**
  * A case's expectations, in Tala's vocabulary: how the call ended, the tools,
@@ -135,5 +135,87 @@ describe("expectationsSchema: values that would assert nothing", () => {
     expect(rejectedAt({ maxModelCalls: 0 })).toEqual(["maxModelCalls"]);
     expect(rejectedAt({ maxModelCalls: 2.5 })).toEqual(["maxModelCalls"]);
     expect(issuesOf({ maxModelCalls: 6 })).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* A case file                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A case is data in the company pack: a slug, a title, the simulated caller's
+ * brief and turn cap, and the expectations. Closed at every level, for the
+ * same reason the expectations are.
+ */
+describe("caseSchema", () => {
+  const valid = () => ({
+    slug: "scenario-1-outage",
+    title: "Batasan Hills outage: cause and restoration time",
+    caller: {
+      brief: "You are Maria Santos. Your internet has been down since this morning.",
+      maxTurns: 6,
+    },
+    expect: { endedBy: "end_call" },
+  });
+
+  const caseRejectedAt = (input: unknown) => {
+    const parsed = caseSchema.safeParse(input);
+    return parsed.success ? [] : parsed.error.issues.map((i) => i.path.join("."));
+  };
+
+  it("accepts a complete case", () => {
+    const parsed = caseSchema.safeParse(valid());
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual(valid());
+  });
+
+  it("rejects an unknown key at the top and in the caller", () => {
+    const parsed = caseSchema.safeParse({
+      ...valid(),
+      notes: "x",
+      caller: { ...valid().caller, persona: "lola" },
+    });
+
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({ code: "unrecognized_keys", keys: ["persona"], path: ["caller"] }),
+      expect.objectContaining({ code: "unrecognized_keys", keys: ["notes"], path: [] }),
+    ]);
+  });
+
+  it("rejects a misspelled expectation inside the case", () => {
+    expect(
+      caseRejectedAt({ ...valid(), expect: { endedBy: "end_call", toolsCaled: ["end_call"] } }),
+    ).toEqual(["expect"]);
+  });
+
+  /** A case that expects nothing passes forever. */
+  it("rejects a case that expects nothing", () => {
+    const parsed = caseSchema.safeParse({ ...valid(), expect: {} });
+
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({ path: ["expect"], message: "a case must expect at least one thing" }),
+    ]);
+  });
+
+  /** The slug is the file name and the diff's join key. */
+  it("rejects a slug that is not lowercase words joined by hyphens", () => {
+    expect(caseRejectedAt({ ...valid(), slug: "Scenario 1" })).toEqual(["slug"]);
+    expect(caseRejectedAt({ ...valid(), slug: "scenario-1-" })).toEqual(["slug"]);
+  });
+
+  it("rejects an empty title or brief", () => {
+    expect(
+      caseRejectedAt({ ...valid(), title: "", caller: { ...valid().caller, brief: " " } }),
+    ).toEqual(["title", "caller.brief"]);
+  });
+
+  it("rejects a turn cap that is not a positive whole number", () => {
+    expect(caseRejectedAt({ ...valid(), caller: { ...valid().caller, maxTurns: 0 } })).toEqual([
+      "caller.maxTurns",
+    ]);
+    expect(caseRejectedAt({ ...valid(), caller: { ...valid().caller, maxTurns: 1.5 } })).toEqual([
+      "caller.maxTurns",
+    ]);
   });
 });
