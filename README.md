@@ -49,8 +49,9 @@ npm run lint
 
 `npm run chat` is a phone call typed in a terminal. It needs
 `ANTHROPIC_API_KEY` in `.env.local` (first-party API only) and spends real
-credit. Each run caps its own spend at $0.50; what a typical call costs has
-not been measured yet.
+credit. Each run caps its own spend at $0.50. The first live run of scenario 1
+on Opus 5.5 (2026-11-06) took 5 model calls and cost $0.037. That is one
+call, not an average.
 
 ```bash
 npm run chat

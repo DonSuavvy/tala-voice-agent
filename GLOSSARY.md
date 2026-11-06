@@ -31,8 +31,8 @@ about, and a short summary for the supervisor.
 _Avoid_: wrap-up code, result, outcome (for the whole record)
 
 **Pin**:
-The company pack, SOP version and model a call ran with, recorded so any
-decision in it can be explained later.
+The company pack, SOP version, prompt version, policy version and model a call
+ran with, recorded so any decision in it can be explained later.
 _Avoid_: snapshot, version (alone)
 
 **Fallback line**:
