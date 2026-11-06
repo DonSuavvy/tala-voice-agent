@@ -55,11 +55,16 @@ export function testSystems(
 /**
  * A tool context for one test call that started at `CALL_STARTED_AT`: nobody
  * verified yet, the test company, its plans, the test policy, and a wait that
- * resolves at once unless one is given. `now` defaults to the call's start.
+ * resolves at once unless one is given. `now` defaults to the call's start,
+ * and the caller has said nothing unless `lastCallerTurnAt` says otherwise.
  */
 export function testToolContext(
   systems: BusinessSystems,
-  options: { now?: Date; wait?: (ms: number) => Promise<void> } = {},
+  options: {
+    now?: Date;
+    wait?: (ms: number) => Promise<void>;
+    lastCallerTurnAt?: () => Date | null;
+  } = {},
 ): TalaToolContext {
   return {
     workspaceId: "test-isp",
@@ -72,6 +77,7 @@ export function testToolContext(
       company: { ...TEST_COMPANY },
       plans: testPlans(),
       startedAt: CALL_STARTED_AT,
+      lastCallerTurnAt: options.lastCallerTurnAt ?? (() => null),
       wait: options.wait ?? noWait,
     },
     policyConfig: testPolicy(),

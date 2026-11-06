@@ -25,6 +25,13 @@ export interface CallData {
    */
   startedAt: Date;
   /**
+   * When the caller last spoke, from the session's clock: the start of the
+   * caller turn now running. Null before the caller has said anything. The
+   * call session supplies it; a tool reads it to know whether the caller has
+   * answered something said since.
+   */
+  lastCallerTurnAt: () => Date | null;
+  /**
    * Resolves after this many milliseconds, for a tool that has to wait, such
    * as a remote reboot waiting out the restart. The call session supplies it:
    * a real timer unless it is given another. Tests pass one that resolves at

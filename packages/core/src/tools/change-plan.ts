@@ -4,7 +4,9 @@
  *
  * Two things must hold, and the code checks both. The caller confirmed:
  * `customer_confirmed` must be the literal `true`, so a call without it is
- * refused by the tool's own schema before this handler runs. And the change
+ * refused by the tool's own schema before this handler runs, and the caller
+ * must have spoken since the quote was made, so a quote and a change in the
+ * same turn, before the caller heard the price, are refused. And the change
  * matches a quote: the latest one the business systems hold for this account
  * (a newer quote supersedes an older one the caller may have heard first),
  * made at or after the call's start (they may hold older ones), not used
@@ -19,6 +21,13 @@ import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
 import { formatLocalDate } from "./format-time";
 
+/** What the model reads when the quote_id is not the one quote that may change the plan. */
+const NO_MATCHING_QUOTE =
+  "Refused: a plan is changed only with the latest quote made for this account on this call, " +
+  "once, while the account is still on the plan the quote priced, and that quote_id is not " +
+  "one. Price the change with change_plan_quote, read the price back, and change the plan " +
+  "with the quote_id it returns only after the caller says yes.";
+
 export const changePlan = defineTalaTool({
   name: "change_plan",
   description:
@@ -27,7 +36,8 @@ export const changePlan = defineTalaTool({
     "or are unsure, do not call it. It works only for the account verified on this call with " +
     "verify_identity, and refuses any other. It refuses a quote that is not the latest made " +
     "for this account on this call, that was used already, or that priced a move from a plan " +
-    "the account is no longer on. Returns changed true, the new plan, and the date the change " +
+    "the account is no longer on, and a change before the caller has spoken since the quote, " +
+    "as in the same turn. Returns changed true, the new plan, and the date the change " +
     "takes effect, as it should be said. A change that takes effect later is scheduled: the " +
     "account stays on its plan until that date.",
   input: z
@@ -58,11 +68,14 @@ export const changePlan = defineTalaTool({
       quote.quotedAt.getTime() >= startedAt.getTime() &&
       quote.currentPlanId === account.planId;
     if (!matches) {
+      throw new Error(NO_MATCHING_QUOTE);
+    }
+    const lastSpoke = ctx.data.lastCallerTurnAt();
+    if (lastSpoke === null || lastSpoke.getTime() <= quote.quotedAt.getTime()) {
       throw new Error(
-        "Refused: a plan is changed only with the latest quote made for this account on this " +
-          "call, once, while the account is still on the plan the quote priced, and that " +
-          "quote_id is not one. Price the change with change_plan_quote, read the price back, " +
-          "and change the plan with the quote_id it returns only after the caller says yes.",
+        "Refused: the caller has not spoken since this quote was made, so they have not said " +
+          "yes to its price. Read the price back and wait for their answer before calling " +
+          "change_plan.",
       );
     }
 
