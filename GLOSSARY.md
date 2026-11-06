@@ -71,6 +71,11 @@ Proving the caller holds an account, with its account number and the last 4
 digits of the mobile number registered on it.
 _Avoid_: authentication, login, KYC
 
+**Registered mobile**:
+The mobile number on file for an account: the one verification checks, and the
+only one Tala sends texts to.
+_Avoid_: contact number, phone number (alone)
+
 **Verified account**:
 The one account a call may reach, once verification has succeeded. A call has
 at most one.
