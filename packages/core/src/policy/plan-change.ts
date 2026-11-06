@@ -12,8 +12,9 @@
  * - A **downgrade**, to any other plan, takes effect when the next cycle
  *   starts, with no prorated amount.
  * - A change to the plan the account is already on is refused, and so is any
- *   change when `now` is not inside the latest bill's cycle: with no current
- *   cycle there is nothing to prorate against.
+ *   change when the account has no bill on record or `now` is not inside the
+ *   latest bill's cycle: with no current cycle there is nothing to prorate
+ *   against.
  *
  * No clock, no I/O: `now` is passed in.
  */
@@ -32,8 +33,8 @@ export interface PricedPlan {
 export interface PlanChangeRequest {
   current: PricedPlan;
   next: PricedPlan;
-  /** When the account's latest bill was issued: its billing cycle starts then. */
-  latestBillIssuedAt: Date;
+  /** When the account's latest bill was issued: its billing cycle starts then. Null when it has none. */
+  latestBillIssuedAt: Date | null;
   now: Date;
   /** The company's, an IANA name such as `Asia/Manila`: the month is counted there. */
   timeZone: string;
@@ -48,16 +49,17 @@ export type PlanChangePrice =
       /** When the new plan starts: now for an upgrade, the next cycle's start for a downgrade. */
       effectiveAt: Date;
     }
-  | { allowed: false; reason: "same_plan" | "outside_billing_cycle" };
+  | { allowed: false; reason: "same_plan" | "no_current_cycle" };
 
 export function pricePlanChange(request: PlanChangeRequest): PlanChangePrice {
   const { current, next, latestBillIssuedAt, now, timeZone } = request;
   if (current.id === next.id) return { allowed: false, reason: "same_plan" };
+  if (latestBillIssuedAt === null) return { allowed: false, reason: "no_current_cycle" };
 
   const startsAt = latestBillIssuedAt.getTime();
   const endsAt = oneMonthLater(latestBillIssuedAt, timeZone).getTime();
   const at = now.getTime();
-  if (at < startsAt || at >= endsAt) return { allowed: false, reason: "outside_billing_cycle" };
+  if (at < startsAt || at >= endsAt) return { allowed: false, reason: "no_current_cycle" };
 
   if (next.monthlyPriceMinor <= current.monthlyPriceMinor) {
     return {

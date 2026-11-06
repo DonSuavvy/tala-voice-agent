@@ -11,6 +11,9 @@ import { z } from "zod";
 
 import { pricePlanChange, type PlanChangePrice } from "../policy/plan-change";
 
+/** Why the policy refuses to price a change: its own reasons, not the handler's. */
+type Refusal = Extract<PlanChangePrice, { allowed: false }>["reason"];
+
 import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
 import { formatCompanyMoney, formatLocalDate } from "./format-time";
@@ -59,16 +62,13 @@ export const changePlanQuote = defineTalaTool({
     }
 
     const [latestBill] = await systems.billing.billsFor(account.accountNumber);
-    const price: PlanChangePrice =
-      latestBill === undefined
-        ? { allowed: false, reason: "outside_billing_cycle" }
-        : pricePlanChange({
-            current,
-            next,
-            latestBillIssuedAt: latestBill.issuedAt,
-            now: ctx.now,
-            timeZone: company.timeZone,
-          });
+    const price = pricePlanChange({
+      current,
+      next,
+      latestBillIssuedAt: latestBill?.issuedAt ?? null,
+      now: ctx.now,
+      timeZone: company.timeZone,
+    });
     if (!price.allowed) throw new Error(refusal(price.reason));
 
     const { reference } = await systems.plans.createQuote(
@@ -95,11 +95,11 @@ export const changePlanQuote = defineTalaTool({
 });
 
 /** What the model reads when the change cannot be priced. */
-function refusal(reason: "same_plan" | "outside_billing_cycle"): string {
+function refusal(reason: Refusal): string {
   switch (reason) {
     case "same_plan":
       return "Refused: the caller is already on that plan.";
-    case "outside_billing_cycle":
+    case "no_current_cycle":
       return (
         "Refused: the account has no current billing cycle to price the change against, so " +
         "its plan cannot be changed on this call."
