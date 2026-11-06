@@ -20,10 +20,14 @@
  * A figure is marked estimated when any part of it was, for example an
  * estimated model call.
  *
- * Transcripts are saved unmasked for now, and the report says so at the top:
- * the data is the fictional seed world, and masking is #10.
+ * **Account and phone numbers are masked in everything a row stores** (#10, Q21):
+ * the transcript, the assertions, the failure reason, the caller's error and
+ * the grade's reason. The report says so at the top. The scoring above reads
+ * the unmasked call; masking only shapes what is saved and printed, so a
+ * check such as "no account data before verification" still sees real values.
  */
 import {
+  maskDeep,
   microsToUsdString,
   nanosToMicros,
   type CallPin,
@@ -73,7 +77,7 @@ export interface ReportPin extends CallPin {
 
 export interface EvalReport {
   format: typeof REPORT_FORMAT;
-  masking: "none (#10)";
+  masking: "numbers of 10 or more digits, last 4 kept";
   ranAt: string;
   pin: ReportPin;
   models: { caller: LogicalModel; grader: LogicalModel };
@@ -107,6 +111,22 @@ export interface CaseRowInput {
   latencyMs: number | null;
 }
 
+/**
+ * The row with account and phone numbers masked in every field that can hold
+ * caller or tool text. Masking again changes nothing, so rows built by
+ * `caseRow` pass through `buildReport` untouched.
+ */
+function maskedRow(row: CaseReportRow): CaseReportRow {
+  return {
+    ...row,
+    assertions: maskDeep(row.assertions),
+    failureReason: maskDeep(row.failureReason),
+    caller: maskDeep(row.caller),
+    advisory: maskDeep(row.advisory),
+    transcript: maskDeep(row.transcript),
+  };
+}
+
 /** One case's row: scored here, from the call's own events. */
 export function caseRow(input: CaseRowInput): CaseReportRow {
   const { call, grade } = input;
@@ -120,7 +140,7 @@ export function caseRow(input: CaseRowInput): CaseReportRow {
     costLine([{ nanos: grade.costNanos, estimated: grade.estimated }]),
   );
 
-  return {
+  return maskedRow({
     slug: input.case.slug,
     title: input.case.title,
     passed: verdict.passed && !callerFailed,
@@ -135,7 +155,7 @@ export function caseRow(input: CaseRowInput): CaseReportRow {
     caller: { stoppedBy: call.stoppedBy, turns: call.callerTurns, error: call.callerError },
     advisory: { grade: grade.grade, reason: grade.reason },
     transcript: transcriptOf(call.events),
-  };
+  });
 }
 
 export interface ReportInput {
@@ -155,12 +175,12 @@ export function buildReport(input: ReportInput): EvalReport {
 
   return {
     format: REPORT_FORMAT,
-    masking: "none (#10)",
+    masking: "numbers of 10 or more digits, last 4 kept",
     ranAt: input.ranAt.toISOString(),
     pin: { ...input.pin, gitSha: input.gitSha, gitDirty: input.gitDirty },
     models: { caller: input.callerModel, grader: input.graderModel },
     passed: rows.every((r) => r.passed),
-    cases: rows,
+    cases: rows.map(maskedRow),
     cost: split(sum("tala"), sum("caller"), sum("grader")),
   };
 }
