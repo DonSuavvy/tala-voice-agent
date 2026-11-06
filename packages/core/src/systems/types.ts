@@ -4,18 +4,20 @@
  * Each interface is a seam a real company fills with its own system (DESIGN
  * §13): `CustomerAccounts` with its CRM, `NetworkOperations` with its OSS and
  * outage tooling, `Billing` with its billing and payment collection,
- * `Ticketing` with its ticketing system and `SmsGateway` with its SMS
- * provider. The demo fills them with an in-memory world built from the company
- * pack's seed (`./in-memory`), a fresh copy per call.
+ * `Ticketing` with its ticketing system, `SmsGateway` with its SMS provider
+ * and `FieldService` with its technician dispatch. The demo fills them with an
+ * in-memory world built from the company pack's seed (`./in-memory`), a fresh
+ * copy per call.
  *
  * Tool handlers reach the business only through `BusinessSystems`, so a unit
  * test needs a seed world, not a database. Every method is async because every
  * real implementation is a network call. Money is integer minor units
  * (centavos for PHP) everywhere, formatted only when spoken.
  *
- * #5 added accounts and outages; #10 added billing, tickets and SMS. Later
- * tickets add diagnostics and technician slots (#11) and plans (#16). Each
- * adds its own interfaces; none changes the ones already here.
+ * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 adds
+ * diagnosis and remote reboots to the network side, a ticket lookup, and the
+ * field-service side; a later ticket adds plans (#16). A ticket may add
+ * interfaces and members; none changes a member already here.
  */
 
 /** Where an account's line is: the unit outages are declared against. */
@@ -173,10 +175,51 @@ export interface NewTicket {
   notes: string;
 }
 
+/** A ticket as the ticketing system holds it. */
+export interface TicketRecord {
+  reference: string;
+  category: TicketCategory;
+  notes: string;
+}
+
 /** The ticketing side. */
 export interface Ticketing {
   /** Opens a ticket and returns the reference a caller can quote back, e.g. `TKT-2026-00001`. */
   createTicket(ticket: NewTicket): Promise<{ reference: string }>;
+  /**
+   * The ticket with exactly this reference, looked for among this account's
+   * tickets only, or null. Returns a copy.
+   */
+  findTicket(accountNumber: string, reference: string): Promise<TicketRecord | null>;
+}
+
+/** A window in which a technician can visit a barangay. */
+export interface TechnicianSlot {
+  /** e.g. `san-antonio-1`. */
+  slotId: string;
+  barangayId: string;
+  startsAt: Date;
+  endsAt: Date;
+}
+
+export interface NewVisit {
+  /** Normalized. */
+  accountNumber: string;
+  slotId: string;
+  /** The ticket the visit is for: a booking is always linked to one. */
+  ticketReference: string;
+}
+
+/** The field-service side: the technicians' calendar and the visits booked on it. */
+export interface FieldService {
+  /** This barangay's slots that are not booked yet, soonest first. Empty if none. Copies. */
+  availableSlots(barangayId: string): Promise<TechnicianSlot[]>;
+  /**
+   * Books a slot for a visit and returns the reference a caller can quote
+   * back, e.g. `VIS-2026-00001`. Rejects when the slot does not exist or is
+   * already booked: two visits never share a slot.
+   */
+  bookVisit(visit: NewVisit): Promise<{ reference: string }>;
 }
 
 export interface SmsMessage {
@@ -200,4 +243,5 @@ export interface BusinessSystems {
   billing: Billing;
   tickets: Ticketing;
   sms: SmsGateway;
+  fieldService: FieldService;
 }
