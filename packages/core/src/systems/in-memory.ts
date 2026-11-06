@@ -63,17 +63,24 @@ export interface InMemorySystems extends BusinessSystems {
   bookedVisits(): BookedVisit[];
 }
 
+/** What the in-memory world is built from: the company pack's data. */
+export interface InMemorySource {
+  /** The seed world every call starts from a fresh copy of. */
+  world: SeedWorld;
+}
+
 /**
+ * `source` is the company pack's data; a loaded pack can be passed as it is.
  * `timeZone` is the company's (an IANA name such as `Asia/Manila`): technician
  * slots are stated by the call's local date, and references carry the year of
  * the call's start there, so the world needs it.
  */
 export function createInMemorySystems(
-  seed: SeedWorld,
+  source: InMemorySource,
   callStartedAt: Date,
   timeZone: string,
 ): InMemorySystems {
-  const world = structuredClone(seed);
+  const world = structuredClone(source.world);
   const tickets: OpenedTicket[] = [];
   const outbox: SmsMessage[] = [];
   const visits: BookedVisit[] = [];

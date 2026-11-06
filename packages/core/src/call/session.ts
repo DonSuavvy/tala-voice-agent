@@ -368,7 +368,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     throw error;
   };
   const data: CallData = {
-    systems: createInMemorySystems(pack.world, startedAt, pack.company.timeZone),
+    systems: createInMemorySystems(pack, startedAt, pack.company.timeZone),
     identity: initialIdentityState(),
     company: {
       timeZone: pack.company.timeZone,

@@ -121,7 +121,7 @@ describe("Kidlat Fiber's eval cases", () => {
     const pack = loadKidlatFiber();
     const booking = scenarioThree().expect.toolResults?.find((r) => r.tool === "book_technician_visit");
     const callStartedAt = new Date("2026-11-06T05:00:00Z");
-    const world = createInMemorySystems(pack.world, callStartedAt, pack.company.timeZone);
+    const world = createInMemorySystems(pack, callStartedAt, pack.company.timeZone);
 
     const [earliest] = await world.fieldService.availableSlots("san-antonio");
     expect(booking?.input).toEqual({ slot_id: earliest.slotId });
