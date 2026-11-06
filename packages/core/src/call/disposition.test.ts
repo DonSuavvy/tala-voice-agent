@@ -31,3 +31,16 @@ describe("dispositionSchema summary", () => {
     expect(withSummary(summary).success).toBe(true);
   });
 });
+
+describe("dispositionSchema topic", () => {
+  /** #16: a general how-to question answered from the help articles. */
+  it("takes help, for a call answered from the help articles", () => {
+    const result = dispositionSchema.safeParse({
+      outcome: "resolved",
+      topic: "help",
+      summary: "Caller asked what a red light on the modem means; read them the help article.",
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
