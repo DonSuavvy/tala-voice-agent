@@ -1,0 +1,65 @@
+name: Evals
+
+# The eval gate (#9): plays every eval case against Tala on real Claude and
+# fails the PR if any case fails the deterministic gate. It spends API credit
+# (capped at $1.00 per run), so it runs only on pull requests that touch what
+# Tala reads or runs: the SOP and pack data, the tools, the policy, the pack
+# loader, the call session, the agent loop, and the eval package itself.
+# Unit tests, which need no key, are ci.yml.
+on:
+  pull_request:
+    paths:
+      - "packages/packs/**"
+      - "packages/core/src/tools/**"
+      - "packages/core/src/policy/**"
+      - "packages/core/src/pack/**"
+      - "packages/core/src/call/**"
+      - "packages/core/src/agent/**"
+      - "packages/evals/**"
+      - "scripts/eval.ts"
+      # A committed report is a result, not a change to what is tested.
+      - "!packages/evals/reports/**"
+      - ".github/workflows/evals.yml"
+
+permissions:
+  contents: read
+
+# A newer push to the same PR makes the older run's spend pointless.
+concurrency:
+  group: evals-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: eval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Eval suite
+        run: npm run eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # This run's report only: committed reports are in the checkout too, and
+      # the one just written is the newest file.
+      - name: Find this run's report
+        id: report
+        if: always()
+        run: echo "path=$(ls -t packages/evals/reports/*.json 2>/dev/null | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the report
+        if: always() && steps.report.outputs.path != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-report
+          path: ${{ steps.report.outputs.path }}
