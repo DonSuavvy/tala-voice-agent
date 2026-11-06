@@ -107,5 +107,47 @@
       "paidMinutesBeforeCall": 23040,
       "posted": true
     }
+  ],
+  "modems": [
+    {
+      "accountNumber": "8012345602",
+      "status": "degraded",
+      "receivedPowerDbm": -19.5,
+      "lastSeenMinutesBeforeCall": 4,
+      "fault": "the modem has hung and is not passing traffic",
+      "rebootMayClear": true,
+      "restartSeconds": 45,
+      "afterReboot": {
+        "status": "online",
+        "receivedPowerDbm": -19.4,
+        "fault": null,
+        "rebootMayClear": false
+      }
+    },
+    {
+      "accountNumber": "8012345603",
+      "status": "degraded",
+      "receivedPowerDbm": -28.4,
+      "lastSeenMinutesBeforeCall": 1,
+      "fault": "high signal loss on the fiber line",
+      "rebootMayClear": true,
+      "restartSeconds": 60,
+      "afterReboot": {
+        "status": "degraded",
+        "receivedPowerDbm": -28.2,
+        "fault": "high signal loss on the fiber line",
+        "rebootMayClear": false
+      }
+    }
+  ],
+  "technicianSlots": [
+    { "id": "san-antonio-1", "barangayId": "san-antonio", "daysAfterCall": 1, "startHour": 9, "lengthHours": 3 },
+    { "id": "san-antonio-2", "barangayId": "san-antonio", "daysAfterCall": 1, "startHour": 13, "lengthHours": 3 },
+    { "id": "san-antonio-3", "barangayId": "san-antonio", "daysAfterCall": 2, "startHour": 9, "lengthHours": 3 },
+    { "id": "san-antonio-4", "barangayId": "san-antonio", "daysAfterCall": 3, "startHour": 13, "lengthHours": 3 },
+    { "id": "batasan-hills-1", "barangayId": "batasan-hills", "daysAfterCall": 1, "startHour": 13, "lengthHours": 3 },
+    { "id": "batasan-hills-2", "barangayId": "batasan-hills", "daysAfterCall": 3, "startHour": 9, "lengthHours": 3 },
+    { "id": "commonwealth-1", "barangayId": "commonwealth", "daysAfterCall": 2, "startHour": 9, "lengthHours": 3 },
+    { "id": "commonwealth-2", "barangayId": "commonwealth", "daysAfterCall": 2, "startHour": 13, "lengthHours": 3 }
   ]
 }

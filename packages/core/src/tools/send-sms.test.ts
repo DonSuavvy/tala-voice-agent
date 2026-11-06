@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { toStrictJsonSchema } from "../agent/registry";
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
-import { CALL_STARTED_AT, JOSE, MARIA, testWorld } from "../testing/fixtures";
+import type { InMemorySystems } from "../systems/in-memory";
+import { JOSE, MARIA, testSystems, testToolContext } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { sendSms } from "./send-sms";
@@ -18,20 +17,8 @@ import { verifyIdentity } from "./verify-identity";
  */
 
 function newCall(): { ctx: TalaToolContext; systems: InMemorySystems } {
-  const systems = createInMemorySystems(testWorld(), CALL_STARTED_AT);
-  const ctx: TalaToolContext = {
-    workspaceId: "test-isp",
-    runId: "call_1",
-    callId: "call_1",
-    now: CALL_STARTED_AT,
-    data: {
-      systems,
-      identity: initialIdentityState(),
-      company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-    },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
-  };
-  return { ctx, systems };
+  const systems = testSystems();
+  return { ctx: testToolContext(systems), systems };
 }
 
 const SUMMARY =

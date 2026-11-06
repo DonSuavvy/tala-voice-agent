@@ -151,6 +151,13 @@ export interface CallSessionOptions {
   /** What one model call is assumed to cost, for the spend pre-flight. */
   estimatedCallNanos?: number;
   /**
+   * How a tool waits, such as a remote reboot waiting out the restart before
+   * its re-check. Defaults to a real timer; a test passes one that resolves at
+   * once. A wait already running when the caller talks still finishes, with
+   * its tool (ADR 4).
+   */
+  wait?: (ms: number) => Promise<void>;
+  /**
    * Receives every event, in order. If it throws, the call carries on: the
    * rest of the turn is still delivered, the call's state stays consistent,
    * and the first error is rethrown from `start()` or `callerSaid()` once the
@@ -196,6 +203,12 @@ export interface CallSession {
  * before she spoke.
  */
 const CALL_CONNECTED = "(The call has connected. The caller has not spoken yet.)";
+
+/** The wait a call uses when it is given none: a real timer. */
+const waitOnTimer = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 /** A caller turn in progress, and how it is being stopped, if it is. */
 interface RunningTurn {
@@ -355,13 +368,15 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     throw error;
   };
   const data: CallData = {
-    systems: createInMemorySystems(pack.world, startedAt),
+    systems: createInMemorySystems(pack.world, startedAt, pack.company.timeZone),
     identity: initialIdentityState(),
     company: {
       timeZone: pack.company.timeZone,
       locale: pack.company.locale,
       currency: pack.company.currency,
     },
+    startedAt,
+    wait: options.wait ?? waitOnTimer,
   };
 
   let history: MessageParam[] = [];

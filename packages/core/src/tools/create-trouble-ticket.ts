@@ -48,11 +48,10 @@ export const createTroubleTicket = defineTalaTool({
           "Leave out the account and mobile numbers; the ticket is already on the account.",
       );
     }
-    const { reference } = await ctx.data.systems.tickets.createTicket({
-      accountNumber: account.accountNumber,
-      category: input.category,
-      notes: input.notes,
-    });
+    const { reference } = await ctx.data.systems.tickets.createTicket(
+      { accountNumber: account.accountNumber, category: input.category, notes: input.notes },
+      ctx.now,
+    );
     return { created: true, reference };
   },
 });

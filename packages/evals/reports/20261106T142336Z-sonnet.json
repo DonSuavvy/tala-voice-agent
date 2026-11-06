@@ -1,0 +1,650 @@
+{
+  "format": 1,
+  "masking": "numbers of 10 or more digits, last 4 kept",
+  "ranAt": "2026-11-06T14:23:36.121Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "9946928c6d90",
+    "policyVersion": "1b691b76de0e",
+    "model": "sonnet",
+    "modelId": "claude-sonnet-5-5",
+    "gitSha": "3e9380c725be518a22d1d81828e04ee2fa8cfe9e",
+    "gitDirty": false
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.044915",
+      "latencyMs": 19616,
+      "agentRunId": "8631a406-8f98-497c-8316-091f520f1f38",
+      "cost": {
+        "tala": {
+          "nanos": 31885100,
+          "usd": "0.031885",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 7192000,
+          "usd": "0.007192",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5838000,
+          "usd": "0.005838",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 44915100,
+          "usd": "0.044915",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 3,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 5,
+          "taglish": 5,
+          "politeness": 5,
+          "notes": "Replies were short, spoken-friendly, and followed the style: sentence-first answers, tool lead-in lines, a proper goodbye, and no banned words. English-led Taglish with po, \"Sandali lang po\", and \"Verified na po kayo\" suited a Tagalog-mixed caller, and she gave the cause and restoration time without extra detail. She was courteous throughout, with \"Sorry to hear that po\" and \"You're welcome po\"."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po. Wala pong internet ang bahay namin since kaninang umaga. Gusto ko lang pong malaman kung bakit at kailan babalik."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry to hear that po. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number so I can verify your account?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang account number ko po ay ******5601. Tapos yung last four digits ng mobile number ay 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Maria. Let me check your area for outages now."
+        },
+        {
+          "speaker": "tala",
+          "text": "There's an outage in your area po, caused by a fiber cable cut along Batasan Road during road works. Service is expected back by around 2:23 AM tomorrow, Saturday. Would you like the outage reference number po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah, ganun po ba, na-cut po pala yung fiber cable dahil sa road works. Sige po, naiintindihan ko na, hihintayin ko na lang hanggang 2:23 AM bukas. Salamat po sa tulong, Tala. Paalam po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po, Maria. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-2-payment",
+      "title": "Scenario 2: GCash payment not posted, disconnection due tomorrow",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "payment",
+          "actual": "payment",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_payment",
+          "expected": "verify_payment",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:create_trouble_ticket",
+          "expected": "create_trouble_ticket",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:send_sms",
+          "expected": "send_sms",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalledInOrder",
+          "expected": [
+            "verify_identity",
+            "verify_payment",
+            "create_trouble_ticket",
+            "send_sms",
+            "end_call"
+          ],
+          "actual": [
+            "verify_identity",
+            "verify_payment",
+            "get_account_overview",
+            "create_trouble_ticket",
+            "send_sms",
+            "end_call"
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:verify_payment",
+          "expected": {
+            "tool": "verify_payment",
+            "result": {
+              "found": true,
+              "posted": false
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "reference": "*********0123"
+              },
+              "result": {
+                "found": true,
+                "channel": "gcash",
+                "amount": "₱1,299.00",
+                "paid_at": "Thu, Nov 5, 10:23 PM",
+                "posted": false
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:create_trouble_ticket",
+          "expected": {
+            "tool": "create_trouble_ticket",
+            "input": {
+              "category": "billing"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "category": "billing",
+                "notes": "GCash payment of ₱1,299.00 paid Thu, Nov 5, 10:23 PM, reference *********0123, was received but has not posted to the account. Please post the payment; disconnection is scheduled for Sat, Nov 7."
+              },
+              "result": {
+                "created": true,
+                "reference": "TKT-2026-00001"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.048993",
+      "latencyMs": 33229,
+      "agentRunId": "16b923a1-a749-4920-8855-296f19f1791d",
+      "cost": {
+        "tala": {
+          "nanos": 31393100,
+          "usd": "0.031393",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 11756000,
+          "usd": "0.011756",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5844000,
+          "usd": "0.005844",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 48993100,
+          "usd": "0.048993",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 5,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Replies are short, spoken-style, and English-led with natural 'po' and 'Sandali lang po'; the goodbye matches the style. Minor slips: 'Verified na po kayo' is a bit Tagalog-heavy, and she gave no restoration/disconnect reassurance, though she correctly confirmed only the last four digits of the mobile number."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po. Yesterday I paid my bill through GCash, 1,299 pesos, pero unpaid pa rin po siya sa account ko. May notice na ako na made-disconnect daw tomorrow. Paki-check naman po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry to hear that po, I'll help you check it. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, my account number is ******5602. Tapos yung last four digits ng registered mobile number is 0102."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Sir Jose. Do you have the GCash reference number for your payment po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, yung GCash reference number is *********0123."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me check that payment."
+        },
+        {
+          "speaker": "tala",
+          "text": "We received your GCash payment po, pero hindi pa siya posted. I'll open a ticket for it now."
+        },
+        {
+          "speaker": "tala",
+          "text": "I've opened a billing ticket with your GCash payment details and the November 7 disconnection date. The reference is T, K, T, then 2026, then 0, 0, 0, 0, 1. Would you like me to text it to your registered mobile po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, please text it to my registered mobile para hindi ko na kailangan isulat. Salamat po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sure po, sending it now."
+        },
+        {
+          "speaker": "tala",
+          "text": "I've sent the text to your mobile ending in 0102 po. Is there anything else I can help you with?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Wala na po, okay na po ako. Na-confirm na yung payment, may ticket na, at na-text na rin yung reference. Maraming salamat po, Tala. Goodbye po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    },
+    {
+      "slug": "scenario-3-slow-internet",
+      "title": "Scenario 3: slow internet, a reboot that does not fix it, a technician visit",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "slow_internet",
+          "actual": "slow_internet",
+          "passed": true
+        },
+        {
+          "name": "toolsCalledInOrder",
+          "expected": [
+            "verify_identity",
+            "check_area_outage",
+            "run_line_diagnostics",
+            "remote_reboot_modem",
+            "create_trouble_ticket",
+            "get_technician_slots",
+            "book_technician_visit",
+            "send_sms",
+            "end_call"
+          ],
+          "actual": [
+            "verify_identity",
+            "check_area_outage",
+            "run_line_diagnostics",
+            "remote_reboot_modem",
+            "create_trouble_ticket",
+            "get_technician_slots",
+            "book_technician_visit",
+            "send_sms",
+            "end_call"
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:create_trouble_ticket",
+          "expected": {
+            "tool": "create_trouble_ticket",
+            "input": {
+              "category": "connection"
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "category": "connection",
+                "notes": "Customer reports slow internet for two days with video calls freezing. Diagnostics found high signal loss on the fiber line, modem degraded. Remote restart was tried and the fault remained."
+              },
+              "result": {
+                "created": true,
+                "reference": "TKT-2026-00001"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "toolResults:book_technician_visit",
+          "expected": {
+            "tool": "book_technician_visit",
+            "input": {
+              "slot_id": "san-antonio-1"
+            },
+            "result": {
+              "booked": true
+            }
+          },
+          "actual": [
+            {
+              "input": {
+                "account_number": "******5603",
+                "slot_id": "san-antonio-1",
+                "ticket_reference": "TKT-2026-00001"
+              },
+              "result": {
+                "booked": true,
+                "booking_reference": "VIS-2026-00001",
+                "window": "Sat, Nov 7, 9:00 AM to 12:00 PM"
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.079643",
+      "latencyMs": 99289,
+      "agentRunId": "6c7b79cc-82b1-498d-955f-f1782baf26f1",
+      "cost": {
+        "tala": {
+          "nanos": 58638600,
+          "usd": "0.058639",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 14512000,
+          "usd": "0.014512",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 6492000,
+          "usd": "0.006492",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 79642600,
+          "usd": "0.079643",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 6,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 5,
+          "politeness": 5,
+          "notes": "Replies are mostly short, spoken-friendly, and English-led with natural 'po' and 'Sandali lang po', and she avoids 'Naku' and 'Walang anuman'. A few turns run long (the technician windows turn and the reference-number turn) and the 'Sunday' option reads a bit list-like, and she only confirms the last four digits correctly. Overall she is courteous and keeps the call moving."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Thank you for calling Kidlat Fiber. This is Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello, good morning. Ang bagal po ng internet ko for two days na, nag-freeze yung video calls ko and ang tagal mag-load ng pages. Work from home po ako, so I need this fixed soon."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry to hear that po, I'll help you right away. May I have your Kidlat Fiber account number and the last four digits of your registered mobile number so I can verify your account?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Sure po. Account number ko is ******5603, and yung last four digits ng registered mobile number ko is 0103."
+        },
+        {
+          "speaker": "tala",
+          "text": "Thank you po. Sandali lang po, let me verify your account."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Ma'am Ana. Let me check your area for any outage now."
+        },
+        {
+          "speaker": "tala",
+          "text": "There's no outage in your area po. Let me check your connection next."
+        },
+        {
+          "speaker": "tala",
+          "text": "The check found a problem on your connection po, with signal loss on the fiber line. A restart may fix it po. May I restart your modem remotely? Your internet will drop for a short while."
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, go ahead and restart the modem."
+        },
+        {
+          "speaker": "tala",
+          "text": "Okay po, restarting your modem now. Please wait a moment."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sorry po, the fault is still there after the restart. I'll open a ticket for it now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Ticket is open po. Let me check the available technician windows."
+        },
+        {
+          "speaker": "tala",
+          "text": "A technician can come on Saturday, November 7, from 9:00 AM to 12:00 PM, or on Saturday from 1:00 PM to 4:00 PM po. There's also Sunday, November 8, from 9:00 AM to 12:00 PM. Which works for you?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yung earliest po, Saturday, November 7, 9:00 AM to 12:00 PM. Thank you po."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sure po, let me book that for you."
+        },
+        {
+          "speaker": "tala",
+          "text": "You're booked po for Saturday, November 7, from 9:00 AM to 12:00 PM. Your booking reference is V-I-S, then 2026, then 0-0-0-0-1. Your ticket reference is T-K-T, then 2026, then 0-0-0-0-1. Would you like me to text these to your registered mobile po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Yes po, please text them to my registered mobile."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sure po, sending it now."
+        },
+        {
+          "speaker": "tala",
+          "text": "I sent the text to your mobile ending in 0103 po. Is there anything else I can help you with?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Wala na po, that's all. Thank you very much, Tala. Bye po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "You're welcome po. Thank you for calling Kidlat Fiber."
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 121916800,
+      "usd": "0.121917",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 33460000,
+      "usd": "0.033460",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 18174000,
+      "usd": "0.018174",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 173550800,
+      "usd": "0.173551",
+      "estimated": false
+    }
+  }
+}

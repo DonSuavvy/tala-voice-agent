@@ -8,48 +8,72 @@
  * - Each call gets a fresh copy of the seed (spec: "each call starts from a
  *   fresh copy of the seed world"). The seed is cloned on creation, so two
  *   calls never share state and nothing a call does can reach the seed. The
- *   tickets a call opens and the texts it sends live in that copy too.
+ *   tickets a call opens, the texts it sends and the modems it reboots live
+ *   in that copy too.
  * - It never reads the wall clock. The seed stores times relative to the
- *   call's start (see `./seed-world`); `callStartedAt` is the only time source
- *   and turns those offsets into dates. That also makes tests deterministic.
+ *   call's start (see `./seed-world`); `callStartedAt` turns those offsets
+ *   into dates, and a reboot is told when it was asked for. That also makes
+ *   tests deterministic.
  *
  * Everything handed out is a copy, so a caller that mutates a result changes
  * nothing stored.
  */
 import type { SeedWorld } from "./seed-world";
+import { slotWindow } from "./slot-window";
+import { MINUTE_MS, SECOND_MS } from "./time-units";
 import type {
   AccountRecord,
   BalanceRecord,
   BillRecord,
   BusinessSystems,
+  Diagnosis,
   NewTicket,
+  NewVisit,
   OutageRecord,
   PaymentRecord,
   SmsMessage,
+  TechnicianSlot,
+  TicketRecord,
 } from "./types";
 
-const MINUTE_MS = 60_000;
-
 export interface OpenedTicket extends NewTicket {
+  reference: string;
+  openedAt: Date;
+}
+
+export interface BookedVisit extends NewVisit {
   reference: string;
 }
 
 /**
  * The in-memory world, plus what a test reads back: the tickets this call
- * opened and the texts it sent. A real company reads those in its own
- * ticketing system and SMS provider; no tool can.
+ * opened, the texts it sent and the visits it booked. A real company reads
+ * those in its own ticketing system, SMS provider and field service; no tool
+ * can.
  */
 export interface InMemorySystems extends BusinessSystems {
   /** Tickets opened on this call, oldest first. Copies. */
   openedTickets(): OpenedTicket[];
   /** Texts sent on this call, oldest first. Copies. */
   outbox(): SmsMessage[];
+  /** Technician visits booked on this call, oldest first, each with its ticket. Copies. */
+  bookedVisits(): BookedVisit[];
 }
 
-export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): InMemorySystems {
+/**
+ * `timeZone` is the company's (an IANA name such as `Asia/Manila`): technician
+ * slots are stated by the call's local date, and references carry the year of
+ * the call's start there, so the world needs it.
+ */
+export function createInMemorySystems(
+  seed: SeedWorld,
+  callStartedAt: Date,
+  timeZone: string,
+): InMemorySystems {
   const world = structuredClone(seed);
   const tickets: OpenedTicket[] = [];
   const outbox: SmsMessage[] = [];
+  const visits: BookedVisit[] = [];
   const minutesFromStart = (minutes: number) =>
     new Date(callStartedAt.getTime() + minutes * MINUTE_MS);
 
@@ -143,15 +167,100 @@ export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): InM
     return payment ? toPaymentRecord(payment) : null;
   };
 
-  // Deterministic within a call: the call's first ticket is always 00001, in
-  // the year the call started (UTC; the world does not know the company's
-  // time zone).
-  const createTicket = (ticket: NewTicket): { reference: string } => {
-    const sequence = String(tickets.length + 1).padStart(5, "0");
-    const reference = `TKT-${callStartedAt.getUTCFullYear()}-${sequence}`;
+  type ModemSeed = SeedWorld["modems"][number];
+  const toDiagnosis = (
+    reading: ModemSeed | ModemSeed["afterReboot"],
+    lastSeenAt: Date,
+  ): Diagnosis => ({
+    modemStatus: reading.status,
+    receivedPowerDbm: reading.receivedPowerDbm,
+    lastSeenAt,
+    fault: reading.fault,
+    rebootMayClear: reading.rebootMayClear,
+  });
+
+  // Each account's modem as the network reads it now: the seed's diagnosis
+  // until a reboot, then the seed's state after one, back when it finished.
+  const modems = new Map<string, Diagnosis>(
+    world.modems.map((m) => [
+      m.accountNumber,
+      toDiagnosis(m, minutesFromStart(-m.lastSeenMinutesBeforeCall)),
+    ]),
+  );
+
+  const diagnose = (accountNumber: string): Diagnosis | null => {
+    const diagnosis = modems.get(accountNumber);
+    return diagnosis ? { ...diagnosis, lastSeenAt: new Date(diagnosis.lastSeenAt) } : null;
+  };
+
+  const rebootModem = (
+    accountNumber: string,
+    requestedAt: Date,
+  ): { restartSeconds: number } | null => {
+    const modem = world.modems.find((m) => m.accountNumber === accountNumber);
+    if (!modem) return null;
+    const backAt = new Date(requestedAt.getTime() + modem.restartSeconds * SECOND_MS);
+    modems.set(accountNumber, toDiagnosis(modem.afterReboot, backAt));
+    return { restartSeconds: modem.restartSeconds };
+  };
+
+  // Deterministic within a call: the call's first ticket is always 00001, and
+  // its first visit too, in the year the call started in the company's time
+  // zone (a Manila call at 12:30 AM on New Year's Day gets the new year).
+  const callYear = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(
+    callStartedAt,
+  );
+  const nextReference = (prefix: string, count: number): string =>
+    `${prefix}-${callYear}-${String(count + 1).padStart(5, "0")}`;
+
+  const createTicket = (ticket: NewTicket, openedAt: Date): { reference: string } => {
+    const reference = nextReference("TKT", tickets.length);
     const { accountNumber, category, notes } = ticket;
-    tickets.push({ reference, accountNumber, category, notes });
+    tickets.push({ reference, accountNumber, category, notes, openedAt: new Date(openedAt) });
     return { reference };
+  };
+
+  const findTicket = (accountNumber: string, reference: string): TicketRecord | null => {
+    const ticket = tickets.find(
+      (t) => t.accountNumber === accountNumber && t.reference === reference,
+    );
+    if (!ticket) return null;
+    const { category, notes, openedAt } = ticket;
+    return { reference: ticket.reference, category, notes, openedAt: new Date(openedAt) };
+  };
+
+  const isBooked = (slotId: string): boolean => visits.some((v) => v.slotId === slotId);
+
+  // Soonest first; the sort is stable, so equal starts keep seed order.
+  const availableSlots = (barangayId: string): TechnicianSlot[] =>
+    world.technicianSlots
+      .filter((s) => s.barangayId === barangayId && !isBooked(s.id))
+      .map((s) => ({
+        slotId: s.id,
+        barangayId: s.barangayId,
+        ...slotWindow(s, callStartedAt, timeZone),
+      }))
+      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+
+  const bookVisit = (visit: NewVisit): { reference: string } => {
+    const slot = world.technicianSlots.find((s) => s.id === visit.slotId);
+    if (!slot || isBooked(slot.id)) {
+      throw new Error(`technician slot "${visit.slotId}" is not available`);
+    }
+    const reference = nextReference("VIS", visits.length);
+    const { accountNumber, slotId, ticketReference } = visit;
+    visits.push({ reference, accountNumber, slotId, ticketReference });
+    return { reference };
+  };
+
+  const visitForTicket = (
+    accountNumber: string,
+    ticketReference: string,
+  ): { reference: string } | null => {
+    const visit = visits.find(
+      (v) => v.accountNumber === accountNumber && v.ticketReference === ticketReference,
+    );
+    return visit ? { reference: visit.reference } : null;
   };
 
   // Every real implementation is a network call, so these are async. Wrapping
@@ -160,21 +269,34 @@ export function createInMemorySystems(seed: SeedWorld, callStartedAt: Date): InM
 
   return {
     accounts: { findAccount: (n) => later(() => findAccount(n)) },
-    network: { outagesAffecting: (id) => later(() => outagesAffecting(id)) },
+    network: {
+      outagesAffecting: (id) => later(() => outagesAffecting(id)),
+      diagnose: (n) => later(() => diagnose(n)),
+      rebootModem: (n, requestedAt) => later(() => rebootModem(n, requestedAt)),
+    },
     billing: {
       balanceOf: (n) => later(() => balanceOf(n)),
       billsFor: (n) => later(() => billsFor(n)),
       paymentsFor: (n) => later(() => paymentsFor(n)),
       findPayment: (n, reference) => later(() => findPayment(n, reference)),
     },
-    tickets: { createTicket: (ticket) => later(() => createTicket(ticket)) },
+    tickets: {
+      createTicket: (ticket, openedAt) => later(() => createTicket(ticket, openedAt)),
+      findTicket: (n, reference) => later(() => findTicket(n, reference)),
+    },
     sms: {
       send: (sms) =>
         later(() => {
           outbox.push({ to: sms.to, message: sms.message });
         }),
     },
-    openedTickets: () => tickets.map((t) => ({ ...t })),
+    fieldService: {
+      availableSlots: (id) => later(() => availableSlots(id)),
+      bookVisit: (visit) => later(() => bookVisit(visit)),
+      visitForTicket: (n, reference) => later(() => visitForTicket(n, reference)),
+    },
+    openedTickets: () => tickets.map((t) => ({ ...t, openedAt: new Date(t.openedAt) })),
     outbox: () => outbox.map((m) => ({ ...m })),
+    bookedVisits: () => visits.map((v) => ({ ...v })),
   };
 }

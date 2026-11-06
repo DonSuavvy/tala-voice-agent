@@ -15,8 +15,9 @@
  * - `pack/company.json`: the time zone and locale times are spoken in, and
  *   the currency money is spoken in.
  * - `pack/world.json`: the seed world every call starts from a fresh copy of,
- *   including scenario 1's Batasan Hills fiber cut and scenario 2's GCash
- *   payment that has not posted.
+ *   including scenario 1's Batasan Hills fiber cut, scenario 2's GCash
+ *   payment that has not posted, and scenario 3's San Antonio line with signal
+ *   loss that a remote reboot does not clear, with the technician calendar.
  *
  * `loadKidlatFiber()` reads them and hands them to core's `loadPack`, which
  * checks all of it at boot and lists every problem at once.

@@ -4,18 +4,21 @@
  * Each interface is a seam a real company fills with its own system (DESIGN
  * §13): `CustomerAccounts` with its CRM, `NetworkOperations` with its OSS and
  * outage tooling, `Billing` with its billing and payment collection,
- * `Ticketing` with its ticketing system and `SmsGateway` with its SMS
- * provider. The demo fills them with an in-memory world built from the company
- * pack's seed (`./in-memory`), a fresh copy per call.
+ * `Ticketing` with its ticketing system, `SmsGateway` with its SMS provider
+ * and `FieldService` with its field-service system. The demo fills them with
+ * an in-memory world built from the company pack's seed (`./in-memory`), a
+ * fresh copy per call.
  *
  * Tool handlers reach the business only through `BusinessSystems`, so a unit
  * test needs a seed world, not a database. Every method is async because every
  * real implementation is a network call. Money is integer minor units
  * (centavos for PHP) everywhere, formatted only when spoken.
  *
- * #5 added accounts and outages; #10 added billing, tickets and SMS. Later
- * tickets add diagnostics and technician slots (#11) and plans (#16). Each
- * adds its own interfaces; none changes the ones already here.
+ * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 adds
+ * diagnosis and remote reboots to the network side, a ticket lookup, and the
+ * field-service side, and changes one member: `createTicket` is told when the
+ * ticket is opened, so a ticket can be checked as opened on the call. A later
+ * ticket adds plans (#16).
  */
 
 /** Where an account's line is: the unit outages are declared against. */
@@ -64,10 +67,50 @@ export interface CustomerAccounts {
   findAccount(accountNumber: string): Promise<AccountRecord | null>;
 }
 
+/**
+ * How the network sees the modem at an account's home: `online` and working,
+ * `degraded` (reachable, with a fault), or `offline`. The seed schema reads
+ * this list.
+ */
+export const MODEM_STATUSES = ["online", "degraded", "offline"] as const;
+export type ModemStatus = (typeof MODEM_STATUSES)[number];
+
+/**
+ * The network's own diagnosis of the connection at an account's home, as its
+ * monitoring reads the modem. What it found is the system's, not Tala's: no
+ * code turns a signal level into a verdict.
+ */
+export interface Diagnosis {
+  modemStatus: ModemStatus;
+  /** Optical power the modem receives, in dBm, e.g. `-19.5`. */
+  receivedPowerDbm: number;
+  /** When the network last heard from the modem. */
+  lastSeenAt: Date;
+  /** For speech, e.g. `high signal loss on the fiber line`. Null when the system found none. */
+  fault: string | null;
+  /** Whether the system says a remote reboot may clear the fault. */
+  rebootMayClear: boolean;
+}
+
 /** The network operations side. */
 export interface NetworkOperations {
   /** Ongoing outages that include this barangay, oldest first. Empty if none. */
   outagesAffecting(barangayId: string): Promise<OutageRecord[]>;
+  /**
+   * The diagnosis of this account's connection now, or null when no modem is
+   * on record for it. Returns a copy.
+   */
+  diagnose(accountNumber: string): Promise<Diagnosis | null>;
+  /**
+   * Restarts this account's modem remotely. Resolves once the restart has
+   * begun, with how long it takes in seconds, or null when no modem is on
+   * record. A diagnosis once that time has passed reads the modem as it came
+   * back.
+   *
+   * `requestedAt` is when the restart was asked for: the in-memory world has
+   * no clock of its own, so it is told, and dates the modem's return from it.
+   */
+  rebootModem(accountNumber: string, requestedAt: Date): Promise<{ restartSeconds: number } | null>;
 }
 
 /**
@@ -133,10 +176,68 @@ export interface NewTicket {
   notes: string;
 }
 
+/** A ticket as the ticketing system holds it. */
+export interface TicketRecord {
+  reference: string;
+  category: TicketCategory;
+  notes: string;
+  /** When it was opened. A ticket opened before a call started is not that call's. */
+  openedAt: Date;
+}
+
 /** The ticketing side. */
 export interface Ticketing {
-  /** Opens a ticket and returns the reference a caller can quote back, e.g. `TKT-2026-00001`. */
-  createTicket(ticket: NewTicket): Promise<{ reference: string }>;
+  /**
+   * Opens a ticket and returns the reference a caller can quote back, e.g.
+   * `TKT-2026-00001`.
+   *
+   * `openedAt` is when it is opened: the in-memory world has no clock of its
+   * own, so it is told, and `findTicket` gives it back.
+   */
+  createTicket(ticket: NewTicket, openedAt: Date): Promise<{ reference: string }>;
+  /**
+   * The ticket with exactly this reference, looked for among this account's
+   * tickets only, or null. It may be from an earlier call: `openedAt` says
+   * when it was opened. Returns a copy.
+   */
+  findTicket(accountNumber: string, reference: string): Promise<TicketRecord | null>;
+}
+
+/** A window in which a technician can visit a barangay. */
+export interface TechnicianSlot {
+  /** e.g. `san-antonio-1`. */
+  slotId: string;
+  barangayId: string;
+  startsAt: Date;
+  endsAt: Date;
+}
+
+export interface NewVisit {
+  /** Normalized. */
+  accountNumber: string;
+  slotId: string;
+  /** The ticket the visit is for: a booking is always linked to one. */
+  ticketReference: string;
+}
+
+/** The field-service side: the technicians' calendar and the visits booked on it. */
+export interface FieldService {
+  /** This barangay's slots that are not booked yet, soonest first. Empty if none. Copies. */
+  availableSlots(barangayId: string): Promise<TechnicianSlot[]>;
+  /**
+   * Books a slot for a visit and returns the reference a caller can quote
+   * back, e.g. `VIS-2026-00001`. Rejects when the slot does not exist or is
+   * already booked: two visits never share a slot.
+   */
+  bookVisit(visit: NewVisit): Promise<{ reference: string }>;
+  /**
+   * The visit booked for this ticket, looked for among this account's visits
+   * only, or null when the ticket has none.
+   */
+  visitForTicket(
+    accountNumber: string,
+    ticketReference: string,
+  ): Promise<{ reference: string } | null>;
 }
 
 export interface SmsMessage {
@@ -160,4 +261,5 @@ export interface BusinessSystems {
   billing: Billing;
   tickets: Ticketing;
   sms: SmsGateway;
+  fieldService: FieldService;
 }

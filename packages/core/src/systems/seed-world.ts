@@ -5,13 +5,18 @@
  * fails at boot with a path, not mid-call. `./in-memory` then serves it as
  * `BusinessSystems`.
  *
- * Times (outages, due dates, disconnections, bills, payments) are stored
- * relative to the call's start, on purpose. A seed with absolute dates would
- * announce a restoration time that passed months ago the first time anyone ran
- * the demo. The in-memory world anchors the offsets to the moment the call
- * begins. Each offset's name says its direction (`...MinutesBeforeCall`,
- * `...MinutesAfterCall`), so none is ever negative, and each is bounded:
- * outages to 30 days, billing dates to 366. Money is whole minor units.
+ * Times (outages, due dates, disconnections, bills, payments, when a modem was
+ * last seen) are stored relative to the call's start, on purpose. A seed with
+ * absolute dates would announce a restoration time that passed months ago the
+ * first time anyone ran the demo. The in-memory world anchors the offsets to
+ * the moment the call begins. Each offset's name says its direction
+ * (`...MinutesBeforeCall`, `...MinutesAfterCall`), so none is ever negative,
+ * and each is bounded: network and field-service times to 30 days, billing
+ * dates to 366. Money is whole minor units.
+ *
+ * A modem entry is the network's own diagnosis of an account's connection and
+ * what a remote reboot does to it, as data: no code turns a signal level into
+ * a verdict.
  *
  * Cross-references (unique ids and references, every barangay and account
  * named is declared) are checked in a refinement with one issue per broken
@@ -28,7 +33,7 @@
  */
 import { z } from "zod";
 
-import { PAYMENT_CHANNELS } from "./types";
+import { MODEM_STATUSES, PAYMENT_CHANNELS } from "./types";
 
 const nonEmpty = z.string().min(1);
 
@@ -51,21 +56,27 @@ const accountSchema = z
   })
   .strict();
 
+const MINUTES_PER_DAY = 1_440;
+
 /**
- * 30 days, in minutes: the bound on outage times. An unbounded offset loads
- * fine and then fails mid-call ("Invalid time value") once it is added to the
- * call's start; a bad config must fail at boot instead (spec user story 69).
+ * 30 days: how far from the call a network or field-service time may be: an
+ * outage's start and restoration, when a modem was last seen, a technician
+ * slot. An unbounded offset loads fine and then fails mid-call ("Invalid time
+ * value") once it is added to the call's start; a bad config must fail at boot
+ * instead (spec user story 69). A modem silent for longer is a disconnection
+ * matter, not a diagnosis.
  */
-const MAX_OUTAGE_OFFSET_MINUTES = 43_200;
+const MAX_NETWORK_OFFSET_DAYS = 30;
+const MAX_NETWORK_OFFSET_MINUTES = MAX_NETWORK_OFFSET_DAYS * MINUTES_PER_DAY;
 
 /**
  * 366 days, in minutes: the bound on billing dates (due dates, disconnections,
  * bills, payments). A billing history spans months, so it cannot live inside
- * the outages' 30 days, but it is bounded for the same reason: an unbounded
+ * the network's 30 days, but it is bounded for the same reason: an unbounded
  * offset loads fine and then fails mid-call once it is added to the call's
  * start, and a bad config must fail at boot instead.
  */
-const MAX_BILLING_OFFSET_MINUTES = 527_040;
+const MAX_BILLING_OFFSET_MINUTES = 366 * MINUTES_PER_DAY;
 
 /** At or before the call's start, by up to `max` minutes. */
 const minutesBeforeCall = (max: number) => z.number().int().min(0).max(max);
@@ -77,8 +88,8 @@ const outageSchema = z
     reference: nonEmpty,
     cause: nonEmpty,
     barangayIds: z.array(z.string()).min(1),
-    startedMinutesBeforeCall: minutesBeforeCall(MAX_OUTAGE_OFFSET_MINUTES),
-    restorationMinutesAfterCall: minutesAfterCall(MAX_OUTAGE_OFFSET_MINUTES).nullable(),
+    startedMinutesBeforeCall: minutesBeforeCall(MAX_NETWORK_OFFSET_MINUTES),
+    restorationMinutesAfterCall: minutesAfterCall(MAX_NETWORK_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
@@ -116,6 +127,63 @@ const paymentSchema = z
   })
   .strict();
 
+/**
+ * The longest remote restart a seed may state, in seconds. The caller waits on
+ * the line through it, so it stays within a few minutes.
+ */
+const MAX_RESTART_SECONDS = 180;
+
+/** What the network's monitoring reads from a modem. */
+const modemReadingShape = {
+  status: z.enum(MODEM_STATUSES),
+  /** Optical power the modem receives, in dBm, as the network reports it. */
+  receivedPowerDbm: z.number(),
+  /** For speech, e.g. `high signal loss on the fiber line`. Null when the system found none. */
+  fault: nonEmpty.nullable(),
+  /** Whether the system says a remote reboot may clear the fault. */
+  rebootMayClear: z.boolean(),
+};
+
+/**
+ * The modem at an account's home, as the network diagnoses it when the call
+ * starts, and as it reads once a remote reboot has finished. At most one per
+ * account.
+ */
+const modemSchema = z
+  .object({
+    accountNumber: z.string(),
+    ...modemReadingShape,
+    lastSeenMinutesBeforeCall: minutesBeforeCall(MAX_NETWORK_OFFSET_MINUTES),
+    restartSeconds: z.number().int().positive().max(MAX_RESTART_SECONDS),
+    afterReboot: z.object(modemReadingShape).strict(),
+  })
+  .strict();
+
+const HOURS_IN_DAY = 24;
+
+/**
+ * A window in which a technician can visit a barangay, stated by the calendar
+ * day rather than in minutes: the day after the call's local date (1 is the
+ * next day, so a slot is never already past), a local start hour and a length
+ * in hours. "Day 1, 9:00, 3 hours" reads "9:00 AM to 12:00 PM" on the day after
+ * the call, whatever time the call starts. A window ends by midnight.
+ */
+const technicianSlotSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+    barangayId: z.string(),
+    daysAfterCall: z.number().int().positive().max(MAX_NETWORK_OFFSET_DAYS),
+    startHour: z.number().int().min(0).max(HOURS_IN_DAY - 1),
+    lengthHours: z.number().int().positive(),
+  })
+  .strict()
+  // zod runs this after a failed check too; a start hour already out of range
+  // is reported once, as itself, not again as a window past midnight.
+  .refine(
+    (slot) => slot.startHour >= HOURS_IN_DAY || slot.startHour + slot.lengthHours <= HOURS_IN_DAY,
+    { path: ["lengthHours"], error: "a technician slot must end by midnight" },
+  );
+
 const seedWorldShape = {
   barangays: z.array(barangaySchema).min(1),
   accounts: z.array(accountSchema).min(1),
@@ -123,6 +191,8 @@ const seedWorldShape = {
   balances: z.array(balanceSchema),
   bills: z.array(billSchema),
   payments: z.array(paymentSchema),
+  modems: z.array(modemSchema),
+  technicianSlots: z.array(technicianSlotSchema),
 };
 
 /** A top-level list of the seed world, such as 'accounts': derived, so a new list is one too. */
@@ -156,6 +226,9 @@ export const seedWorldSchema = z
     reportDuplicates("bills", "reference", world.bills.map((b) => b.reference));
     // Unique across accounts, not per account: one reference, one payment.
     reportDuplicates("payments", "reference", world.payments.map((p) => p.reference));
+    // One modem per account, for the same reason as one balance.
+    reportDuplicates("modems", "accountNumber", world.modems.map((m) => m.accountNumber));
+    reportDuplicates("technicianSlots", "id", world.technicianSlots.map((s) => s.id));
 
     const known = new Set(world.barangays.map((b) => b.id));
     world.accounts.forEach((account, index) => {
@@ -178,10 +251,19 @@ export const seedWorldSchema = z
         }
       });
     });
+    world.technicianSlots.forEach((slot, index) => {
+      if (!known.has(slot.barangayId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["technicianSlots", index, "barangayId"],
+          message: `technician slot ${slot.id} names unknown barangay "${slot.barangayId}"`,
+        });
+      }
+    });
 
     const accountNumbers = new Set(world.accounts.map((a) => a.accountNumber));
     const reportUnknownAccount = (
-      collection: "balances" | "bills" | "payments",
+      collection: Collection,
       index: number,
       accountNumber: string,
       what: string,
@@ -200,5 +282,6 @@ export const seedWorldSchema = z
     world.payments.forEach((p, i) =>
       reportUnknownAccount("payments", i, p.accountNumber, `payment ${p.reference}`),
     );
+    world.modems.forEach((m, i) => reportUnknownAccount("modems", i, m.accountNumber, "modem"));
   });
 export type SeedWorld = z.infer<typeof seedWorldSchema>;

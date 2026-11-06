@@ -54,6 +54,8 @@ const WORLD: SeedWorld = {
   balances: [],
   bills: [],
   payments: [],
+  modems: [],
+  technicianSlots: [],
 };
 
 const OPENING = "Hello po! I'm Tala, an AI assistant, and this call is recorded.";

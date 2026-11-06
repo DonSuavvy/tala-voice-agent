@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems } from "../systems/in-memory";
-import { CALL_STARTED_AT, testWorld } from "../testing/fixtures";
+import { testSystems, testToolContext } from "../testing/fixtures";
 
-import type { TalaToolContext } from "./context";
 import { buildTalaRegistry } from "./index";
 
 /**
  * Tala's tool set, as the call session builds it. Boot validation is the
- * engine's (`agent/registry`); this pins what #5 and #10 register.
+ * engine's (`agent/registry`); this pins what #5, #10 and #11 register.
  */
 
 describe("buildTalaRegistry", () => {
@@ -17,17 +14,21 @@ describe("buildTalaRegistry", () => {
     expect(() => buildTalaRegistry()).not.toThrow();
   });
 
-  it("holds exactly the tools #5 and #10 add", () => {
+  it("holds exactly the tools #5, #10 and #11 add", () => {
     const names = buildTalaRegistry()
       .list()
       .map((tool) => tool.name);
 
     expect(names.sort()).toEqual([
+      "book_technician_visit",
       "check_area_outage",
       "create_trouble_ticket",
       "end_call",
       "get_account_overview",
       "get_billing_history",
+      "get_technician_slots",
+      "remote_reboot_modem",
+      "run_line_diagnostics",
       "send_sms",
       "verify_identity",
       "verify_payment",
@@ -47,7 +48,11 @@ describe("buildTalaRegistry", () => {
       get_account_overview: "read",
       get_billing_history: "read",
       verify_payment: "read",
+      run_line_diagnostics: "read",
+      get_technician_slots: "read",
       create_trouble_ticket: "auto_write",
+      remote_reboot_modem: "auto_write",
+      book_technician_visit: "auto_write",
       send_sms: "auto_write",
       end_call: "auto_write",
     });
@@ -88,6 +93,14 @@ describe("the account gate, on every account tool", () => {
     verify_payment: { reference: "1234567890123" },
     create_trouble_ticket: { category: "billing", notes: "A payment has not posted yet." },
     send_sms: { message: "Salamat po." },
+    run_line_diagnostics: { account_number: "8012345601" },
+    remote_reboot_modem: { account_number: "8012345601" },
+    get_technician_slots: { account_number: "8012345601" },
+    book_technician_visit: {
+      account_number: "8012345601",
+      slot_id: "batasan-hills-1",
+      ticket_reference: "TKT-2026-00001",
+    },
   };
 
   const accountTools = buildTalaRegistry()
@@ -97,18 +110,7 @@ describe("the account gate, on every account tool", () => {
   it.each(accountTools.map((tool) => [tool.name, tool] as const))(
     "%s refuses before the caller is verified",
     async (name, tool) => {
-      const ctx: TalaToolContext = {
-        workspaceId: "test-isp",
-        runId: "call_1",
-        callId: "call_1",
-        now: CALL_STARTED_AT,
-        data: {
-          systems: createInMemorySystems(testWorld(), CALL_STARTED_AT),
-          identity: initialIdentityState(),
-          company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-        },
-        policyConfig: { identity: { maxFailedAttempts: 3 } },
-      };
+      const ctx = testToolContext(testSystems());
       expect(VALID_INPUT[name], `give ${name} a valid input here`).toBeDefined();
 
       await expect(tool.handler(tool.input.parse(VALID_INPUT[name]), ctx)).rejects.toThrow(

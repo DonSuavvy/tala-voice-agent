@@ -47,6 +47,26 @@ export function formatLocalDate(date: Date, company: { timeZone: string; locale:
 }
 
 /**
+ * e.g. `Sat, Nov 7, 9:00 AM to 12:00 PM` for a window within one local day,
+ * such as a technician's visit: the start as `formatLocalTime` says it, then
+ * the end's time alone. No-break spaces become plain ones, as there.
+ */
+export function formatLocalWindow(
+  startsAt: Date,
+  endsAt: Date,
+  company: { timeZone: string; locale: string },
+): string {
+  const end = new Intl.DateTimeFormat(company.locale, {
+    timeZone: company.timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  })
+    .format(endsAt)
+    .replace(NO_BREAK_SPACES, " ");
+  return `${formatLocalTime(startsAt, company)} to ${end}`;
+}
+
+/**
  * An amount in the company's currency: 129900 minor units in PHP, en-PH, is
  * the peso sign followed by `1,299.00`.
  */

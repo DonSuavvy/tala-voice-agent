@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { initialIdentityState } from "../policy/identity";
-import { createInMemorySystems } from "../systems/in-memory";
 import type { SeedWorld } from "../systems/seed-world";
-import { CALL_STARTED_AT, JOSE, MARIA, testWorld } from "../testing/fixtures";
+import { JOSE, MARIA, testSystems, testToolContext, testWorld } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { getBillingHistory } from "./get-billing-history";
@@ -49,18 +47,7 @@ function joseWithMonthsOfHistory(): SeedWorld {
 }
 
 function newContext(world: SeedWorld = testWorld()): TalaToolContext {
-  return {
-    workspaceId: "test-isp",
-    runId: "call_1",
-    callId: "call_1",
-    now: CALL_STARTED_AT,
-    data: {
-      systems: createInMemorySystems(world, CALL_STARTED_AT),
-      identity: initialIdentityState(),
-      company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
-    },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
-  };
+  return testToolContext(testSystems(world));
 }
 
 /** As the loop does it: parse with the tool's own schema, then run the handler. */

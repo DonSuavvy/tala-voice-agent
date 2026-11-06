@@ -386,3 +386,55 @@ live evidence given to it.
 - What Tala wrote in a ticket's notes on a live call: reports do not keep
   tool inputs. The stricter case checks the category, not the notes.
 - How a voice reads "₱1,299.00" and spoken dates (#3, #7).
+
+## Round 8 — 2026-11-06 — ticket #11, the slow-internet scenario
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #11 asks: four tools, a booking linked to its ticket,
+slots from the area's calendar, the reboot's wait and re-check from the seed
+with an injected clock, scenario 3?
+
+**Headline:** the SOP's limits on the reboot and the booking were not in the
+handlers, so a reboot could repeat and a visit could go on any ticket, and
+"opened on this call" held only because the fake world starts empty
+(FAILURES 19). The SOP also typed a figure the code disagreed with ("up to
+three" against four), and the scenario 3 case could pass a run that skipped
+the outage check or booked another slot. 16 findings: 14 fixed, 1 left, 1
+recorded. Tests 911 → 1038.
+
+**Method:** the orchestrator replayed the builder's slices as RED/GREEN
+commits (the replayed tree matched the builder's), ran `npm run eval` live
+(3 of 3; the reboot waited 60 real seconds), and checked masking on the
+report and log. Then the mattpocock `code-review` skill: two independent
+Opus agents that had not written the code, in parallel on
+`feat/payment-scenario...feat/slow-internet` (the branch is stacked on #10).
+Standards: CLAUDE.md, ADRs 2 and 4, DESIGN §6 and §11, GLOSSARY, rounds 5-7.
+Spec: #11 line by line, spec stories 15-17, DESIGN §6 and §12, with the live
+evidence given to it.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R8-01 | Spec | The scenario 3 case passed a run that skipped the outage check or booked a slot the caller did not pick | Fixed `52e2773` `a8fdac3` |
+| R8-02 | Spec | "Opened on this call" held only because the in-memory world starts empty; a billing ticket could carry a visit | Fixed `3d19dfb` `7329b5f` (FAILURES 19) |
+| R8-03 | Spec, Standards | The reboot ran whatever the diagnosis advised, so it could repeat | Fixed `3d19dfb` `7329b5f` (FAILURES 19); consent stays in the SOP, the tool being auto-write |
+| R8-04 | Spec | One ticket could get several visits | Fixed `3d19dfb` `7329b5f` |
+| R8-05 | Spec | An SOP example named weekdays no tool returned, and nothing forbade promising a fix or an arrival time | Fixed `a8fdac3` |
+| R8-06 | Standards | The SOP said "up to three" while the tool returned four; its guard caught only digits; the description typed "four" | Fixed `52e2773` `a8fdac3`: three, from `MAX_SLOTS`; no number in the SOP; number words guarded |
+| R8-07 | Standards | References took the UTC year, not the call's year in the company's zone | Fixed `3d19dfb` `7329b5f` |
+| R8-08 | Standards | Glossary drift: "line check", Fault and Outage overlapping, "dispatch" | Fixed `861d815` |
+| R8-09 | Standards | Hand-copied bounds ("like the outages") and `SECOND_MS` twice | Fixed `861d815`: one network bound, one time-units module |
+| R8-10 | Standards | Possible Duplicated Code: the no-modem error in two tools | Fixed `861d815` |
+| R8-11 | Standards | Possible Shotgun Surgery: 33 `"Asia/Manila"` literals and repeated wait stubs across core tests | Fixed `861d815`: fixture helpers |
+| R8-12 | Standards | Possible Feature Envy: one tool imported another's spoken diagnosis | Fixed `861d815`: a shared diagnosis module |
+| R8-13 | Standards | A comment said bundling the re-check controls what the model says | Fixed `861d815` |
+| R8-14 | Standards | `TicketRecord.category` was never read | Fixed `7329b5f`: the booking reads it |
+| R8-15 | Standards | `TicketRecord.notes` is never read | Left: stored ticket data a real system uses |
+| R8-16 | Standards | Two RED commits hold guards that already passed, and RED messages repeat the GREEN text | Recorded here (R6-14, R7-10) |
+
+### Not verified
+
+- Whether Tala ever reads the SOP's bracketed example aloud ("[the first
+  window]"); the live run read the tool's windows.
+- How a minute of silence during a reboot sounds on a voice call (#8 fillers).
