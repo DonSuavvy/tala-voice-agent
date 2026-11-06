@@ -87,7 +87,35 @@ function seed(): SeedWorld {
         posted: false,
       },
     ],
-    modems: [],
+    // Maria's line has lost signal, and a reboot leaves it so; Jun's modem has
+    // hung, and a reboot clears it.
+    modems: [
+      {
+        accountNumber: "1234567890",
+        status: "degraded",
+        receivedPowerDbm: -28.4,
+        lastSeenMinutesBeforeCall: 2,
+        fault: "high signal loss on the fiber line",
+        rebootMayClear: true,
+        restartSeconds: 90,
+        afterReboot: {
+          status: "degraded",
+          receivedPowerDbm: -28.3,
+          fault: "high signal loss on the fiber line",
+          rebootMayClear: false,
+        },
+      },
+      {
+        accountNumber: "2234567890",
+        status: "degraded",
+        receivedPowerDbm: -19.5,
+        lastSeenMinutesBeforeCall: 5,
+        fault: "the modem has hung and is not passing traffic",
+        rebootMayClear: true,
+        restartSeconds: 60,
+        afterReboot: { status: "online", receivedPowerDbm: -19.4, fault: null, rebootMayClear: false },
+      },
+    ],
     technicianSlots: [],
   };
 }
@@ -229,6 +257,82 @@ describe("createInMemorySystems", () => {
       const [outage] = await systems.network.outagesAffecting("batasan-hills");
       expect(outage.startedAt).toEqual(new Date("2031-02-14T19:45:00Z"));
       expect(outage.estimatedRestorationAt).toEqual(new Date("2031-02-14T23:45:00Z"));
+    });
+  });
+
+  /**
+   * The network's own diagnosis of a connection, and a remote reboot. The
+   * world never reads a clock: it is told when the reboot was asked for, and
+   * a diagnosis afterwards reads the modem as it came back.
+   */
+  describe("network.diagnose and network.rebootModem", () => {
+    it("diagnoses a modem as the seed states it, last seen relative to the call's start", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      expect(await systems.network.diagnose("1234567890")).toEqual({
+        modemStatus: "degraded",
+        receivedPowerDbm: -28.4,
+        lastSeenAt: new Date("2026-11-06T05:58:00Z"),
+        fault: "high signal loss on the fiber line",
+        rebootMayClear: true,
+      });
+    });
+
+    it("returns null for an account with no modem on record, to diagnose or to reboot", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      expect(await systems.network.diagnose("9999999999")).toBeNull();
+      expect(await systems.network.rebootModem("9999999999", CALL_STARTED_AT)).toBeNull();
+    });
+
+    it("says how long a restart takes, then reads the modem as it came back, with the fault cleared", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const askedAt = new Date("2026-11-06T06:03:00Z");
+
+      expect(await systems.network.rebootModem("2234567890", askedAt)).toEqual({ restartSeconds: 60 });
+      expect(await systems.network.diagnose("2234567890")).toEqual({
+        modemStatus: "online",
+        receivedPowerDbm: -19.4,
+        lastSeenAt: new Date("2026-11-06T06:04:00Z"),
+        fault: null,
+        rebootMayClear: false,
+      });
+    });
+
+    it("still reads a fault the reboot does not clear once the modem is back", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const askedAt = new Date("2026-11-06T06:03:00Z");
+
+      expect(await systems.network.rebootModem("1234567890", askedAt)).toEqual({ restartSeconds: 90 });
+      expect(await systems.network.diagnose("1234567890")).toEqual({
+        modemStatus: "degraded",
+        receivedPowerDbm: -28.3,
+        lastSeenAt: new Date("2026-11-06T06:04:30Z"),
+        fault: "high signal loss on the fiber line",
+        rebootMayClear: false,
+      });
+    });
+
+    it("reboots only the account it is asked to", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      await systems.network.rebootModem("2234567890", CALL_STARTED_AT);
+      expect((await systems.network.diagnose("1234567890"))?.receivedPowerDbm).toBe(-28.4);
+    });
+
+    it("hands back copies: mutating a diagnosis changes nothing stored", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT);
+      const first = await systems.network.diagnose("1234567890");
+      first!.fault = "tampered";
+      first!.lastSeenAt.setUTCFullYear(1999);
+      const second = await systems.network.diagnose("1234567890");
+      expect(second!.fault).toBe("high signal loss on the fiber line");
+      expect(second!.lastSeenAt).toEqual(new Date("2026-11-06T05:58:00Z"));
+    });
+
+    it("keeps a reboot on one call out of another call from the same seed", async () => {
+      const shared = seed();
+      const one = createInMemorySystems(shared, CALL_STARTED_AT);
+      const two = createInMemorySystems(shared, CALL_STARTED_AT);
+      await one.network.rebootModem("2234567890", CALL_STARTED_AT);
+      expect((await two.network.diagnose("2234567890"))?.modemStatus).toBe("degraded");
     });
   });
 
