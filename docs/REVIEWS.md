@@ -335,3 +335,53 @@ the same. Rounding belongs in the tool's result, in code, if it is wanted.
 - The tool's exact time in the eval run: reports do not keep tool results, so
   "10:46 or 10:47 PM" is inferred from the run's start and the seed.
 - The PR's results with the three extra callers (R4-05).
+
+## Round 6 — 2026-11-06 — ticket #35, server-side refusal fallback
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #35 asks, criterion by criterion, against the API docs?
+
+**Headline:** the worst finding came before review, from a live call: every
+ordinary Opus and Sonnet turn was priced at the ceiling (FAILURES 17). The
+reviewers then found that a real refusal fallback would also be booked at
+the ceiling, since its documented targets had no card, and that a second
+unnamed attempt could be under-counted. 14 findings: 9 fixed, 4 left, 1
+recorded. Tests 740 → 799.
+
+**Method:** the orchestrator replayed the builder's slices as RED/GREEN
+commits, checking each RED fails, then ran `verify:first-call` live on all
+three models with the SDK's debug log (grepping only for the beta header and
+`fallbacks`, never the key) and probed one raw response to find the cause.
+Then the mattpocock `code-review` skill: two independent Opus agents that had
+not written the code, in parallel on `main...feat/refusal-fallback` at
+`17b21cd`. Standards: CLAUDE.md, ADRs 1 and 4, DESIGN §11, GLOSSARY, earlier
+findings. Spec: #35 line by line against the claude-api skill's refusal
+docs, with the live facts given to it.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R6-01 | Live | An ordinary turn's `iterations` entry has `model: null`, and the ceiling rule priced every Opus and Sonnet turn at $10/$50 | Fixed `816d09d` `abd42da` (FAILURES 17) |
+| R6-02 | Spec | The documented fallback targets (Opus 5, Opus 4.8, Sonnet 5) had no card, so a real fallback would be booked at the ceiling; the test paired Opus 5.5 with Sonnet 5.5, a route the API never takes | Fixed `5df8b1d` `1d684aa`: their cards, marked unverified |
+| R6-03 | Spec, Standards | An unnamed attempt after the first was priced at the requested model, which could under-count (ADR 4) | Fixed `5df8b1d` `1d684aa`: only the first unnamed attempt is the requested model's |
+| R6-04 | Standards | No FAILURES entry for R6-01 | Fixed: FAILURES 17 |
+| R6-05 | Standards | Wire model ids in three test files where the provider's lookup works | Fixed `a962d67` |
+| R6-06 | Standards | Comments in `cost.ts` and `streaming.ts` that promised more than the code | Fixed `a962d67` |
+| R6-07 | Standards | Possible Duplicated Code: `TurnUsage` repeated the loop's usage type, and "no card gets the ceiling" lived in three places | Fixed `a962d67`: one type; the provider alone picks a card, and the loop now requires its lookup |
+| R6-08 | Standards | "Fallback line" and the API's refusal fallback collide in the glossary and in test names | Fixed `a962d67`: GLOSSARY gains Refusal fallback; 19 test titles say which they mean |
+| R6-09 | Spec | The PR must say no live refusal fallback was seen | Fixed: the PR says so |
+| R6-10 | Spec | The eval grader, a Sonnet request, sends no `fallbacks` | Left: it is advisory and not part of a call; a refused grade is reported as no grade |
+| R6-11 | Spec | A turn interrupted after a mid-stream fallback is priced from one attempt's usage | Left: the pre-flight estimate floor (ADR 4) covers it |
+| R6-12 | Spec | Haiku requests also go through the beta namespace | Left: unchanged otherwise, and verified live |
+| R6-13 | Standards | Possible Duplicated Code: `tokenUsageOf`, `priceUsage` and `addUsage` map usage by hand | Left: folding them would touch the eval package's pricing for no behaviour change |
+| R6-14 | Standards | RED commits `17b3a5e` and `649a777` hold 1 and 3 tests that already passed (guards); their messages give only the failure counts | Recorded here; commit messages are not rewritten |
+
+### Not verified
+
+- A real refusal fallback: none can be provoked on purpose. The `fallback`
+  block, sticky turns, the echo rule and the target cards are scripted from
+  the docs and the SDK's types.
+- The fallback targets' prices against the live pricing page: they come from
+  the claude-api skill's table, with the pre-5.5 cache-read multiplier as the
+  safer guess.

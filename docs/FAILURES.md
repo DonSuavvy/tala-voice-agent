@@ -480,3 +480,35 @@ and were not kept (review round 4, R4-05).
 
 **Lesson:** an instruction to say less needs a check on what must still be
 said, run against terse callers too.
+
+## 17. Every ordinary Sonnet and Opus turn was priced at the $10/$50 ceiling — 2026-11-06
+
+**Severity: high (caught before merge).** The spend guard caps the public
+demo at $2 a day. Booking every Sonnet call at about 11 times its cost would
+have used the cap up after a tenth of the calls it allows, and every cost
+figure on the console would have been wrong.
+
+**Caught by:** the orchestrator's live check of #35, before review:
+`npm run verify:first-call -- --model sonnet` passed all four checks and
+cost $0.217805 for a call that costs about $0.019. Haiku, which sends no
+`fallbacks`, cost what it should.
+
+With `fallbacks: "default"`, an ordinary response that no fallback touched
+still carries `usage.iterations`: one entry, `{ "type": "message", "model":
+null }`. Without `fallbacks` there is no `iterations` at all. The pricing
+rule booked any attempt with no model at the ceiling card, meant for models
+Tala has no card for, so every normal turn was priced as Fable 5.1.
+
+**What made it dangerous:** the builder's tests were scripted from the docs,
+which never showed an ordinary turn's `iterations`, and all 779 passed. The
+rule looked conservative ("never under-count"), which made it read as safe.
+
+**Fix:** a `message` attempt with no model at the start of `iterations` is
+the requested model's, priced at its card; a later unnamed attempt, or an
+unnamed `fallback_message`, stays at the ceiling. RED `816d09d`, GREEN
+`abd42da`; refined in review round 6 (`5df8b1d`, `1d684aa`). Live after the
+fix: Sonnet $0.019, Opus $0.043, Haiku $0.001 a call, each matching its card
+by hand.
+
+**Lesson:** a pricing rule written from documentation is a hypothesis until
+one real response has been priced with it.

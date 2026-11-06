@@ -9,7 +9,7 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
 } from "../agent/loop";
-import { anthropicProvider } from "../agent/provider";
+import { anthropicProvider, type LogicalModel } from "../agent/provider";
 import { loadPack, type PackSource } from "../pack/load-pack";
 import {
   CALL_STARTED_AT,
@@ -93,14 +93,18 @@ function clockFrom(start: Date) {
   return () => new Date((t += 1000));
 }
 
-type CallOptions = { source?: PackSource; onEvent?: (event: CallEvent) => void };
+type CallOptions = {
+  source?: PackSource;
+  onEvent?: (event: CallEvent) => void;
+  model?: LogicalModel;
+};
 
 function callWith(create: MessageCreator, options: CallOptions) {
   const events: CallEvent[] = [];
   const pack = loadPack(options.source ?? testPackSource());
   const session = createCallSession({
     pack,
-    model: "haiku",
+    model: options.model ?? "haiku",
     provider: anthropicProvider,
     createMessage: create,
     callId: "call_1",
@@ -615,6 +619,191 @@ describe("a call session — ending", () => {
     expect(types(events)).toEqual(["caller_said", "span", "speech_delta", "speech", "call_ended"]);
     expect(events[2]).toEqual({ type: "speech_delta", text: pack.persona.fallbackLine });
     expect(events[3]).toEqual({ type: "speech", text: pack.persona.fallbackLine });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Server-side refusal fallback                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * On Opus and Sonnet, a turn a safety classifier declines is re-run on a
+ * fallback model inside the same call (#35). The call goes on; what changes
+ * is who served the turn, which the cost and the call record must say.
+ */
+describe("a call session — a turn a refusal fallback served", () => {
+  const llmSpans = (events: CallEvent[]) =>
+    events.flatMap((e) => (e.type === "span" && e.span.type === "llm_call" ? [e.span] : []));
+
+  const attempt = (type: string, model: string | null, input_tokens: number, output_tokens: number) => ({
+    type,
+    model,
+    input_tokens,
+    output_tokens,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  });
+
+  /**
+   * The regression the live check found (#35): Sonnet passed verify:first-call
+   * at $0.22 instead of about $0.02. With `fallbacks` on, an ordinary turn
+   * carries one `message` iteration with `model: null`, and that was booked at
+   * the ceiling. It is the pinned model's attempt, priced at its card.
+   */
+  it("prices an ordinary turn on the pinned model's card, as the live API reports it", async () => {
+    const { session, events } = newCall(
+      [
+        turn([text("Opo.")], {
+          model: anthropicProvider.modelId("sonnet"),
+          usage: {
+            input_tokens: 16,
+            output_tokens: 11,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            iterations: [attempt("message", null, 16, 11)],
+          },
+        }),
+      ],
+      { model: "sonnet" },
+    );
+    session.start();
+
+    await session.callerSaid("Hello?");
+
+    // 16 * 2000 + 11 * 10_000 on Sonnet 5.5's card.
+    expect(llmSpans(events)[0].costNanos).toBe(142_000);
+    expect(llmSpans(events)[0].estimated).toBe(false);
+  });
+
+  /**
+   * The routes a refusal fallback documents: Opus 5.5 to Opus 4.8 (or Opus
+   * 5), Sonnet 5.5 to Sonnet 5. The declined attempt, which names no model,
+   * is priced at the pinned model's card and the serving one at its own,
+   * which is unverified, so the turn is marked estimated.
+   */
+  it.each([
+    // Opus 5.5 declined: 10 * 4000. Opus 4.8 served: 10 * 5000 + 10 * 25_000.
+    ["opus", "claude-opus-4-8", 340_000],
+    // Sonnet 5.5 declined: 10 * 2000. Sonnet 5 served: 10 * 2000 + 10 * 10_000.
+    ["sonnet", "claude-sonnet-5", 140_000],
+  ] as const)(
+    "prices a %s turn a refusal fallback served on %s at that model's card",
+    async (model, servedBy, nanos) => {
+      const { session, events } = newCall(
+        [
+          turn([text("Opo.")], {
+            model: servedBy,
+            usage: {
+              ...usage,
+              iterations: [attempt("message", null, 10, 0), attempt("fallback_message", servedBy, 10, 10)],
+            },
+          }),
+        ],
+        { model },
+      );
+      session.start();
+
+      await session.callerSaid("Hello?");
+
+      expect(llmSpans(events)[0].costNanos).toBe(nanos);
+      expect(llmSpans(events)[0].estimated).toBe(true);
+    },
+  );
+
+  const REQUESTED = anthropicProvider.modelId("opus");
+  const FALLBACK = "claude-opus-5";
+  const switched: ContentBlock = {
+    type: "fallback",
+    from: { model: REQUESTED },
+    to: { model: FALLBACK },
+    trigger: { type: "refusal", category: "cyber" },
+  };
+  const servedByFallback = (content: ContentBlock[], over: Partial<AssistantTurn> = {}) =>
+    turn(content, {
+      model: FALLBACK,
+      usage: {
+        ...usage,
+        iterations: [attempt("message", REQUESTED, 10, 0), attempt("fallback_message", FALLBACK, 10, 10)],
+      },
+      ...over,
+    });
+
+  it("keeps the pin on the requested model, and the call record says which turn a refusal fallback served", async () => {
+    const served = [switched, text("Opo, may outage po.")];
+    const { session, events, claude } = newCall(
+      [turn([text("Ano po ang account number ninyo?")]), servedByFallback(served), turn([text("Sige po.")])],
+      { model: "opus" },
+    );
+    session.start();
+
+    await session.callerSaid("Wala po kaming internet.");
+    await session.callerSaid("May outage po ba?");
+    await session.callerSaid("Salamat po.");
+
+    expect(session.pin).toMatchObject({ model: "opus", modelId: REQUESTED });
+    const spans = llmSpans(events);
+    expect(spans.map((s) => (s.output as Record<string, unknown>).fallback ?? null)).toEqual([
+      null,
+      { requested: REQUESTED, declined: [REQUESTED], servedBy: FALLBACK },
+      null,
+    ]);
+    // Said like any turn, and kept in the conversation as it came.
+    expect(events).toContainEqual({ type: "speech", text: "Opo, may outage po." });
+    expect(claude.requests[2].messages.at(-2)).toEqual({ role: "assistant", content: served });
+  });
+
+  it("says the fallback line and ends the call when every model in a refusal fallback refuses", async () => {
+    const { session, events, pack } = newCall(
+      [
+        servedByFallback([switched, text("partial")], {
+          stop_reason: "refusal",
+          stop_details: { type: "refusal", category: "cyber" },
+        }),
+      ],
+      { model: "opus" },
+    );
+    session.start();
+    events.length = 0;
+
+    const ended = await session.callerSaid("Hello?");
+
+    expect(ended).toBe("ended");
+    expect(events.filter((e) => e.type === "speech")).toEqual([
+      { type: "speech", text: pack.persona.fallbackLine },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: "call_ended", reason: "refused", pin: { modelId: REQUESTED } });
+    expect((llmSpans(events)[0].output as Record<string, unknown>).fallback).toEqual({
+      requested: REQUESTED,
+      declined: [REQUESTED],
+      servedBy: FALLBACK,
+    });
+  });
+
+  /**
+   * ADR 4's cut, across a fallback boundary: the block is not text, so it
+   * stays while the caller heard past it, and goes with everything after a
+   * cut that falls before it.
+   */
+  it("keeps the `fallback` block when the caller heard past it, and cuts after what they heard", async () => {
+    const call = interruptWhen(
+      [
+        { parts: [say("Sige po, "), switched, say("iche-check ", "ko po.")] },
+        { parts: [say("Ano po ulit?")] },
+      ],
+      nthDelta(2),
+      "Sige po, iche-check",
+    );
+    call.session.start();
+
+    await call.session.callerSaid("May outage po ba?");
+    await call.session.callerSaid("Ha?");
+
+    expect(call.claude.requests[1].messages.at(-2)).toEqual({
+      role: "assistant",
+      // What streamed before the abort landed; the rest of the block never came.
+      content: [{ type: "text", text: "Sige po, " }, switched, { type: "text", text: "iche-check " }],
+    });
+    expectValidConversation(call.claude);
   });
 });
 

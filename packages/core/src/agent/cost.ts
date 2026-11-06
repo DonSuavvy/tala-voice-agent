@@ -21,8 +21,16 @@
  * 0.1x everywhere), and Haiku 5.5 has a second rate card for long prompts.
  */
 
-/** The three models Tala runs. Named logically everywhere but `provider.ts`. */
+/**
+ * The three models Tala runs. Named logically everywhere but `provider.ts`.
+ * A refusal fallback can serve a turn on another model: a documented target
+ * is priced at its card in `FALLBACK_TARGET_RATES`, any other model at
+ * `UNKNOWN_MODEL_CEILING`.
+ */
 export type ModelId = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
+
+/** The models a refusal fallback documents as its targets. Never requested by Tala. */
+export type FallbackTargetId = "claude-opus-5" | "claude-opus-4-8" | "claude-sonnet-5";
 
 /** Which cache TTL a write was billed at. 5 minutes is the API default. */
 export type CacheTtl = "5m" | "1h";
@@ -159,6 +167,52 @@ export const ANTHROPIC_RATES: Readonly<Record<ModelId, RateCard>> = {
   "claude-opus-5-5": rateCard(4, 20, ANTHROPIC_PROVENANCE, { cacheReadDivisor: 20 }),
 };
 
+const FALLBACK_TARGET_PROVENANCE = {
+  verifiedOn: null,
+  source:
+    "the claude-api skill's model table (cached 2026-10-06), not checked against " +
+    "the live pricing page; cache multiples assumed at OpsPilot's pre-5.5 ones " +
+    "(writes 1.25x input, reads 0.1x, the higher read price)",
+} as const;
+
+/**
+ * The models a refusal fallback documents as its targets: Opus 5.5 falls
+ * back to Opus 5 or Opus 4.8, Sonnet 5.5 to Sonnet 5 (claude-api skill). A
+ * turn one of them served bills at its rates, so it is priced at its card,
+ * not at Tala's requested model's. Unverified, so a turn priced with one is
+ * marked estimated; the cache-read price is the higher of the two Tala
+ * knows, so an unchecked multiple does not under-count.
+ */
+export const FALLBACK_TARGET_RATES: Readonly<Record<FallbackTargetId, RateCard>> = {
+  "claude-opus-5": rateCard(5, 25, FALLBACK_TARGET_PROVENANCE),
+  "claude-opus-4-8": rateCard(5, 25, FALLBACK_TARGET_PROVENANCE),
+  "claude-sonnet-5": rateCard(2, 10, FALLBACK_TARGET_PROVENANCE),
+};
+
+/**
+ * What a model Tala has no card for is booked at: a ceiling, never a guess.
+ *
+ * A refusal fallback could serve a turn on a model that is neither one Tala
+ * runs nor a documented target, and pricing it at a cheaper card Tala
+ * happens to know would under-count, which the spend guard must never do
+ * (ADR 4). So it is booked at the dearest card in the
+ * claude-api skill's model table, Claude Fable 5.1's $10 in and $50 out,
+ * with cache writes at the usual multiples of input and cache reads at the
+ * full input price. `verifiedOn: null`: what it prices is an estimate.
+ */
+export const UNKNOWN_MODEL_CEILING: RateCard = rateCard(
+  10,
+  50,
+  {
+    verifiedOn: null,
+    source:
+      "ceiling for a model with no card of its own: Claude Fable 5.1's rates " +
+      "from the claude-api skill's model table (cached 2026-10-06), cache " +
+      "reads at the full input rate",
+  },
+  { cacheReadDivisor: 1 },
+);
+
 /**
  * The token counts from one API response.
  *
@@ -254,6 +308,145 @@ export function costOf(
     estimated: rates.verifiedOn === null,
     longPrompt,
   };
+}
+
+/** One attempt's usage, as a response's `usage.iterations` reports it. */
+export interface AttemptUsage {
+  /**
+   * `fallback_message` for a fallback model's attempt that served the turn;
+   * `message` for any other attempt: one that declined, or, on a turn no
+   * refusal fallback served, the one that served.
+   */
+  type: string;
+  /**
+   * The model that ran the attempt. An ordinary Sonnet 5.5 turn with
+   * `fallbacks` on came back with exactly one `message` entry whose model
+   * was null, and it was the model the request named (live, 2026-11-06,
+   * #35). `costOfTurn` says what is assumed for other unnamed entries.
+   */
+  model?: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+/** A response's `usage`, wire-shaped, as the SDK hands it over. */
+export interface TurnUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  /**
+   * One entry per attempt when more than one model may have run, as with
+   * server-side refusal fallback. When present, it is the source of truth:
+   * the top-level counts cover only the attempt that produced the message.
+   */
+  iterations?: AttemptUsage[] | null;
+}
+
+/** A turn's cost, and the token counts it was priced from. */
+export interface TurnCost extends CostBreakdown {
+  /** Summed over every attempt, so the counts match the cost. */
+  usage: TokenUsage;
+}
+
+function tokenUsageOf(usage: Omit<AttemptUsage, "type" | "model">): TokenUsage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheCreationInputTokens: usage.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: usage.cache_read_input_tokens ?? 0,
+  };
+}
+
+/** The two models a turn's price can depend on, by wire id. */
+export interface TurnModels {
+  /** The model the request named. */
+  requested: string;
+  /** The response's `model`: who produced the message. Null when it has none. */
+  servedBy: string | null;
+}
+
+/**
+ * Maps a wire id to its card: the provider's `rateCardForModelId`. `null`
+ * asks for a model the turn does not name, and like any model with no card
+ * it gets the ceiling. That decision is the provider's, made in one place.
+ */
+export type RateCardFor = (modelId: string | null) => RateCard;
+
+/**
+ * The model the attempt at `index` in `usage.iterations` is priced as.
+ *
+ * A named attempt is priced as its own model.
+ *
+ * An unnamed attempt is the hard case. Observed live (#35): an ordinary
+ * turn with `fallbacks` on has exactly one `message` attempt, with `model:
+ * null`, and it is the requested model's. Assumed, not observed: in a turn
+ * a refusal fallback served, the first attempt is still the requested
+ * model's, because the API runs it first, whatever `servedBy` names. So an
+ * unnamed `message` attempt first in the list is priced as the requested
+ * model. Any other unnamed attempt, a later hop or a `fallback_message`,
+ * could be any model, so it is priced as no model in particular (`null`):
+ * the ceiling, rather than a card that might be too cheap.
+ */
+function attemptModel(attempt: AttemptUsage, index: number, requested: string): string | null {
+  if (attempt.model != null) return attempt.model;
+  return attempt.type === "message" && index === 0 ? requested : null;
+}
+
+/**
+ * Price one model turn by the model(s) that served it, not the one requested.
+ *
+ * With `usage.iterations`, each attempt is priced at its own model's card
+ * and the results summed: an attempt that declined mid-stream bills at
+ * normal rates and a fallback model's attempt at its own (claude-api skill,
+ * refusal section, "Billing"). Without them, or with an empty list, the turn
+ * is priced at `servedBy`, the response's `model`, or at the requested
+ * model when the turn names none.
+ *
+ * `rateCardFor` is the provider's (`RateCardFor`): which card a model gets,
+ * the ceiling included, is decided there. This module owns only arithmetic.
+ */
+export function costOfTurn(
+  usage: TurnUsage,
+  models: TurnModels,
+  rateCardFor: RateCardFor,
+  options: { cacheTtl?: CacheTtl } = {},
+): TurnCost {
+  const attempts =
+    usage.iterations && usage.iterations.length > 0
+      ? usage.iterations.map((a, index) => ({
+          rates: rateCardFor(attemptModel(a, index, models.requested)),
+          tokens: tokenUsageOf(a),
+        }))
+      : [{ rates: rateCardFor(models.servedBy ?? models.requested), tokens: tokenUsageOf(usage) }];
+
+  const total: TurnCost = {
+    inputNanos: 0,
+    outputNanos: 0,
+    cacheReadNanos: 0,
+    cacheWriteNanos: 0,
+    totalNanos: 0,
+    estimated: false,
+    longPrompt: false,
+    usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+  };
+  for (const { rates, tokens } of attempts) {
+    const cost = costOf(rates, tokens, options);
+    total.inputNanos += cost.inputNanos;
+    total.outputNanos += cost.outputNanos;
+    total.cacheReadNanos += cost.cacheReadNanos;
+    total.cacheWriteNanos += cost.cacheWriteNanos;
+    total.totalNanos += cost.totalNanos;
+    total.estimated ||= cost.estimated;
+    total.longPrompt ||= cost.longPrompt;
+    total.usage.inputTokens += tokens.inputTokens;
+    total.usage.outputTokens += tokens.outputTokens;
+    total.usage.cacheCreationInputTokens += tokens.cacheCreationInputTokens;
+    total.usage.cacheReadInputTokens += tokens.cacheReadInputTokens;
+  }
+  return total;
 }
 
 /**

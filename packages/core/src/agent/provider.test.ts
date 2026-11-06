@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ANTHROPIC_RATES } from "./cost";
+import { ANTHROPIC_RATES, FALLBACK_TARGET_RATES, UNKNOWN_MODEL_CEILING } from "./cost";
 import {
   anthropicProvider,
   createClient,
   providerFromEnv,
+  refusalFallbackFor,
   type LogicalModel,
 } from "./provider";
 
@@ -50,6 +51,74 @@ describe("rate cards carry their provenance", () => {
     expect(anthropicProvider.rateCard(model)).toBe(
       ANTHROPIC_RATES[anthropicProvider.modelId(model) as keyof typeof ANTHROPIC_RATES],
     );
+  });
+});
+
+/**
+ * A response names the model that served it by wire id, and with server-side
+ * fallback that need not be the model requested. Pricing it needs the way
+ * back from a wire id to a card, and that lookup lives here, beside the
+ * mapping it reverses.
+ */
+describe("the card for the model that served a turn", () => {
+  it.each(MODELS)("finds %s's own card from its wire id", (model) => {
+    expect(anthropicProvider.rateCardForModelId(anthropicProvider.modelId(model))).toBe(
+      anthropicProvider.rateCard(model),
+    );
+  });
+
+  /**
+   * A refusal fallback runs Opus 5.5's turns on Opus 5 or Opus 4.8, and
+   * Sonnet 5.5's on Sonnet 5. Those are wire ids a response can name, never
+   * logical models Tala requests.
+   */
+  it.each(["claude-opus-5", "claude-opus-4-8", "claude-sonnet-5"] as const)(
+    "finds the card of %s, a documented fallback target",
+    (modelId) => {
+      expect(anthropicProvider.rateCardForModelId(modelId)).toBe(FALLBACK_TARGET_RATES[modelId]);
+    },
+  );
+
+  it("books a model it has no card for at the ceiling, never at a cheaper card", () => {
+    expect(anthropicProvider.rateCardForModelId("claude-opus-4-7")).toBe(UNKNOWN_MODEL_CEILING);
+    expect(anthropicProvider.rateCardForModelId("claude-fable-5-1")).toBe(UNKNOWN_MODEL_CEILING);
+  });
+
+  it("books a missing model id, or one Object.prototype supplies, at the ceiling", () => {
+    expect(anthropicProvider.rateCardForModelId(null)).toBe(UNKNOWN_MODEL_CEILING);
+    expect(anthropicProvider.rateCardForModelId("toString")).toBe(UNKNOWN_MODEL_CEILING);
+  });
+});
+
+/**
+ * When a safety classifier declines a turn, the API can re-run it on a
+ * fallback model inside the same call, so a false positive does not cost the
+ * caller the call. The opt-in is per model and decided here, by wire id,
+ * because the streaming creator only ever sees the wire id.
+ *
+ * The claude-api skill: `fallbacks: "default"` takes the
+ * `server-side-fallback-2026-07-01` beta (the array form's `-2026-06-01`
+ * header 400s with it); Sonnet 5.5 accepts only the "default" form; Haiku 5.5
+ * has no server-side fallback, so its requests do not send it.
+ */
+describe("server-side refusal fallback", () => {
+  it.each(["sonnet", "opus"] as const)(
+    "opts %s in with fallbacks: \"default\" and the 2026-07-01 beta",
+    (model) => {
+      expect(refusalFallbackFor(anthropicProvider.modelId(model))).toEqual({
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+      });
+    },
+  );
+
+  it("never opts haiku in: Haiku 5.5 has no refusal fallback", () => {
+    expect(refusalFallbackFor(anthropicProvider.modelId("haiku"))).toBeNull();
+  });
+
+  it("opts in no model id it has no mapping for", () => {
+    expect(refusalFallbackFor("claude-opus-5")).toBeNull();
+    expect(refusalFallbackFor("toString")).toBeNull();
   });
 });
 

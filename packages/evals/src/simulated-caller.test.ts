@@ -389,6 +389,70 @@ describe("runSimulatedCall: what the caller cost", () => {
     ]);
   });
 
+  /**
+   * The caller's Sonnet calls go through the same streaming creator as
+   * Tala's, so they ask for server-side refusal fallback too (#35), and are
+   * priced by core's rules: each attempt in `usage.iterations` at its own
+   * model's card (Sonnet 5, the documented fallback target, has one), an
+   * unnamed first `message` attempt at the caller model's card. The
+   * top-level usage covers only the attempt that served.
+   */
+  it("prices a caller call a refusal fallback served by every attempt, not the top-level usage", async () => {
+    const { run } = simulate(
+      [turn([text("Salamat po!"), toolUse("end_call", DISPOSITION)])],
+      [
+        turn([text("Hello po.")], {
+          model: "claude-sonnet-5",
+          usage: {
+            ...usage(1000, 200),
+            iterations: [
+              { type: "message", model: null, input_tokens: 1000, output_tokens: 0 },
+              { type: "fallback_message", model: "claude-sonnet-5", input_tokens: 1000, output_tokens: 200 },
+            ],
+          },
+        }),
+      ],
+    );
+    const result = await run;
+
+    // Sonnet 5.5 declined: 1000 * 2000. Sonnet 5 served, at its own card:
+    // 1000 * 2000 + 200 * 10_000. That card is unverified, so: estimated.
+    expect(result.callerCalls).toEqual([
+      {
+        usage: {
+          inputTokens: 2000,
+          outputTokens: 200,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+        },
+        costNanos: 6_000_000,
+        estimated: true,
+        isError: false,
+      },
+    ]);
+  });
+
+  /** The shape the live API gives an ordinary call with `fallbacks` on. */
+  it("prices an ordinary caller call's unnamed attempt at the caller model's card", async () => {
+    const { run } = simulate(
+      [turn([text("Salamat po!"), toolUse("end_call", DISPOSITION)])],
+      [
+        turn([text("Hello po.")], {
+          model: anthropicProvider.modelId("sonnet"),
+          usage: {
+            ...usage(1000, 200),
+            iterations: [{ type: "message", model: null, input_tokens: 1000, output_tokens: 200 }],
+          },
+        }),
+      ],
+    );
+    const result = await run;
+
+    expect(result.callerCalls).toEqual([
+      expect.objectContaining({ costNanos: 4_000_000, estimated: false }),
+    ]);
+  });
+
   /** A refused turn was generated and billed, so it is counted like any other. */
   it("counts a refused caller call's usage", async () => {
     const { run } = simulate(scenarioOneTala(), [
