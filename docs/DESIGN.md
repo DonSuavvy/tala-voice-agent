@@ -1,7 +1,7 @@
 # Tala: design document
 
-**Status:** approved design (2026-11-06). Nothing is built yet. The spec and
-tickets live in this repo's GitHub Issues (Q36).
+**Status:** approved design (2026-11-06). The spec and tickets live in this
+repo's GitHub Issues (Q36): spec #1, tickets #2–#25.
 Decision numbers (Q1–Q39) point back to the design interview.
 
 ---
@@ -284,6 +284,11 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 - Public demo: capped at $20/month, which leaves about $80 for building and evals.
 
 ## 15. Build order
+
+> **Superseded (2026-11-06)** by the tickets, sub-issues #2–#25 of spec #1,
+> which carry the real order as "blocked by" links: work any ticket whose
+> blockers are all closed. The milestones below are the original sketch, kept
+> for the record. The M-numbers in §14 refer to them.
 
 Each milestone ends with a commit pushed to the public repo.
 
