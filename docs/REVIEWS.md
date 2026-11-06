@@ -327,6 +327,10 @@ call starts, so the tool most likely said 10:46 or 10:47 PM: she rounded
 earlier by a minute or two. With no rule, the model rounds on its own, and
 downward is what the dropped rule was guarding against. Main's SOP behaves
 the same. Rounding belongs in the tool's result, in code, if it is wanted.
+The dropped rule most likely came from PR #28's comment on the first text call,
+which had seen Sonnet and Haiku say 6:35 PM as "alas-sais y medya" and
+suggested it; it was not an ask from the owner. #36 moves the rounding into
+`check_area_outage`.
 
 ### Not verified
 
