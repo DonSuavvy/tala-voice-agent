@@ -224,13 +224,24 @@ export interface ResumeDecision {
   reason: string | null;
 }
 
-export type AgentLoopStatus =
-  | "completed"
-  | "awaiting_caller"
-  | "paused_for_approval"
-  | "refused"
-  | "failed"
-  | "budget_refused";
+/**
+ * Every way one loop invocation can end, as a value as well as a type.
+ *
+ * A value because the eval case schema validates against it at runtime. It
+ * used to keep its own copy, and the `satisfies` meant to keep the two in step
+ * never could: it checked each copied status existed, not that each status
+ * was copied (Tala FAILURES entry 6). One list, read by both, cannot drift.
+ */
+export const AGENT_LOOP_STATUSES = [
+  "completed",
+  "awaiting_caller",
+  "paused_for_approval",
+  "refused",
+  "failed",
+  "budget_refused",
+] as const;
+
+export type AgentLoopStatus = (typeof AGENT_LOOP_STATUSES)[number];
 
 export interface AgentLoopResult {
   status: AgentLoopStatus;
