@@ -815,6 +815,108 @@ describe("a call session — scenario 3", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* Plan changes and help questions                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Issue #16's two flows through the main seam. The call starts at 1:00 PM
+ * Manila on Fri, Nov 6; Maria is on Kidlat 300, and her billing cycle runs to
+ * Thu, Nov 12. The plan afterwards is read the way Tala reads it, with
+ * `get_account_overview`.
+ */
+describe("a call session — plan changes and help questions", () => {
+  const quoteFor = (planId: string) =>
+    toolUse("change_plan_quote", { account_number: MARIA.accountNumber, plan_id: planId });
+  const overview = () => toolUse("get_account_overview", { account_number: MARIA.accountNumber });
+  const PLAN_CHANGE = {
+    outcome: "resolved",
+    topic: "plan_change",
+    summary: "Caller asked about a faster plan and heard the price.",
+  } as const;
+
+  it("changes the plan a verified caller agreed to, after reading back its price", async () => {
+    const quote = quoteFor("kidlat-500");
+    const change = toolUse("change_plan", {
+      account_number: MARIA.accountNumber,
+      quote_id: "QTE-2026-00001",
+      customer_confirmed: true,
+    });
+    const after = overview();
+    const { session, claude, events } = newCall([
+      turn([text("Sandali lang po, let me verify your account."), verify(MARIA)]),
+      turn([text("Verified na po. Let me price that for you."), quote]),
+      turn([text("It's 2,099 pesos a month, plus 77.42 pesos on your next bill, from today. Go ahead po?")]),
+      turn([text("Changing your plan now po."), change]),
+      turn([text("Let me check your account."), after]),
+      turn([text("You're on the new plan po. Thank you for calling."), toolUse("end_call", PLAN_CHANGE)]),
+    ]);
+    session.start();
+
+    await session.callerSaid(`Pa-upgrade po sa mas mabilis. ${MARIA.accountNumber}, ${MARIA.mobileLast4}.`);
+    expect(await session.callerSaid("Yes po, go ahead.")).toBe("ended");
+
+    expect(resultFor(claude.requests, quote)).toEqual({
+      quote_id: "QTE-2026-00001",
+      current_plan: "Kidlat 300",
+      new_plan: "Kidlat 500",
+      new_monthly_price: "₱2,099.00",
+      prorated_amount: "₱77.42",
+      effective_date: "Fri, Nov 6",
+      kind: "upgrade",
+    });
+    expect(resultFor(claude.requests, change)).toEqual({
+      changed: true,
+      plan: "Kidlat 500",
+      effective_date: "Fri, Nov 6",
+    });
+    expect(resultFor(claude.requests, after)).toMatchObject({ plan: "Kidlat 500" });
+    expect(events.at(-1)).toMatchObject({ type: "call_ended", reason: "end_call" });
+  });
+
+  /** The model calls change_plan without the confirmation; the call refuses the input itself. */
+  it("refuses a change without the caller's confirmation, and the plan stays the same", async () => {
+    const change = toolUse("change_plan", {
+      account_number: MARIA.accountNumber,
+      quote_id: "QTE-2026-00001",
+      customer_confirmed: false,
+    });
+    const after = overview();
+    const { session, claude, events } = newCall([
+      turn([text("Sandali lang po, let me verify your account."), verify(MARIA)]),
+      turn([text("Verified na po. Let me price that for you."), quoteFor("kidlat-500")]),
+      turn([text("Changing your plan now po."), change]),
+      turn([text("Let me check your account."), after]),
+      turn([text("Your plan is unchanged po.")]),
+    ]);
+    session.start();
+
+    await session.callerSaid(`Magkano po ang mas mabilis? ${MARIA.accountNumber}, ${MARIA.mobileLast4}.`);
+
+    const changeSpans = events.flatMap((e) =>
+      e.type === "span" && e.span.name === "change_plan" ? [e.span] : [],
+    );
+    expect(changeSpans).toHaveLength(1);
+    expect(changeSpans[0]).toMatchObject({ type: "tool_exec", isError: true });
+    expect(JSON.stringify(claude.requests)).toMatch(/invalid arguments for change_plan: .*customer_confirmed/);
+    expect(resultFor(claude.requests, after)).toMatchObject({ plan: "Kidlat 300" });
+  });
+
+  it("answers a help question from the articles, with no verification", async () => {
+    const search = toolUse("search_knowledge_base", { query: "red LOS light" });
+    const { session, claude, events } = newCall([
+      turn([text("Sandali lang po, let me look that up."), search]),
+      turn([text("A red LOS light means no signal is reaching your modem po.")]),
+    ]);
+    session.start();
+
+    await session.callerSaid("Ano po ibig sabihin ng pulang LOS light sa modem?");
+
+    expect(resultFor(claude.requests, search)).toMatchObject({ articles: [{ id: "modem-lights" }] });
+    expect(events.some((e) => e.type === "span" && e.span.name === "verify_identity")).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Ending                                                                     */
 /* -------------------------------------------------------------------------- */
 

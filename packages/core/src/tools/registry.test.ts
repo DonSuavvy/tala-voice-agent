@@ -6,7 +6,7 @@ import { buildTalaRegistry } from "./index";
 
 /**
  * Tala's tool set, as the call session builds it. Boot validation is the
- * engine's (`agent/registry`); this pins what #5, #10 and #11 register.
+ * engine's (`agent/registry`); this pins what #5, #10, #11 and #16 register.
  */
 
 describe("buildTalaRegistry", () => {
@@ -14,13 +14,15 @@ describe("buildTalaRegistry", () => {
     expect(() => buildTalaRegistry()).not.toThrow();
   });
 
-  it("holds exactly the tools #5, #10 and #11 add", () => {
+  it("holds exactly the tools #5, #10, #11 and #16 add", () => {
     const names = buildTalaRegistry()
       .list()
       .map((tool) => tool.name);
 
     expect(names.sort()).toEqual([
       "book_technician_visit",
+      "change_plan",
+      "change_plan_quote",
       "check_area_outage",
       "create_trouble_ticket",
       "end_call",
@@ -29,6 +31,7 @@ describe("buildTalaRegistry", () => {
       "get_technician_slots",
       "remote_reboot_modem",
       "run_line_diagnostics",
+      "search_knowledge_base",
       "send_sms",
       "verify_identity",
       "verify_payment",
@@ -50,10 +53,13 @@ describe("buildTalaRegistry", () => {
       verify_payment: "read",
       run_line_diagnostics: "read",
       get_technician_slots: "read",
+      change_plan_quote: "read",
+      search_knowledge_base: "read",
       create_trouble_ticket: "auto_write",
       remote_reboot_modem: "auto_write",
       book_technician_visit: "auto_write",
       send_sms: "auto_write",
+      change_plan: "auto_write",
       end_call: "auto_write",
     });
   });
@@ -80,12 +86,13 @@ describe("buildTalaRegistry", () => {
 
 /**
  * The account gate, across the whole registry: every tool but the one that
- * verifies and the one that ends the call refuses before verification. A new
+ * verifies, the one that ends the call and the help-article search refuses
+ * before verification. A new
  * tool has to be given a valid input here, so nobody adds an account tool
  * without the gate being checked.
  */
 describe("the account gate, on every account tool", () => {
-  const NOT_ACCOUNT_TOOLS = ["verify_identity", "end_call"];
+  const NOT_ACCOUNT_TOOLS = ["verify_identity", "end_call", "search_knowledge_base"];
   const VALID_INPUT: Record<string, unknown> = {
     check_area_outage: { account_number: "8012345601" },
     get_account_overview: { account_number: "8012345601" },
@@ -100,6 +107,12 @@ describe("the account gate, on every account tool", () => {
       account_number: "8012345601",
       slot_id: "batasan-hills-1",
       ticket_reference: "TKT-2026-00001",
+    },
+    change_plan_quote: { account_number: "8012345601", plan_id: "kidlat-500" },
+    change_plan: {
+      account_number: "8012345601",
+      quote_id: "QTE-2026-00001",
+      customer_confirmed: true,
     },
   };
 
@@ -118,4 +131,16 @@ describe("the account gate, on every account tool", () => {
       );
     },
   );
+});
+
+describe("the help-article search, outside the gate", () => {
+  /** Help articles hold nothing about any account, so no verification is asked for. */
+  it("answers a caller nobody has verified", async () => {
+    const search = buildTalaRegistry().get("search_knowledge_base");
+    expect(search, "search_knowledge_base is registered").toBeDefined();
+
+    await expect(
+      search!.handler(search!.input.parse({ query: "modem lights" }), testToolContext(testSystems())),
+    ).resolves.toMatchObject({ articles: [{ id: "modem-lights" }] });
+  });
 });
