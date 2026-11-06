@@ -118,8 +118,9 @@ describe("the Kidlat Fiber pack", () => {
 
       for (const { id, title, body } of help) {
         const text = `${title} ${body}`;
-        expect(text.replace(/7-Eleven/g, ""), id).not.toMatch(/\d/);
-        expect(text, id).not.toMatch(
+        const unnamed = text.replace(/7-Eleven/g, "");
+        expect(unnamed, id).not.toMatch(/\d/);
+        expect(unnamed, id).not.toMatch(
           /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i,
         );
         expect(text, id).not.toMatch(/₱|peso/i);

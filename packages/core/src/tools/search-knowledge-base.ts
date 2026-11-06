@@ -16,8 +16,8 @@ import { defineTalaTool } from "./context";
 export const searchKnowledgeBase = defineTalaTool({
   name: "search_knowledge_base",
   description:
-    "Searches the company's help articles for a general how-to question, such as what a light " +
-    "on the modem means or how to change the Wi-Fi password. It needs no verification: the " +
+    "Searches the company's help articles for a general how-to question, such as how to change " +
+    "the Wi-Fi password or where to pay a bill. It needs no verification: the " +
     "articles hold nothing about any account. Pass the question in a few key words, in the " +
     "caller's own words, Tagalog included. Returns up to " +
     String(MAX_HELP_RESULTS) +
