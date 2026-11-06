@@ -1,0 +1,16 @@
+{
+  "slug": "help-modem-lights",
+  "title": "Help question: what a red LOS light on the modem means, answered from the help articles",
+  "caller": {
+    "brief": "You are a Kidlat Fiber customer calling the hotline with a general question. This morning the LOS light on your modem was blinking red for a while. It is back to normal now and your internet works, but you want to know what a red LOS light means and what you should do if it happens again. You speak Taglish, mostly English with some Tagalog mixed in, the way many callers in Metro Manila do. Do not give your name or any account details unless the agent asks for them; if the agent asks, say you only have a general question and do not have your account number with you. Listen to what the agent tells you; if the agent gives you one step at a time, say okay and ask what comes next. You are satisfied once the agent has told you what a red LOS light means and what to do about it. Then thank the agent and say goodbye.",
+    "maxTurns": 8
+  },
+  "expect": {
+    "endedBy": "end_call",
+    "toolsCalled": ["search_knowledge_base", "end_call"],
+    "saidMentions": ["bent"],
+    "disposition": { "topic": "help" },
+    "noAccountDataBeforeVerification": true,
+    "speaksBeforeEveryToolCall": true
+  }
+}

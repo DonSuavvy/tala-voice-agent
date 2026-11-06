@@ -1,0 +1,16 @@
+{
+  "slug": "scenario-plan-upgrade-declined",
+  "title": "Plan change: an upgrade to Kidlat 300, priced and declined, the plan kept",
+  "caller": {
+    "brief": "You are Jose Dela Cruz, a Kidlat Fiber customer in Commonwealth, Quezon City. You are thinking about moving to the Kidlat 300 plan, and you want to know what it would cost before you decide. Your call is only about the plan: do not bring up your bill, a payment or any problem with your internet. You speak Taglish, mostly English with some Tagalog mixed in, the way many callers in Metro Manila do. You know your Kidlat Fiber account number, 8012345602, and the last four digits of the mobile number registered on the account, 0102; give them when the agent asks for them. Once the agent has told you the price, decide that it is more than you want to spend right now, and say you will keep your current plan for now. Do not agree to any change, even if the agent asks again. You are satisfied once the agent has told you the price and you have said you will keep your plan. Then thank the agent and say goodbye.",
+    "maxTurns": 8
+  },
+  "expect": {
+    "endedBy": "end_call",
+    "toolsCalledInOrder": ["verify_identity", "change_plan_quote", "end_call"],
+    "toolsNever": ["change_plan"],
+    "disposition": { "outcome": "resolved", "topic": "plan_change" },
+    "noAccountDataBeforeVerification": true,
+    "speaksBeforeEveryToolCall": true
+  }
+}
