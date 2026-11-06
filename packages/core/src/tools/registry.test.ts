@@ -23,6 +23,7 @@ describe("buildTalaRegistry", () => {
       .map((tool) => tool.name);
 
     expect(names.sort()).toEqual([
+      "book_technician_visit",
       "check_area_outage",
       "create_trouble_ticket",
       "end_call",
@@ -54,6 +55,7 @@ describe("buildTalaRegistry", () => {
       get_technician_slots: "read",
       create_trouble_ticket: "auto_write",
       remote_reboot_modem: "auto_write",
+      book_technician_visit: "auto_write",
       send_sms: "auto_write",
       end_call: "auto_write",
     });
@@ -97,6 +99,11 @@ describe("the account gate, on every account tool", () => {
     run_line_diagnostics: { account_number: "8012345601" },
     remote_reboot_modem: { account_number: "8012345601" },
     get_technician_slots: { account_number: "8012345601" },
+    book_technician_visit: {
+      account_number: "8012345601",
+      slot_id: "batasan-hills-1",
+      ticket_reference: "TKT-2026-00001",
+    },
   };
 
   const accountTools = buildTalaRegistry()

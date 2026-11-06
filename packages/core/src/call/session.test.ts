@@ -708,6 +708,113 @@ describe("a call session — a remote reboot's wait", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* Scenario 3                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** The JSON result Claude was sent for one tool call, read from the last request. */
+function resultFor(requests: MessageCreateParams[], call: ContentBlock): unknown {
+  const { id } = call as ToolUseBlock;
+  for (const message of requests[requests.length - 1].messages) {
+    if (message.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === "tool_result" && block.tool_use_id === id) {
+        const result = block as ToolResultBlock;
+        if (result.is_error) throw new Error(`${id} failed: ${result.content}`);
+        return JSON.parse(result.content) as unknown;
+      }
+    }
+  }
+  throw new Error(`no result for ${id}`);
+}
+
+/**
+ * Scenario 3, slow internet, through the session with a scripted Claude:
+ * diagnostics, a reboot that does not clear the fault, a ticket, the
+ * technician's windows, a booking against the ticket and a text. The reboot
+ * waits through the session's wait.
+ */
+describe("a call session — scenario 3", () => {
+  it("takes a verified San Antonio caller from diagnostics to a booked visit and a text", async () => {
+    const diagnose = toolUse("run_line_diagnostics", { account_number: ANA.accountNumber });
+    const reboot = rebootModem(ANA.accountNumber);
+    const ticket = toolUse("create_trouble_ticket", {
+      category: "connection",
+      notes: "High signal loss on the fiber line; a remote reboot did not clear it.",
+    });
+    const slots = toolUse("get_technician_slots", { account_number: ANA.accountNumber });
+    const booking = toolUse("book_technician_visit", {
+      account_number: ANA.accountNumber,
+      slot_id: "san-antonio-1",
+      ticket_reference: "TKT-2026-00001",
+    });
+    const sms = toolUse("send_sms", {
+      message: "Kidlat Fiber: technician visit VIS-2026-00001, Sat, Nov 7, 9 AM to 12 PM, ticket TKT-2026-00001.",
+    });
+    const waits: number[] = [];
+    const { session, claude, events } = newCall(
+      [
+        turn([text("Sandali lang po, let me verify your account."), verify(ANA)]),
+        turn([text("Verified na po kayo. Let me check your line."), diagnose]),
+        turn([text("There's signal loss on your line po. May I restart your modem remotely?")]),
+        turn([text("Restarting your modem now po."), reboot]),
+        turn([text("The signal loss is still there po. I'll open a ticket."), ticket]),
+        turn([text("Let me check when a technician can visit."), slots]),
+        turn([text("I have Saturday morning or Saturday afternoon po. Which works for you?")]),
+        turn([text("Booking the Saturday morning visit po."), booking]),
+        turn([text("Booked na po. Would you like the booking reference by text?")]),
+        turn([text("Sending it now po."), sms]),
+        turn([
+          text("You're welcome po. Thank you for calling."),
+          toolUse("end_call", {
+            outcome: "resolved",
+            topic: "slow_internet",
+            summary: "Slow internet from signal loss a reboot did not clear; technician visit booked.",
+          }),
+        ]),
+      ],
+      {
+        wait: (ms) => {
+          waits.push(ms);
+          return Promise.resolve();
+        },
+      },
+    );
+    session.start();
+
+    await session.callerSaid(`Ang bagal po ng internet. ${ANA.accountNumber}, ${ANA.mobileLast4}.`);
+    await session.callerSaid("Sige po.");
+    await session.callerSaid("Yung first one po.");
+    expect(await session.callerSaid("Yes po, salamat.")).toBe("ended");
+
+    expect(waits).toEqual([90_000]);
+    expect(resultFor(claude.requests, diagnose)).toMatchObject({
+      fault: "high signal loss on the fiber line",
+      reboot_may_clear: true,
+    });
+    expect(resultFor(claude.requests, reboot)).toMatchObject({
+      rebooted: true,
+      fault: "high signal loss on the fiber line",
+    });
+    expect(resultFor(claude.requests, ticket)).toEqual({ created: true, reference: "TKT-2026-00001" });
+    expect(resultFor(claude.requests, slots)).toMatchObject({
+      slots: [{ slot_id: "san-antonio-1", window: "Sat, Nov 7, 9:00 AM to 12:00 PM" }, {}, {}, {}],
+    });
+    expect(resultFor(claude.requests, booking)).toEqual({
+      booked: true,
+      booking_reference: "VIS-2026-00001",
+      window: "Sat, Nov 7, 9:00 AM to 12:00 PM",
+    });
+    expect(resultFor(claude.requests, sms)).toEqual({ sent: true, to_last4: "0103" });
+    expect(events.at(-1)).toMatchObject({
+      type: "call_ended",
+      reason: "end_call",
+      disposition: { outcome: "resolved", topic: "slow_internet" },
+      verifiedAccount: ANA.accountNumber,
+    });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Ending                                                                     */
 /* -------------------------------------------------------------------------- */
 
