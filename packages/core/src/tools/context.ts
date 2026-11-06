@@ -5,7 +5,6 @@
 import type { z } from "zod";
 
 import type { ToolContext, ToolDefinition } from "../agent/registry";
-import type { HelpArticle } from "../pack/help-articles";
 import type { Plan } from "../pack/plan-catalog";
 import type { IdentityState } from "../policy/identity";
 import type { SupportPolicy } from "../policy/support-policy";
@@ -19,8 +18,6 @@ export interface CallData {
   company: { timeZone: string; locale: string; currency: string };
   /** The company pack's plan catalog: the plans the SOP names, and what each costs a month. */
   plans: readonly Plan[];
-  /** The company pack's help articles, in catalog order. They hold nothing about any account. */
-  helpArticles: readonly HelpArticle[];
   /**
    * When the call started, from the session's clock. A ticket "opened on this
    * call" or a quote "made on this call" is one opened or made at or after

@@ -1,15 +1,15 @@
 /**
  * `search_knowledge_base`: find the company's help articles that answer a
- * general how-to question.
+ * general how-to question, through the business systems' knowledge base.
  *
  * Not behind the account gate: help articles are public and hold nothing
- * about any account, so a caller needs no verification to hear one. The
- * ranking is `rankHelpArticles`, over the company pack's articles.
+ * about any account, so a caller needs no verification to hear one.
  */
 import { z } from "zod";
 
+import { MAX_HELP_RESULTS } from "../systems/types";
+
 import { defineTalaTool } from "./context";
-import { MAX_HELP_RESULTS, rankHelpArticles } from "./rank-help-articles";
 
 export const searchKnowledgeBase = defineTalaTool({
   name: "search_knowledge_base",
@@ -33,12 +33,14 @@ export const searchKnowledgeBase = defineTalaTool({
     .strict(),
   safetyClass: "read",
   idempotent: true,
-  handler: (input, ctx) =>
-    Promise.resolve({
-      articles: rankHelpArticles(ctx.data.helpArticles, input.query).map((article) => ({
+  handler: async (input, ctx) => {
+    const found = await ctx.data.systems.knowledgeBase.search(input.query);
+    return {
+      articles: found.map((article) => ({
         id: article.id,
         title: article.title,
         text: article.body,
       })),
-    }),
+    };
+  },
 });

@@ -45,14 +45,17 @@ export function testSystems(
   world: SeedWorld = testWorld(),
   startedAt: Date = CALL_STARTED_AT,
 ): InMemorySystems {
-  return createInMemorySystems({ world, plans: testPlans() }, startedAt, TEST_COMPANY.timeZone);
+  return createInMemorySystems(
+    { world, plans: testPlans(), help: testHelpArticles() },
+    startedAt,
+    TEST_COMPANY.timeZone,
+  );
 }
 
 /**
  * A tool context for one test call that started at `CALL_STARTED_AT`: nobody
- * verified yet, the test company, its plans and help articles, the test
- * policy, and a wait that resolves at once unless one is given. `now` defaults
- * to the call's start.
+ * verified yet, the test company, its plans, the test policy, and a wait that
+ * resolves at once unless one is given. `now` defaults to the call's start.
  */
 export function testToolContext(
   systems: BusinessSystems,
@@ -68,7 +71,6 @@ export function testToolContext(
       identity: initialIdentityState(),
       company: { ...TEST_COMPANY },
       plans: testPlans(),
-      helpArticles: helpArticlesSchema.parse(testHelpFiles()),
       startedAt: CALL_STARTED_AT,
       wait: options.wait ?? noWait,
     },

@@ -1,5 +1,6 @@
 /**
- * Ranking a company pack's help articles against what the caller asked.
+ * Ranking a company pack's help articles against what the caller asked: how
+ * the in-memory knowledge base searches (`./in-memory`).
  *
  * A plain term score, so the order can be worked out by hand: text is
  * lowercased and stripped of punctuation, then split into words. Each
@@ -12,8 +13,7 @@
  */
 import type { HelpArticle } from "../pack/help-articles";
 
-/** How many articles a search gives at most. */
-export const MAX_HELP_RESULTS = 3;
+import { MAX_HELP_RESULTS } from "./types";
 
 /** What a word scores in each part of an article. A title above the tags, the tags above the body. */
 const WEIGHTS = { title: 3, tags: 2, body: 1 } as const;

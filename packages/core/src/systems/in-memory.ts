@@ -18,9 +18,11 @@
  * Everything handed out is a copy, so a caller that mutates a result changes
  * nothing stored.
  */
+import type { HelpArticle } from "../pack/help-articles";
 import type { Plan } from "../pack/plan-catalog";
 
 import type { SeedWorld } from "./seed-world";
+import { rankHelpArticles } from "./rank-help-articles";
 import { slotWindow } from "./slot-window";
 import { MINUTE_MS, SECOND_MS } from "./time-units";
 import type {
@@ -71,6 +73,8 @@ export interface InMemorySource {
   world: SeedWorld;
   /** The plan catalog the seed's plan names are resolved against. */
   plans: readonly Plan[];
+  /** The help articles the knowledge base searches, in knowledge base order. */
+  help: readonly HelpArticle[];
 }
 
 /**
@@ -336,6 +340,9 @@ export function createInMemorySystems(
     return change ? { ...change, effectiveAt: new Date(change.effectiveAt) } : null;
   };
 
+  const searchHelp = (query: string): HelpArticle[] =>
+    rankHelpArticles(source.help, query).map((article) => ({ ...article, tags: [...article.tags] }));
+
   // Every real implementation is a network call, so these are async. Wrapping
   // in a promise (rather than an async body) turns a throw into a rejection.
   const later = <T>(work: () => T): Promise<T> => Promise.resolve().then(work);
@@ -374,6 +381,7 @@ export function createInMemorySystems(
       applyQuote: (n, reference, appliedAt) => later(() => applyQuote(n, reference, appliedAt)),
       scheduledChange: (n) => later(() => scheduledChange(n)),
     },
+    knowledgeBase: { search: (query) => later(() => searchHelp(query)) },
     openedTickets: () => tickets.map((t) => ({ ...t, openedAt: new Date(t.openedAt) })),
     outbox: () => outbox.map((m) => ({ ...m })),
     bookedVisits: () => visits.map((v) => ({ ...v })),

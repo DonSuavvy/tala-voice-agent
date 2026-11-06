@@ -18,8 +18,10 @@
  * diagnosis and remote reboots to the network side, a ticket lookup, and the
  * field-service side, and changed one member: `createTicket` is told when the
  * ticket is opened, so a ticket can be checked as opened on the call. #16 adds
- * the plan-change side: quotes, and the plan changes made with them.
+ * the plan-change side: quotes, and the plan changes made with them, and the
+ * knowledge base: the company's help articles, searched.
  */
+import type { HelpArticle } from "../pack/help-articles";
 
 /** Where an account's line is: the unit outages are declared against. */
 export interface ServiceArea {
@@ -305,6 +307,18 @@ export interface PlanChanges {
   scheduledChange(accountNumber: string): Promise<ScheduledPlanChange | null>;
 }
 
+/** How many articles a knowledge-base search gives at most. */
+export const MAX_HELP_RESULTS = 3;
+
+/** The knowledge base: the company's help articles, which hold nothing about any account. */
+export interface KnowledgeBase {
+  /**
+   * The articles that best answer this question, best first, at most
+   * `MAX_HELP_RESULTS`. Empty when none matches. Copies.
+   */
+  search(query: string): Promise<HelpArticle[]>;
+}
+
 export interface SmsMessage {
   /** E.164, e.g. `+639175550102`. */
   to: string;
@@ -328,4 +342,5 @@ export interface BusinessSystems {
   sms: SmsGateway;
   fieldService: FieldService;
   plans: PlanChanges;
+  knowledgeBase: KnowledgeBase;
 }
