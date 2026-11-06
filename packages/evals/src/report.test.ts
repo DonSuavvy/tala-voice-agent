@@ -244,6 +244,7 @@ describe("buildReport", () => {
       ranAt: RAN_AT,
       pin: PIN,
       gitSha: "3913f4a0000000000000000000000000000000ab",
+      gitDirty: true,
       callerModel: "sonnet",
       graderModel: "sonnet",
       rows,
@@ -265,6 +266,7 @@ describe("buildReport", () => {
         model: "sonnet",
         modelId: "model-id-for-sonnet",
         gitSha: "3913f4a0000000000000000000000000000000ab",
+        gitDirty: true,
       },
       models: { caller: "sonnet", grader: "sonnet" },
     });

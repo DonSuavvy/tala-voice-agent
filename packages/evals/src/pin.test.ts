@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { promptVersion, resolveGitSha } from "./pin";
+import { promptVersion, resolveGitDirty, resolveGitSha } from "./pin";
 
 /**
  * OpsPilot's plan: "Every eval run pinned to (SOP version, prompt version, model, git
@@ -103,5 +103,33 @@ describe("resolveGitSha", () => {
 
   it("returns null when there is no exec to fall back to", () => {
     expect(resolveGitSha({})).toBeNull();
+  });
+});
+
+/**
+ * Whether the working tree had changes the commit does not hold. Without it a
+ * pin names a commit that did not contain what ran: a report from a run with
+ * an uncommitted SOP fix would pin the commit before the fix.
+ */
+describe("resolveGitDirty", () => {
+  it("is false when git status lists nothing", () => {
+    expect(resolveGitDirty(() => "")).toBe(false);
+    expect(resolveGitDirty(() => "\n")).toBe(false);
+  });
+
+  it("is true when git status lists any change", () => {
+    expect(resolveGitDirty(() => " M packages/packs/kidlat-fiber/sop/v1.md\n")).toBe(true);
+  });
+
+  it("is null rather than throwing when git is not available", () => {
+    expect(
+      resolveGitDirty(() => {
+        throw new Error("not a git repository");
+      }),
+    ).toBeNull();
+  });
+
+  it("is null when there is no exec", () => {
+    expect(resolveGitDirty()).toBeNull();
   });
 });

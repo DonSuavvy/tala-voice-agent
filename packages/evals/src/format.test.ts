@@ -107,6 +107,7 @@ const PIN = {
   model: "sonnet",
   modelId: "model-id-for-sonnet",
   gitSha: "3913f4a0000000000000000000000000000000ab",
+  gitDirty: false,
 };
 
 const BEFORE: DiffableReport = {
@@ -209,9 +210,33 @@ describe("formatDiff", () => {
       "    - maxModelCalls (was passed)",
     ]);
   });
+
+  /** A pin names a commit exactly only when the tree held nothing uncommitted. */
+  it("marks a run from a dirty tree, and counts a change in that as a pin change", () => {
+    const before: DiffableReport = { ...BEFORE, pin: { ...PIN, gitDirty: true } };
+    const after: DiffableReport = {
+      ...BEFORE,
+      ranAt: "2026-11-06T10:00:00.000Z",
+      pin: { ...PIN, gitDirty: null },
+    };
+
+    expect(formatDiff(before, after).split("\n").slice(0, 3)).toEqual([
+      "before: 2026-11-06T08:30:05.123Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git 3913f4a (dirty)",
+      "after:  2026-11-06T10:00:00.000Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git 3913f4a (dirty unknown)",
+      "pin changes: dirty",
+    ]);
+  });
 });
 
 describe("parseReport", () => {
+  /** Reports written before the pin recorded a dirty tree say nothing about it. */
+  it("reads a report from before the dirty flag as dirty unknown", () => {
+    const oldPin = Object.fromEntries(Object.entries(PIN).filter(([key]) => key !== "gitDirty"));
+    const old = JSON.parse(JSON.stringify({ format: 1, ...BEFORE, pin: oldPin })) as unknown;
+
+    expect(parseReport(old, "old.json").pin.gitDirty).toBeNull();
+  });
+
   it("reads what the diff needs from a report file's JSON", () => {
     const fileJson = JSON.parse(
       JSON.stringify({ format: 1, masking: "none (#10)", ...BEFORE, cost: {}, models: {} }),
