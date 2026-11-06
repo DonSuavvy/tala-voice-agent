@@ -103,10 +103,13 @@ export type CallEvent =
   | { type: "awaiting_caller" }
   /**
    * The caller talked over Tala and her turn has stopped. `heard` is what
-   * they heard of the model turn that was streaming, as `interrupt()` was
-   * told it or by default every delta emitted before it was called.
+   * the call kept of the model turn that was streaming: what `interrupt()`
+   * was told, or by default every delta emitted before it was called.
+   * `mismatchedHeard` is there only when `interrupt()` was told a heard text
+   * that does not match what Tala said: it holds that text, and `heard` is
+   * then the default.
    */
-  | { type: "interrupted"; heard: string }
+  | { type: "interrupted"; heard: string; mismatchedHeard?: string }
   | {
       type: "call_ended";
       reason: CallEndReason;
@@ -161,13 +164,16 @@ export interface CallSession {
    */
   callerSaid(text: string): Promise<TurnEnd>;
   /**
-   * The caller talked over Tala. Stops her running turn and resolves once it
-   * has settled, when the next `callerSaid()` is taken at once.
+   * The caller talked over Tala. Always stops her running turn, and resolves
+   * once it has settled, when the next `callerSaid()` is taken at once.
    *
    * `heard` is what the caller actually heard of the model turn now
    * streaming. It defaults to every `speech_delta` emitted in that turn
-   * before this call, and must be a prefix of them, surrounding whitespace
-   * aside; anything else is rejected and the turn runs on. The conversation
+   * before this call. It is matched against those deltas with whitespace
+   * left out, since a transport reports what was heard with its own spacing
+   * and two text blocks stream with nothing between them. A heard text that
+   * does not match is not trusted: the default is kept instead, and the
+   * `interrupted` event reports it as `mismatchedHeard`. The conversation
    * keeps only the heard part of that turn. A turn whose tools are already
    * running keeps the words it streamed: its tools may have acted, so
    * nothing in it is cut, and `heard` is only reported.
@@ -192,32 +198,51 @@ function isSpokenText(block: ContentBlock): block is TextBlock {
 interface RunningTurn {
   controller: AbortController;
   /**
-   * Set by `interrupt()`: what the caller heard, and of which model call.
-   * `modelCall` is null when no model call was streaming then.
+   * Set by `interrupt()`: what the call keeps as heard, the heard text it
+   * was told if that did not match, and which model call was streaming.
+   * `modelCall` is null when none was.
    */
-  interruption: { heard: string; modelCall: number | null } | null;
+  interruption: {
+    heard: string;
+    mismatchedHeard: string | null;
+    modelCall: number | null;
+  } | null;
   /** Resolves once the turn is over and the next caller turn can be taken. */
   settled: Promise<void>;
 }
 
-/** Whether `heard` is how `said` began, surrounding whitespace aside. */
+const WHITESPACE = /\s/;
+
+/** What heard texts are compared on: everything but whitespace. */
+function withoutWhitespace(text: string): string {
+  return text.replace(/\s+/g, "");
+}
+
+/**
+ * Whether `heard` is how `said` began. Whitespace is not compared: a
+ * transport reports what was heard with its own spacing, and two text blocks
+ * stream as one run of deltas with nothing between them.
+ */
 function isHeardPrefix(heard: string, said: string): boolean {
-  return said.trimStart().startsWith(heard.trim());
+  return withoutWhitespace(said).startsWith(withoutWhitespace(heard));
 }
 
 /**
  * A model turn the caller talked over, kept only as far as they heard it.
  *
- * Text blocks are kept while `heard` covers them. Where it stops inside a
- * text block, that block is cut there and every block after it is dropped:
- * thinking, text and tool calls alike. A signed thinking block binds
- * everything before it, so one must never follow text that was cut; and a
- * tool call Tala never got to announce has not run, so it goes with the words.
- * Blocks after text heard in full stay as they came, and the loop answers any
- * tool call among them "Not run".
+ * `heard` is matched against the turn's text blocks in order, whitespace
+ * aside. Text blocks are kept while it covers them. Where it stops inside a
+ * text block, that block is cut right after the last character heard, in
+ * Tala's own text, and every block after it is dropped: thinking, text and
+ * tool calls alike. A signed thinking block binds everything before it, so
+ * one must never follow text that was cut; and a tool call Tala never got to
+ * announce has not run, so it goes with the words. Blocks after text heard in
+ * full stay as they came, and the loop answers any tool call among them
+ * "Not run".
  */
 function keepHeard(content: ContentBlock[], heard: string): ContentBlock[] {
-  let rest = heard.trim();
+  const wanted = withoutWhitespace(heard);
+  let matched = 0;
   const kept: ContentBlock[] = [];
 
   for (const block of content) {
@@ -225,22 +250,24 @@ function keepHeard(content: ContentBlock[], heard: string): ContentBlock[] {
       kept.push(block);
       continue;
     }
-    const text = block.text;
-    const body = text.trim();
-    rest = rest.trimStart();
+    // Heard ran out before this block: the cut falls at its start.
+    if (matched === wanted.length) break;
 
-    const heardInFull = body === "" ? rest !== "" : rest.startsWith(body);
-    if (heardInFull) {
+    const text = block.text;
+    let end = 0;
+    for (let i = 0; i < text.length && matched < wanted.length; i += 1) {
+      if (WHITESPACE.test(text[i])) continue;
+      if (text[i] !== wanted[matched]) break;
+      matched += 1;
+      end = i + 1;
+    }
+
+    if (withoutWhitespace(text.slice(end)) === "") {
       kept.push(block);
-      rest = rest.slice(body.length);
       continue;
     }
-
     // The cut falls in this block. Whatever of it was heard stays.
-    if (rest !== "" && body.startsWith(rest)) {
-      const lead = text.length - text.trimStart().length;
-      kept.push({ ...block, text: text.slice(0, lead + rest.length) });
-    }
+    if (end > 0) kept.push({ ...block, text: text.slice(0, end) });
     break;
   }
   return kept;
@@ -432,15 +459,16 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       if (turn === null) return;
 
       if (turn.interruption === null) {
+        // Tala always stops. A heard text that does not match what she said
+        // is not trusted: the call keeps what had streamed, and says so.
         const said = streamed.join("");
-        const kept = heard ?? said;
-        if (!isHeardPrefix(kept, said)) {
-          throw new Error(
-            `call session: heard ${JSON.stringify(kept)} is not a prefix of what Tala ` +
-              `has said in this turn (${JSON.stringify(said)})`,
-          );
-        }
-        turn.interruption = { heard: kept, modelCall: streaming };
+        const reported = heard ?? said;
+        const matches = isHeardPrefix(reported, said);
+        turn.interruption = {
+          heard: matches ? reported : said,
+          mismatchedHeard: matches ? null : reported,
+          modelCall: streaming,
+        };
         turn.controller.abort();
       }
       await turn.settled;
@@ -497,7 +525,13 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       case "interrupted":
         // The conversation already holds only what the caller heard. The
         // call stays open: their next words are the next caller turn.
-        onEvent({ type: "interrupted", heard: turn.interruption?.heard ?? "" });
+        onEvent({
+          type: "interrupted",
+          heard: turn.interruption?.heard ?? "",
+          ...(turn.interruption?.mismatchedHeard != null
+            ? { mismatchedHeard: turn.interruption.mismatchedHeard }
+            : {}),
+        });
         return "interrupted";
       case "completed":
         // The loop parsed this with end_call's own schema already; parsing
