@@ -3,9 +3,11 @@
  * with its download speed and monthly price.
  *
  * The pack's JSON is checked against `planCatalogSchema` at boot, like the
- * rest of the pack. An account names its plan by the plan's name, as the
- * caller knows it; `loadPack` checks that every account's plan is in the
- * catalog. Money is whole minor units, as everywhere.
+ * rest of the pack. A seeded account names its plan by the plan's name, as
+ * the caller knows it; `loadPack` checks that every account's plan is in the
+ * catalog, and the in-memory world resolves each name to the plan's id once,
+ * so plans are matched by id everywhere after. Money is whole minor units, as
+ * everywhere.
  *
  * The SOP states the catalog through `{{planCatalog}}`, so the plans Tala can
  * name are the plans the pack ships, never typed text.
@@ -61,6 +63,17 @@ export const planCatalogSchema = z
       });
     }
   });
+
+/**
+ * The plan in the catalog with this id. Throws when there is none: a plan
+ * id the business systems hold that the pack's catalog lacks cannot be named
+ * or priced.
+ */
+export function planWithId(plans: readonly Plan[], id: string): Plan {
+  const plan = plans.find((p) => p.id === id);
+  if (!plan) throw new Error(`plan "${id}" is not in the plan catalog`);
+  return plan;
+}
 
 /**
  * The catalog as the SOP states it: one line per plan, with its name, its

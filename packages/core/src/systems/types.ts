@@ -40,8 +40,8 @@ export interface AccountRecord {
   /** E.164, e.g. `+639175550101`. Identity is checked against its last 4 digits. */
   registeredMobile: string;
   status: AccountStatus;
-  /** As the caller knows it, e.g. `Kidlat 300`: the name of a plan in the pack's catalog. */
-  planName: string;
+  /** The id of the account's plan in the company's plan catalog, e.g. `kidlat-300`. */
+  planId: string;
   serviceArea: ServiceArea;
 }
 
@@ -244,10 +244,10 @@ export interface FieldService {
 export interface NewPlanQuote {
   /** Normalized. */
   accountNumber: string;
-  /** The plan the account was on when the change was priced. */
-  currentPlanName: string;
-  /** The plan the change moves the account to. */
-  newPlanName: string;
+  /** The id of the plan the account was on when the change was priced. */
+  currentPlanId: string;
+  /** The id of the plan the change moves the account to. */
+  newPlanId: string;
   /** The new plan's monthly price, in minor units. */
   newMonthlyPriceMinor: number;
   /** Added to the next bill, in minor units. */
@@ -268,8 +268,8 @@ export interface PlanQuoteRecord extends NewPlanQuote {
 
 /** A plan change made on an account that takes effect later. */
 export interface ScheduledPlanChange {
-  /** The plan the account moves to. */
-  planName: string;
+  /** The id of the plan the account moves to. */
+  planId: string;
   /** When it moves. */
   effectiveAt: Date;
 }

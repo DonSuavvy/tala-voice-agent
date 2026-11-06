@@ -18,6 +18,8 @@
  * Everything handed out is a copy, so a caller that mutates a result changes
  * nothing stored.
  */
+import type { Plan } from "../pack/plan-catalog";
+
 import type { SeedWorld } from "./seed-world";
 import { slotWindow } from "./slot-window";
 import { MINUTE_MS, SECOND_MS } from "./time-units";
@@ -67,6 +69,8 @@ export interface InMemorySystems extends BusinessSystems {
 export interface InMemorySource {
   /** The seed world every call starts from a fresh copy of. */
   world: SeedWorld;
+  /** The plan catalog the seed's plan names are resolved against. */
+  plans: readonly Plan[];
 }
 
 /**
@@ -86,6 +90,21 @@ export function createInMemorySystems(
   const visits: BookedVisit[] = [];
   const quotes: PlanQuoteRecord[] = [];
   const scheduled = new Map<string, ScheduledPlanChange>();
+
+  // Each account's plan, by id. The seed names plans as callers know them;
+  // the pack's boot check makes every name a catalog plan, and the world
+  // resolves them once, here, so everything after compares ids.
+  const planIdOf = new Map(source.plans.map((plan) => [plan.name, plan.id]));
+  const accountPlans = new Map<string, string>();
+  for (const account of world.accounts) {
+    const planId = planIdOf.get(account.planName);
+    if (planId === undefined) {
+      throw new Error(
+        `account ${account.accountNumber} names unknown plan "${account.planName}"`,
+      );
+    }
+    accountPlans.set(account.accountNumber, planId);
+  }
   const minutesFromStart = (minutes: number) =>
     new Date(callStartedAt.getTime() + minutes * MINUTE_MS);
 
@@ -105,7 +124,8 @@ export function createInMemorySystems(
       holderName: account.holderName,
       registeredMobile: account.registeredMobile,
       status: account.status,
-      planName: account.planName,
+      // Set for every account above, so never undefined here.
+      planId: accountPlans.get(account.accountNumber)!,
       serviceArea: {
         barangayId: barangay.id,
         barangayName: barangay.name,
@@ -298,16 +318,15 @@ export function createInMemorySystems(
 
   const applyQuote = (accountNumber: string, reference: string, appliedAt: Date): void => {
     const quote = quoteOf(accountNumber, reference);
-    const account = world.accounts.find((a) => a.accountNumber === accountNumber);
-    if (!quote || quote.used || !account) {
+    if (!quote || quote.used || !accountPlans.has(accountNumber)) {
       throw new Error(`quote "${reference}" cannot be applied`);
     }
     if (quote.effectiveAt.getTime() <= appliedAt.getTime()) {
-      account.planName = quote.newPlanName;
+      accountPlans.set(accountNumber, quote.newPlanId);
       scheduled.delete(accountNumber);
     } else {
-      const { newPlanName: planName, effectiveAt } = quote;
-      scheduled.set(accountNumber, { planName, effectiveAt: new Date(effectiveAt) });
+      const { newPlanId: planId, effectiveAt } = quote;
+      scheduled.set(accountNumber, { planId, effectiveAt: new Date(effectiveAt) });
     }
     quote.used = true;
   };

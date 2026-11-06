@@ -8,6 +8,8 @@
  */
 import { z } from "zod";
 
+import { planWithId } from "../pack/plan-catalog";
+
 import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
 import { formatCompanyMoney, formatLocalDate } from "./format-time";
@@ -32,7 +34,7 @@ export const getAccountOverview = defineTalaTool({
   idempotent: true,
   handler: async (input, ctx) => {
     const account = await requireVerifiedAccount(ctx, input.account_number);
-    const { systems, company } = ctx.data;
+    const { systems, company, plans } = ctx.data;
     const balance = await systems.billing.balanceOf(account.accountNumber);
     if (balance === null) {
       throw new Error("no balance is on record for the account verified on this call");
@@ -40,7 +42,7 @@ export const getAccountOverview = defineTalaTool({
     const scheduled = await systems.plans.scheduledChange(account.accountNumber);
 
     return {
-      plan: account.planName,
+      plan: planWithId(plans, account.planId).name,
       account_status: account.status,
       balance_due: formatCompanyMoney(balance.amountDueMinor, company),
       due_date: balance.dueAt === null ? null : formatLocalDate(balance.dueAt, company),
@@ -55,7 +57,10 @@ export const getAccountOverview = defineTalaTool({
       scheduled_plan_change:
         scheduled === null
           ? null
-          : { plan: scheduled.planName, effective_date: formatLocalDate(scheduled.effectiveAt, company) },
+          : {
+              plan: planWithId(plans, scheduled.planId).name,
+              effective_date: formatLocalDate(scheduled.effectiveAt, company),
+            },
     };
   },
 });

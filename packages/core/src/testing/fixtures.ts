@@ -45,7 +45,7 @@ export function testSystems(
   world: SeedWorld = testWorld(),
   startedAt: Date = CALL_STARTED_AT,
 ): InMemorySystems {
-  return createInMemorySystems({ world }, startedAt, TEST_COMPANY.timeZone);
+  return createInMemorySystems({ world, plans: testPlans() }, startedAt, TEST_COMPANY.timeZone);
 }
 
 /**

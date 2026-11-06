@@ -12,6 +12,8 @@
  */
 import { z } from "zod";
 
+import { planWithId } from "../pack/plan-catalog";
+
 import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
 import { formatLocalDate } from "./format-time";
@@ -44,7 +46,7 @@ export const changePlan = defineTalaTool({
   idempotent: false,
   handler: async (input, ctx) => {
     const account = await requireVerifiedAccount(ctx, input.account_number);
-    const { systems, company, startedAt } = ctx.data;
+    const { systems, company, plans, startedAt } = ctx.data;
     const { accountNumber } = account;
 
     const quote = await systems.plans.findQuote(accountNumber, input.quote_id);
@@ -52,7 +54,7 @@ export const changePlan = defineTalaTool({
       quote !== null &&
       !quote.used &&
       quote.quotedAt.getTime() >= startedAt.getTime() &&
-      quote.currentPlanName === account.planName;
+      quote.currentPlanId === account.planId;
     if (!matches) {
       throw new Error(
         "Refused: a plan is changed only with a quote made for this account on this call, " +
@@ -65,7 +67,7 @@ export const changePlan = defineTalaTool({
     await systems.plans.applyQuote(accountNumber, quote.reference, ctx.now);
     return {
       changed: true,
-      plan: quote.newPlanName,
+      plan: planWithId(plans, quote.newPlanId).name,
       effective_date: formatLocalDate(quote.effectiveAt, company),
     };
   },

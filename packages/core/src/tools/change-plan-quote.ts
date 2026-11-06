@@ -9,6 +9,7 @@
  */
 import { z } from "zod";
 
+import { planWithId } from "../pack/plan-catalog";
 import { pricePlanChange, type PlanChangePrice } from "../policy/plan-change";
 
 /** Why the policy refuses to price a change: its own reasons, not the handler's. */
@@ -55,12 +56,7 @@ export const changePlanQuote = defineTalaTool({
         "Refused: no plan has that id. Use a plan id from the plan list in your instructions.",
       );
     }
-    // The pack's boot check puts every seeded account on a catalog plan; an
-    // account the business systems hold on another plan cannot be priced.
-    const current = plans.find((plan) => plan.name === account.planName);
-    if (!current) {
-      throw new Error("the plan of the account verified on this call is not in the plan catalog");
-    }
+    const current = planWithId(plans, account.planId);
 
     const [latestBill] = await systems.billing.billsFor(account.accountNumber);
     const price = pricePlanChange({
@@ -76,8 +72,8 @@ export const changePlanQuote = defineTalaTool({
     const { reference } = await systems.plans.createQuote(
       {
         accountNumber: account.accountNumber,
-        currentPlanName: current.name,
-        newPlanName: next.name,
+        currentPlanId: current.id,
+        newPlanId: next.id,
         newMonthlyPriceMinor: next.monthlyPriceMinor,
         proratedAmountMinor: price.proratedAmountMinor,
         effectiveAt: price.effectiveAt,
