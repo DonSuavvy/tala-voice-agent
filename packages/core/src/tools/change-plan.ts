@@ -25,7 +25,8 @@ export const changePlan = defineTalaTool({
     "verify_identity, and refuses any other. It refuses a quote that was not made for this " +
     "account on this call, that was used already, or that priced a move from a plan the " +
     "account is no longer on. Returns changed true, the new plan, and the date the change " +
-    "takes effect, as it should be said.",
+    "takes effect, as it should be said. A change that takes effect later is scheduled: the " +
+    "account stays on its plan until that date.",
   input: z
     .object({
       account_number: accountNumberInput,
@@ -61,7 +62,7 @@ export const changePlan = defineTalaTool({
       );
     }
 
-    await systems.plans.applyQuote(accountNumber, quote.reference);
+    await systems.plans.applyQuote(accountNumber, quote.reference, ctx.now);
     return {
       changed: true,
       plan: quote.newPlanName,

@@ -33,6 +33,7 @@ import type {
   OutageRecord,
   PaymentRecord,
   PlanQuoteRecord,
+  ScheduledPlanChange,
   SmsMessage,
   TechnicianSlot,
   TicketRecord,
@@ -77,6 +78,7 @@ export function createInMemorySystems(
   const outbox: SmsMessage[] = [];
   const visits: BookedVisit[] = [];
   const quotes: PlanQuoteRecord[] = [];
+  const scheduled = new Map<string, ScheduledPlanChange>();
   const minutesFromStart = (minutes: number) =>
     new Date(callStartedAt.getTime() + minutes * MINUTE_MS);
 
@@ -287,14 +289,25 @@ export function createInMemorySystems(
     return quote ? copyOfQuote(quote) : null;
   };
 
-  const applyQuote = (accountNumber: string, reference: string): void => {
+  const applyQuote = (accountNumber: string, reference: string, appliedAt: Date): void => {
     const quote = quoteOf(accountNumber, reference);
     const account = world.accounts.find((a) => a.accountNumber === accountNumber);
     if (!quote || quote.used || !account) {
       throw new Error(`quote "${reference}" cannot be applied`);
     }
-    account.planName = quote.newPlanName;
+    if (quote.effectiveAt.getTime() <= appliedAt.getTime()) {
+      account.planName = quote.newPlanName;
+      scheduled.delete(accountNumber);
+    } else {
+      const { newPlanName: planName, effectiveAt } = quote;
+      scheduled.set(accountNumber, { planName, effectiveAt: new Date(effectiveAt) });
+    }
     quote.used = true;
+  };
+
+  const scheduledChange = (accountNumber: string): ScheduledPlanChange | null => {
+    const change = scheduled.get(accountNumber);
+    return change ? { ...change, effectiveAt: new Date(change.effectiveAt) } : null;
   };
 
   // Every real implementation is a network call, so these are async. Wrapping
@@ -332,7 +345,8 @@ export function createInMemorySystems(
     plans: {
       createQuote: (quote, quotedAt) => later(() => createQuote(quote, quotedAt)),
       findQuote: (n, reference) => later(() => findQuote(n, reference)),
-      applyQuote: (n, reference) => later(() => applyQuote(n, reference)),
+      applyQuote: (n, reference, appliedAt) => later(() => applyQuote(n, reference, appliedAt)),
+      scheduledChange: (n) => later(() => scheduledChange(n)),
     },
     openedTickets: () => tickets.map((t) => ({ ...t, openedAt: new Date(t.openedAt) })),
     outbox: () => outbox.map((m) => ({ ...m })),

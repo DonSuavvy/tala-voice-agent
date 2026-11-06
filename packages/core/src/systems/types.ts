@@ -266,6 +266,14 @@ export interface PlanQuoteRecord extends NewPlanQuote {
   used: boolean;
 }
 
+/** A plan change made on an account that takes effect later. */
+export interface ScheduledPlanChange {
+  /** The plan the account moves to. */
+  planName: string;
+  /** When it moves. */
+  effectiveAt: Date;
+}
+
 /** The plan-change side: quotes for plan changes, and the changes made with them. */
 export interface PlanChanges {
   /**
@@ -282,11 +290,19 @@ export interface PlanChanges {
    */
   findQuote(accountNumber: string, reference: string): Promise<PlanQuoteRecord | null>;
   /**
-   * Moves the account to the quote's new plan and marks the quote used.
-   * Rejects when this account has no quote with this reference, or it is used:
-   * one quote changes a plan once.
+   * Makes the change a quote priced, and marks the quote used.
+   *
+   * `appliedAt` is when it is made: the in-memory world has no clock of its
+   * own, so it is told. A quote in effect by then moves the account to its new
+   * plan at once, and drops any change scheduled for later. One that takes
+   * effect later is scheduled instead, replacing any change already scheduled,
+   * and the account stays on its plan until then. Rejects when this account
+   * has no quote with this reference, or it is used: one quote changes a plan
+   * once.
    */
-  applyQuote(accountNumber: string, reference: string): Promise<void>;
+  applyQuote(accountNumber: string, reference: string, appliedAt: Date): Promise<void>;
+  /** The change scheduled for this account to take effect later, or null. Returns a copy. */
+  scheduledChange(accountNumber: string): Promise<ScheduledPlanChange | null>;
 }
 
 export interface SmsMessage {
