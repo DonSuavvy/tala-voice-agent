@@ -60,10 +60,10 @@ async function planOf(ctx: TalaToolContext, accountNumber: string): Promise<stri
 }
 
 const NO_QUOTE =
-  "Refused: a plan is changed only with a quote made for this account on this call, once, " +
-  "while the account is still on the plan the quote priced, and that quote_id is not one. " +
-  "Price the change with change_plan_quote, read the price back, and change the plan with " +
-  "the quote_id it returns only after the caller says yes.";
+  "Refused: a plan is changed only with the latest quote made for this account on this " +
+  "call, once, while the account is still on the plan the quote priced, and that quote_id " +
+  "is not one. Price the change with change_plan_quote, read the price back, and change the " +
+  "plan with the quote_id it returns only after the caller says yes.";
 
 describe("change_plan — the account gate", () => {
   it("refuses before the caller is verified, and changes nothing", async () => {
@@ -128,7 +128,10 @@ describe("change_plan — a change the caller confirmed", () => {
     const quoteId = await quoteFor(ctx, MARIA.accountNumber, "kidlat-500");
     await change(ctx, { account_number: MARIA.accountNumber, quote_id: quoteId, customer_confirmed: true });
 
-    expect(await systems.plans.findQuote(MARIA.accountNumber, quoteId)).toMatchObject({ used: true });
+    expect(await systems.plans.latestQuote(MARIA.accountNumber)).toMatchObject({
+      reference: quoteId,
+      used: true,
+    });
   });
 });
 
@@ -231,13 +234,33 @@ describe("change_plan — without a matching quote", () => {
     });
   });
 
-  /** A second quote priced the move from Kidlat 300; once on Kidlat 500, its price no longer holds. */
-  it("refuses a quote priced from a plan the account has since left, and the plan stays the same", async () => {
+  /** The caller heard two prices and said yes to the first: only the latest quote stands. */
+  it("refuses an older quote, even unused, once a newer one has been made", async () => {
     const { ctx } = newCall();
     await verifyAs(ctx, MARIA);
     const toFiveHundred = await quoteFor(ctx, MARIA.accountNumber, "kidlat-500");
+    await quoteFor(ctx, MARIA.accountNumber, "kidlat-100");
+
+    await expect(
+      change(ctx, { account_number: MARIA.accountNumber, quote_id: toFiveHundred, customer_confirmed: true }),
+    ).rejects.toThrow(NO_QUOTE);
+    expect(await overviewOf(ctx, MARIA.accountNumber)).toMatchObject({
+      plan: "Kidlat 300",
+      scheduled_plan_change: null,
+    });
+  });
+
+  /**
+   * The latest quote priced the move from Kidlat 300, but the business systems
+   * moved Maria to Kidlat 500 since (here, by applying the older quote
+   * directly), so its price no longer holds.
+   */
+  it("refuses a quote priced from a plan the account has since left, and the plan stays the same", async () => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, MARIA);
+    const toFiveHundred = await quoteFor(ctx, MARIA.accountNumber, "kidlat-500");
     const toOneHundred = await quoteFor(ctx, MARIA.accountNumber, "kidlat-100");
-    await change(ctx, { account_number: MARIA.accountNumber, quote_id: toFiveHundred, customer_confirmed: true });
+    await systems.plans.applyQuote(MARIA.accountNumber, toFiveHundred, CALL_STARTED_AT);
 
     await expect(
       change(ctx, { account_number: MARIA.accountNumber, quote_id: toOneHundred, customer_confirmed: true }),

@@ -45,7 +45,7 @@ describe("change_plan_quote — the account gate", () => {
       "Refused: the caller has not been verified on this call. " +
         "Verify them with verify_identity first.",
     );
-    expect(await systems.plans.findQuote(MARIA.accountNumber, "QTE-2026-00001")).toBeNull();
+    expect(await systems.plans.latestQuote(MARIA.accountNumber)).toBeNull();
   });
 
   it("refuses any account but the one verified on this call", async () => {
@@ -58,7 +58,7 @@ describe("change_plan_quote — the account gate", () => {
       "Refused: this call is verified for a different account, " +
         "and only that account can be checked.",
     );
-    expect(await systems.plans.findQuote(MARIA.accountNumber, "QTE-2026-00001")).toBeNull();
+    expect(await systems.plans.latestQuote(MARIA.accountNumber)).toBeNull();
   });
 });
 
@@ -84,7 +84,7 @@ describe("change_plan_quote — an upgrade", () => {
     await verifyAs(ctx, MARIA);
     await quote(ctx, { account_number: MARIA.accountNumber, plan_id: "kidlat-500" });
 
-    expect(await systems.plans.findQuote(MARIA.accountNumber, "QTE-2026-00001")).toEqual({
+    expect(await systems.plans.latestQuote(MARIA.accountNumber)).toEqual({
       reference: "QTE-2026-00001",
       accountNumber: MARIA.accountNumber,
       currentPlanId: "kidlat-300",
@@ -135,7 +135,7 @@ describe("change_plan_quote — refusals", () => {
     await expect(
       quote(ctx, { account_number: MARIA.accountNumber, plan_id: "kidlat-300" }),
     ).rejects.toThrow("Refused: the caller is already on that plan.");
-    expect(await systems.plans.findQuote(MARIA.accountNumber, "QTE-2026-00001")).toBeNull();
+    expect(await systems.plans.latestQuote(MARIA.accountNumber)).toBeNull();
   });
 
   it("refuses a plan id that is not in the catalog, and keeps no quote", async () => {
@@ -147,7 +147,7 @@ describe("change_plan_quote — refusals", () => {
     ).rejects.toThrow(
       "Refused: no plan has that id. Use a plan id from the plan list in your instructions.",
     );
-    expect(await systems.plans.findQuote(MARIA.accountNumber, "QTE-2026-00001")).toBeNull();
+    expect(await systems.plans.latestQuote(MARIA.accountNumber)).toBeNull();
   });
 
   const NO_CYCLE =
@@ -161,7 +161,7 @@ describe("change_plan_quote — refusals", () => {
     await expect(
       quote(ctx, { account_number: ANA.accountNumber, plan_id: "kidlat-300" }),
     ).rejects.toThrow(NO_CYCLE);
-    expect(await systems.plans.findQuote(ANA.accountNumber, "QTE-2026-00001")).toBeNull();
+    expect(await systems.plans.latestQuote(ANA.accountNumber)).toBeNull();
   });
 
   /** Maria's cycle ended at 1:00 PM on Thu, Nov 12, and no later bill is on record. */

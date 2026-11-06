@@ -644,11 +644,11 @@ describe("createInMemorySystems", () => {
       expect(await systems.plans.createQuote(QUOTE, newYear)).toEqual({ reference: "QTE-2027-00001" });
     });
 
-    it("finds a quote by its exact reference, with when it was made, not yet used", async () => {
+    it("gives the account's latest quote, with when it was made, not yet used", async () => {
       const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
-      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+      await systems.plans.createQuote(QUOTE, QUOTED_AT);
 
-      expect(await systems.plans.findQuote("1234567890", reference)).toEqual({
+      expect(await systems.plans.latestQuote("1234567890")).toEqual({
         reference: "QTE-2026-00001",
         ...QUOTE,
         quotedAt: QUOTED_AT,
@@ -656,24 +656,35 @@ describe("createInMemorySystems", () => {
       });
     });
 
-    it("does not find another account's quote, or a reference never given", async () => {
+    /** A newer quote supersedes the older one: only the latest can change a plan. */
+    it("gives the newer of two quotes for the account", async () => {
       const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
-      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+      await systems.plans.createQuote(QUOTE, QUOTED_AT);
+      await systems.plans.createQuote({ ...QUOTE, newPlanId: "kidlat-100" }, QUOTED_AT);
 
-      expect(await systems.plans.findQuote("2234567890", reference)).toBeNull();
-      expect(await systems.plans.findQuote("1234567890", "QTE-2026-00002")).toBeNull();
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({
+        reference: "QTE-2026-00002",
+        newPlanId: "kidlat-100",
+      });
+    });
+
+    it("gives no quote for an account that has none, though another account has one", async () => {
+      const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
+      await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      expect(await systems.plans.latestQuote("2234567890")).toBeNull();
     });
 
     it("hands back a copy, and keeps one: mutating either changes nothing stored", async () => {
       const systems = createInMemorySystems(dataFor(seed()), CALL_STARTED_AT, MANILA);
       const given = { ...QUOTE, effectiveAt: new Date(QUOTE.effectiveAt) };
-      const { reference } = await systems.plans.createQuote(given, QUOTED_AT);
+      await systems.plans.createQuote(given, QUOTED_AT);
       given.effectiveAt.setUTCFullYear(1999);
-      const found = await systems.plans.findQuote("1234567890", reference);
+      const found = await systems.plans.latestQuote("1234567890");
       found!.quotedAt.setUTCFullYear(1999);
       found!.newPlanId = "kidlat-1000";
 
-      expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({
         newPlanId: "kidlat-500",
         effectiveAt: QUOTE.effectiveAt,
         quotedAt: QUOTED_AT,
@@ -687,7 +698,7 @@ describe("createInMemorySystems", () => {
       await systems.plans.applyQuote("1234567890", reference, QUOTED_AT);
 
       expect((await systems.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-500");
-      expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({ used: true });
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({ reference, used: true });
       expect(await systems.plans.scheduledChange("1234567890")).toBeNull();
     });
 
@@ -705,7 +716,7 @@ describe("createInMemorySystems", () => {
         planId: "kidlat-100",
         effectiveAt: new Date("2026-11-12T06:00:00Z"),
       });
-      expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({ used: true });
+      expect(await systems.plans.latestQuote("1234567890")).toMatchObject({ reference, used: true });
     });
 
     it("has no scheduled change for an account until one is made, nor for anyone else", async () => {
@@ -783,7 +794,7 @@ describe("createInMemorySystems", () => {
       const two = createInMemorySystems(dataFor(shared), CALL_STARTED_AT, MANILA);
       expect(shared.accounts[0].planName).toBe("Kidlat 300");
       expect((await two.accounts.findAccount("1234567890"))?.planId).toBe("kidlat-300");
-      expect(await two.plans.findQuote("1234567890", reference)).toBeNull();
+      expect(await two.plans.latestQuote("1234567890")).toBeNull();
     });
   });
 
