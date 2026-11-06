@@ -4,9 +4,9 @@
  * #5 registered `verify_identity`, `check_area_outage` and the terminal
  * `end_call`. #10 adds `get_account_overview`, `get_billing_history`,
  * `verify_payment`, `create_trouble_ticket` and `send_sms`. #11 adds
- * `run_line_diagnostics` and `remote_reboot_modem`. Every tool but
- * `verify_identity` and `end_call` sits behind the account gate
- * (`./account-gate`). Later tickets add theirs here.
+ * `run_line_diagnostics`, `remote_reboot_modem` and `get_technician_slots`.
+ * Every tool but `verify_identity` and `end_call` sits behind the account
+ * gate (`./account-gate`). Later tickets add theirs here.
  */
 import { buildRegistry, type ToolRegistry } from "../agent/registry";
 
@@ -16,6 +16,7 @@ import { createTroubleTicket } from "./create-trouble-ticket";
 import { endCall } from "./end-call";
 import { getAccountOverview } from "./get-account-overview";
 import { getBillingHistory } from "./get-billing-history";
+import { getTechnicianSlots } from "./get-technician-slots";
 import { remoteRebootModem } from "./remote-reboot-modem";
 import { runLineDiagnostics } from "./run-line-diagnostics";
 import { sendSms } from "./send-sms";
@@ -32,6 +33,7 @@ export const TALA_TOOLS = [
   verifyPayment,
   runLineDiagnostics,
   remoteRebootModem,
+  getTechnicianSlots,
   createTroubleTicket,
   sendSms,
   endCall,
