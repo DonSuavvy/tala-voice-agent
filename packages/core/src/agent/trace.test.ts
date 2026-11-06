@@ -24,7 +24,7 @@ function span(over: Partial<SpanEvent> = {}): SpanEvent {
   return {
     seq: 0,
     type: "llm_call",
-    name: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    name: "claude-haiku-5-5",
     input: { messages: 2 },
     output: { stop_reason: "tool_use" },
     isError: false,
