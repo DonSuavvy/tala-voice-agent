@@ -1,0 +1,193 @@
+{
+  "format": 1,
+  "masking": "none (#10)",
+  "ranAt": "2026-11-06T10:13:28.451Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "07230fc8625f",
+    "policyVersion": "1b691b76de0e",
+    "model": "haiku",
+    "modelId": "claude-haiku-5-5",
+    "gitSha": "e7cf8ecb88dc68368d7529c194758872eafb792e",
+    "gitDirty": true
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.022595",
+      "latencyMs": 24096,
+      "agentRunId": "419260c8-d26c-4ed3-8d57-dc49615a4863",
+      "cost": {
+        "tala": {
+          "nanos": 1784545,
+          "usd": "0.001785",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 15184000,
+          "usd": "0.015184",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 5626000,
+          "usd": "0.005626",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 22594545,
+          "usd": "0.022595",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 5,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Tala was warm and respectful, with good empathy and acknowledgment of the caller's fair question, and the Taglish was mostly English-led with natural po/opo and set phrases. Minor issues: the first reply leaned into more Tagalog than the style suggests, and some replies ran longer than one or two short sentences, especially the router and 10 PM answer."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Hello po, thank you for calling Kidlat Fiber! I'm Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, magandang araw. Wala po kasing internet namin simula kaninang umaga dito sa Batasan Hills. Gusto ko lang pong malaman kung bakit at kailan babalik."
+        },
+        {
+          "speaker": "tala",
+          "text": "Magandang araw din po. Sorry to hear that po, no internet since this morning. To check your area, I need to verify your account first. Pwede po ba akong makahingi ng account number ninyo, and the last four digits of the mobile number registered on it?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang account number ko po ay 8012345601. Tapos yung last four digits ng mobile number ay 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sandali lang po, let me check."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Maria. Let me check your area now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Maria, there is an outage in Batasan Hills caused by a fiber cable cut along Batasan Road during road works. It started around 3:40 PM today, and service is expected back around 10 PM tonight.\n\nWould you like the outage reference number in case you need to follow up?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Ah, ganun po ba. Pero kaninang umaga pa po kasi wala kaming internet, eh 3:40 PM po sabi ninyo nagsimula. Pareho po ba talaga yun? Baka po magkaiba yung problema namin."
+        },
+        {
+          "speaker": "tala",
+          "text": "Opo, that's a fair question, Maria. The system only shows the outage starting around 3:40 PM, so I can't confirm it matches your morning problem. It's possible your connection had a separate issue earlier. I can't check that on this call, but you may try restarting your router, and if you still have no internet after 10 PM, please call us again."
+        },
+        {
+          "speaker": "caller",
+          "text": "Sige po, I-restart ko po yung router. Sige na rin po, pakibigay na yung reference number para may hawak ako kung tatawag ulit ako."
+        },
+        {
+          "speaker": "tala",
+          "text": "Sige po. Your reference number is O, U, T, dash, 2 0 2 6, dash, 0 4 1 2."
+        },
+        {
+          "speaker": "caller",
+          "text": "Okay po, OUT-2026-0412. Salamat po sa tulong, Tala. Babalik na lang po ako sa inyo kung wala pa rin pagkatapos ng 10 PM. Paalam na po!"
+        },
+        {
+          "speaker": "tala",
+          "text": "Walang anuman po, Maria. Salamat po sa pagtawag sa Kidlat Fiber, ingat po!"
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 1784545,
+      "usd": "0.001785",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 15184000,
+      "usd": "0.015184",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 5626000,
+      "usd": "0.005626",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 22594545,
+      "usd": "0.022595",
+      "estimated": false
+    }
+  }
+}
