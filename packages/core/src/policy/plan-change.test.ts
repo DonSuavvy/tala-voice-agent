@@ -16,6 +16,13 @@ import { pricePlanChange } from "./plan-change";
 
 const { timeZone } = TEST_COMPANY;
 
+/** The policy's plan-change rules here: an upgrade at once, a downgrade with the next cycle. */
+const withTimings = (upgrade: string, downgrade: string) => ({
+  identity: { maxFailedAttempts: 3 },
+  planChanges: { upgrade, downgrade },
+});
+const POLICY = withTimings("now", "next_cycle");
+
 const K100 = { id: "kidlat-100", monthlyPriceMinor: 129_900 };
 const K300 = { id: "kidlat-300", monthlyPriceMinor: 169_900 };
 const K500 = { id: "kidlat-500", monthlyPriceMinor: 209_900 };
@@ -38,6 +45,7 @@ describe("pricePlanChange — an upgrade", () => {
         latestBillIssuedAt: new Date("2026-10-12T05:00:00Z"),
         now,
         timeZone,
+        policy: POLICY,
       }),
     ).toEqual({ allowed: true, kind: "upgrade", proratedAmountMinor: 7_742, effectiveAt: now });
   });
@@ -51,7 +59,14 @@ describe("pricePlanChange — an upgrade", () => {
   it("rounds half a centavo up, and less than half down", () => {
     const latestBillIssuedAt = new Date("2026-11-12T05:00:00Z");
     const price = (now: string) =>
-      pricePlanChange({ current: K500, next: K1000, latestBillIssuedAt, now: new Date(now), timeZone });
+      pricePlanChange({
+        current: K500,
+        next: K1000,
+        latestBillIssuedAt,
+        now: new Date(now),
+        timeZone,
+        policy: POLICY,
+      });
 
     expect(price("2026-12-12T04:54:00Z")).toMatchObject({ proratedAmountMinor: 13 });
     expect(price("2026-12-12T04:55:00Z")).toMatchObject({ proratedAmountMinor: 10 });
@@ -70,6 +85,7 @@ describe("pricePlanChange — an upgrade", () => {
         latestBillIssuedAt: new Date("2026-01-31T02:00:00Z"),
         now: new Date("2026-02-14T02:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toMatchObject({ allowed: true, kind: "upgrade", proratedAmountMinor: 20_000 });
   });
@@ -89,6 +105,7 @@ describe("pricePlanChange — an upgrade", () => {
         latestBillIssuedAt: new Date("2026-03-30T21:00:00Z"),
         now: new Date("2026-04-15T21:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toMatchObject({ proratedAmountMinor: 18_667 });
   });
@@ -103,6 +120,7 @@ describe("pricePlanChange — a downgrade", () => {
         latestBillIssuedAt: new Date("2026-10-12T05:00:00Z"),
         now: new Date("2026-11-06T05:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toEqual({
       allowed: true,
@@ -121,6 +139,7 @@ describe("pricePlanChange — a downgrade", () => {
         latestBillIssuedAt: new Date("2026-01-31T02:00:00Z"),
         now: new Date("2026-02-14T02:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toMatchObject({ effectiveAt: new Date("2026-02-28T02:00:00Z") });
   });
@@ -134,6 +153,7 @@ describe("pricePlanChange — a downgrade", () => {
         latestBillIssuedAt: new Date("2026-12-15T05:00:00Z"),
         now: new Date("2027-01-02T05:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toMatchObject({ effectiveAt: new Date("2027-01-15T05:00:00Z") });
   });
@@ -146,8 +166,65 @@ describe("pricePlanChange — a downgrade", () => {
         latestBillIssuedAt: new Date("2026-03-30T21:00:00Z"),
         now: new Date("2026-04-15T21:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toMatchObject({ effectiveAt: new Date("2026-04-29T21:00:00Z") });
+  });
+});
+
+/** When each kind of change takes effect is the policy's; the pricing follows it. */
+describe("pricePlanChange — the policy's timings", () => {
+  const OCT_BILL = new Date("2026-10-12T05:00:00Z");
+  const NOV_6 = new Date("2026-11-06T05:00:00Z");
+
+  it("starts an upgrade with the next cycle, with nothing prorated, when the policy says so", () => {
+    expect(
+      pricePlanChange({
+        current: K300,
+        next: K500,
+        latestBillIssuedAt: OCT_BILL,
+        now: NOV_6,
+        timeZone,
+        policy: withTimings("next_cycle", "next_cycle"),
+      }),
+    ).toEqual({
+      allowed: true,
+      kind: "upgrade",
+      proratedAmountMinor: 0,
+      effectiveAt: new Date("2026-11-12T05:00:00Z"),
+    });
+  });
+
+  /**
+   * A downgrade at once credits the difference for the rest of the cycle:
+   * 300 to 100 is 400 pesos a month less, 6 of 31 days left:
+   * -40,000 x 6 / 31 = -7,741.94 centavos, so -7,742.
+   */
+  it("starts a downgrade at once, crediting the rest of the cycle, when the policy says so", () => {
+    expect(
+      pricePlanChange({
+        current: K300,
+        next: K100,
+        latestBillIssuedAt: OCT_BILL,
+        now: NOV_6,
+        timeZone,
+        policy: withTimings("now", "now"),
+      }),
+    ).toEqual({ allowed: true, kind: "downgrade", proratedAmountMinor: -7_742, effectiveAt: NOV_6 });
+  });
+
+  /** Parsed at the point of decision: a malformed policy throws instead of failing open. */
+  it("refuses to price with a policy that does not say when changes take effect", () => {
+    expect(() =>
+      pricePlanChange({
+        current: K300,
+        next: K500,
+        latestBillIssuedAt: OCT_BILL,
+        now: NOV_6,
+        timeZone,
+        policy: { identity: { maxFailedAttempts: 3 } },
+      }),
+    ).toThrow(/planChanges/);
   });
 });
 
@@ -160,6 +237,7 @@ describe("pricePlanChange — refusals", () => {
         latestBillIssuedAt: new Date("2026-10-12T05:00:00Z"),
         now: new Date("2026-11-06T05:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
     ).toEqual({ allowed: false, reason: "same_plan" });
   });
@@ -178,6 +256,7 @@ describe("pricePlanChange — refusals", () => {
           latestBillIssuedAt: new Date("2026-10-12T05:00:00Z"),
           now: new Date(now),
           timeZone,
+          policy: POLICY,
         }),
       ).toEqual({ allowed: false, reason: "no_current_cycle" });
     }
@@ -193,6 +272,7 @@ describe("pricePlanChange — refusals", () => {
           latestBillIssuedAt: null,
           now: new Date("2026-11-06T05:00:00Z"),
           timeZone,
+          policy: POLICY,
         }),
       ).toEqual({ allowed: false, reason: "no_current_cycle" });
     }
@@ -206,6 +286,7 @@ describe("pricePlanChange — refusals", () => {
         latestBillIssuedAt: new Date("2026-10-12T05:00:00Z"),
         now: new Date("2026-10-12T05:00:00Z"),
         timeZone,
+        policy: POLICY,
       }),
       // The whole month: 40,000 x 31 / 31.
     ).toMatchObject({ allowed: true, proratedAmountMinor: 40_000 });

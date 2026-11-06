@@ -95,8 +95,8 @@ describe("loadPack placeholders", () => {
     const issues = issuesOf(source).filter((i) => i.startsWith("sop: "));
 
     expect(issues).toEqual([
-      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}}, {{planCatalog}})",
-      "sop: unknown placeholder {{refundWindow}} (known: {{maxFailedVerificationAttempts}}, {{planCatalog}})",
+      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}}, {{upgradeTakesEffect}}, {{downgradeTakesEffect}}, {{planCatalog}})",
+      "sop: unknown placeholder {{refundWindow}} (known: {{maxFailedVerificationAttempts}}, {{upgradeTakesEffect}}, {{downgradeTakesEffect}}, {{planCatalog}})",
     ]);
   });
 
@@ -105,7 +105,7 @@ describe("loadPack placeholders", () => {
     source.sop.body += "{{creditLimit}} then {{creditLimit}}\n";
 
     expect(issuesOf(source)).toEqual([
-      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}}, {{planCatalog}})",
+      "sop: unknown placeholder {{creditLimit}} (known: {{maxFailedVerificationAttempts}}, {{upgradeTakesEffect}}, {{downgradeTakesEffect}}, {{planCatalog}})",
     ]);
   });
 });

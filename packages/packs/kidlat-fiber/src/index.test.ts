@@ -121,6 +121,27 @@ describe("the Kidlat Fiber pack", () => {
     });
   });
 
+  /** Kidlat starts an upgrade at once and a downgrade with the next billing cycle. */
+  it("states when plan changes take effect from its policy, not from typed text", () => {
+    const source = kidlatFiberSource();
+    const shipped = compilePackSop(loadPack(source));
+    const flipped = compilePackSop(
+      loadPack({
+        ...source,
+        policy: {
+          identity: { maxFailedAttempts: 3 },
+          planChanges: { upgrade: "next_cycle", downgrade: "now" },
+        },
+      }),
+    );
+
+    expect(shipped).toContain("A move to a faster plan takes effect at once.");
+    expect(shipped).toContain("A move to a cheaper plan takes effect when the next billing cycle starts.");
+    expect(flipped).toContain("A move to a faster plan takes effect when the next billing cycle starts.");
+    expect(flipped).toContain("A move to a cheaper plan takes effect at once.");
+    expect(source.sop.body).not.toMatch(/billing cycle starts|at once/);
+  });
+
   it("names its plans and their speeds from its catalog, not from typed text", () => {
     const source = kidlatFiberSource();
     const shipped = compilePackSop(loadPack(source));
