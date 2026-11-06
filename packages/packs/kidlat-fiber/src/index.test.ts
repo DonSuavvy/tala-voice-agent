@@ -68,6 +68,59 @@ describe("the Kidlat Fiber pack", () => {
     }
   });
 
+  describe("its help articles", () => {
+    const article = (id: string) => {
+      const found = loadKidlatFiber().help.find((a) => a.id === id);
+      if (!found) throw new Error(`no help article "${id}"`);
+      return found;
+    };
+
+    it("covers the modem lights, restarting the modem, the Wi-Fi name and password, paying, slow Wi-Fi in some rooms and moving", () => {
+      expect(loadKidlatFiber().help.map((a) => a.id)).toEqual([
+        "modem-lights",
+        "moving-address",
+        "payment-channels",
+        "restart-modem",
+        "slow-wifi-rooms",
+        "wifi-name-password",
+      ]);
+    });
+
+    it("says what a red or blinking LOS light means, and what to check first", () => {
+      const { body } = article("modem-lights");
+
+      for (const light of ["Power", "PON", "LOS", "LAN", "WLAN"]) expect(body).toContain(light);
+      expect(body).toMatch(/red/);
+      expect(body).toMatch(/blink/);
+      expect(body).toMatch(/fiber cable/);
+    });
+
+    /** Callers say what they see in Tagalog too: "pulang ilaw", "kumikislap". */
+    it("tags the modem lights with the words callers use, in English and Tagalog", () => {
+      expect(article("modem-lights").tags).toEqual(
+        expect.arrayContaining(["lights", "los", "red", "blinking", "ilaw", "pula", "kumikislap"]),
+      );
+    });
+
+    it("names each payment channel the billing system knows", () => {
+      const { body } = article("payment-channels");
+
+      for (const channel of ["GCash", "Maya", "bank", "7-Eleven", "Bayad"]) expect(body).toContain(channel);
+    });
+
+    /** Prices, fees and limits belong to the plan catalog and the policy, never to an article. */
+    it("states no amount, price or other figure, and names no plan", () => {
+      const { help, plans } = loadKidlatFiber();
+
+      for (const { id, title, body } of help) {
+        const text = `${title} ${body}`;
+        expect(text.replace(/7-Eleven/g, ""), id).not.toMatch(/\d/);
+        expect(text, id).not.toMatch(/₱|peso/i);
+        for (const plan of plans) expect(text, id).not.toContain(plan.name);
+      }
+    });
+  });
+
   it("opens every call by saying Tala is an AI and the call is recorded", () => {
     const { persona } = loadKidlatFiber();
 

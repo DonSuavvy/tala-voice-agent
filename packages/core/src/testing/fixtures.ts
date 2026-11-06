@@ -234,6 +234,35 @@ export function testPlans() {
   ];
 }
 
+/**
+ * The test pack's help articles, as a pack hands them over: each file's name
+ * and its markdown, front matter first. A fresh copy on every call.
+ */
+export function testHelpFiles() {
+  return [
+    {
+      file: "help/modem-lights.md",
+      markdown:
+        "---\n" +
+        "id: modem-lights\n" +
+        "title: What the lights on your modem mean\n" +
+        "tags: modem, lights, ilaw\n" +
+        "---\n" +
+        "Power is on when the modem has power. A red LOS light means no signal reaches it.\n",
+    },
+    {
+      file: "help/wifi-password.md",
+      markdown:
+        "---\n" +
+        "id: wifi-password\n" +
+        "title: Changing your Wi-Fi password\n" +
+        "tags: wifi, password\n" +
+        "---\n" +
+        "Open the settings page printed on the modem's sticker and choose a new password.\n",
+    },
+  ];
+}
+
 /** The test pack's SOP. Its one placeholder is filled from the policy. */
 export const TEST_SOP_BODY =
   "You are the assistant on Test ISP's support line.\n\n" +
@@ -257,6 +286,7 @@ export function testPackSource(): PackSource {
     },
     policy: { identity: { maxFailedAttempts: 3 } },
     plans: testPlans(),
+    help: testHelpFiles(),
     world: testWorld(),
   };
 }

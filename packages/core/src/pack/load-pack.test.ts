@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeedWorld } from "../systems/seed-world";
-import { TEST_COMPANY, testPackSource, testPlans, testSystems } from "../testing/fixtures";
+import { TEST_COMPANY, testHelpFiles, testPackSource, testPlans, testSystems } from "../testing/fixtures";
 import { compilePackSop, loadPack, PackValidationError, type PackSource } from "./load-pack";
 
 /** The one error a broken source throws, so a test can read its issues. */
@@ -297,6 +297,115 @@ describe("loadPack's plan catalog", () => {
       'world.accounts[1].planName: account 8012345602 names unknown plan "Kidlat 200"',
       'world.accounts[2].planName: account 8012345603 names unknown plan "kidlat 500"',
     ]);
+  });
+});
+
+describe("loadPack's help articles", () => {
+  it("loads each article's id, title, tags and body, in the order the pack gives them", () => {
+    expect(loadPack(testPackSource()).help).toEqual([
+      {
+        id: "modem-lights",
+        title: "What the lights on your modem mean",
+        tags: ["modem", "lights", "ilaw"],
+        body: "Power is on when the modem has power. A red LOS light means no signal reaches it.",
+      },
+      {
+        id: "wifi-password",
+        title: "Changing your Wi-Fi password",
+        tags: ["wifi", "password"],
+        body: "Open the settings page printed on the modem's sticker and choose a new password.",
+      },
+    ]);
+  });
+
+  it("reads Windows line endings and spaces around the header's values", () => {
+    const source = testPackSource();
+    source.help = [
+      {
+        file: "help/restart.md",
+        markdown: "---\r\nid:  restart \r\ntitle: Restarting your modem\r\ntags:restart ,  reboot\r\n---\r\n\r\nTurn it off.\r\n",
+      },
+    ];
+
+    expect(loadPack(source).help).toEqual([
+      { id: "restart", title: "Restarting your modem", tags: ["restart", "reboot"], body: "Turn it off." },
+    ]);
+  });
+
+  it("loads a pack with no help articles", () => {
+    const source = testPackSource();
+    source.help = [];
+    expect(loadPack(source).help).toEqual([]);
+  });
+
+  /** One article, broken one way: each case names the issue it must report, with the file. */
+  it.each([
+    [
+      "no front matter",
+      "Just a body.\n",
+      'help[0]: help/broken.md does not start with a "---" front-matter header',
+    ],
+    [
+      "a header that never closes",
+      "---\nid: broken\ntitle: Broken\ntags: x\nThe body.\n",
+      'help[0]: help/broken.md does not start with a "---" front-matter header',
+    ],
+    [
+      "a header line that is not a key and value",
+      "---\nid: broken\ntitle: Broken\ntags: x\njust words\n---\nThe body.\n",
+      'help[0]: help/broken.md: header line "just words" is not "key: value"',
+    ],
+    [
+      "a key given twice",
+      "---\nid: broken\ntitle: Broken\ntitle: Again\ntags: x\n---\nThe body.\n",
+      'help[0]: help/broken.md: header key "title" is given twice',
+    ],
+    [
+      "an id that is not a slug",
+      "---\nid: Broken One\ntitle: Broken\ntags: x\n---\nThe body.\n",
+      "help[0].id: help/broken.md: ",
+    ],
+    ["no title", "---\nid: broken\ntags: x\n---\nThe body.\n", "help[0].title: help/broken.md: "],
+    ["no tags", "---\nid: broken\ntitle: Broken\n---\nThe body.\n", "help[0].tags: help/broken.md: "],
+    [
+      "an empty tag",
+      "---\nid: broken\ntitle: Broken\ntags: modem,, lights\n---\nThe body.\n",
+      "help[0].tags[1]: help/broken.md: ",
+    ],
+    [
+      "an unknown key",
+      "---\nid: broken\ntitle: Broken\ntags: x\nauthor: me\n---\nThe body.\n",
+      "help[0]: help/broken.md: ",
+    ],
+    [
+      "a blank body",
+      "---\nid: broken\ntitle: Broken\ntags: x\n---\n  \n",
+      "help[0].body: help/broken.md has no text after its header",
+    ],
+  ])("refuses an article with %s, naming its file", (_what, markdown, issue) => {
+    const source = testPackSource();
+    source.help = [{ file: "help/broken.md", markdown }];
+
+    const issues = issuesOf(source);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].startsWith(issue), issues[0]).toBe(true);
+  });
+
+  it("refuses a duplicate article id, reporting the later article", () => {
+    const source = testPackSource();
+    const [lights, password] = testHelpFiles();
+    source.help = [lights, { ...password, markdown: password.markdown.replace("id: wifi-password", "id: modem-lights") }];
+
+    expect(issuesOf(source)).toEqual([
+      'help[1].id: help/wifi-password.md: duplicate article id "modem-lights"',
+    ]);
+  });
+
+  it("refuses help that is not a list of files", () => {
+    const source = testPackSource();
+    source.help = { file: "help/modem-lights.md" };
+    expect(issuesOf(source)).toEqual([expect.stringMatching(/^help: /)]);
   });
 });
 
