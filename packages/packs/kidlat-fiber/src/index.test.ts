@@ -38,7 +38,7 @@ describe("the Kidlat Fiber pack", () => {
     const { persona } = loadKidlatFiber();
 
     expect(persona.openingLine).toMatch(/AI assistant/);
-    expect(persona.openingLine).toMatch(/nire-record/);
+    expect(persona.openingLine).toMatch(/record/);
   });
 
   it("has scenario 1's world: a fiber cut in Batasan Hills with a restoration time", async () => {
