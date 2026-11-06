@@ -9,6 +9,7 @@
     "endedBy": "end_call",
     "toolsCalledInOrder": [
       "verify_identity",
+      "check_area_outage",
       "run_line_diagnostics",
       "remote_reboot_modem",
       "create_trouble_ticket",
@@ -19,7 +20,11 @@
     ],
     "toolResults": [
       { "tool": "create_trouble_ticket", "input": { "category": "connection" } },
-      { "tool": "book_technician_visit", "result": { "booked": true } }
+      {
+        "tool": "book_technician_visit",
+        "input": { "slot_id": "san-antonio-1" },
+        "result": { "booked": true }
+      }
     ],
     "disposition": { "outcome": "resolved", "topic": "slow_internet" },
     "noAccountDataBeforeVerification": true,

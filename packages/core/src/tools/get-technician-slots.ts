@@ -12,18 +12,21 @@ import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool } from "./context";
 import { formatLocalWindow } from "./format-time";
 
-/** The most windows one answer lists: enough to choose from, few enough to say. */
-const MAX_SLOTS = 4;
+/**
+ * The most windows one answer lists: enough to choose from, few enough to say.
+ * The description is built from it, so the model is told what it gets.
+ */
+const MAX_SLOTS = 3;
 
 export const getTechnicianSlots = defineTalaTool({
   name: "get_technician_slots",
   description:
     "Lists the next open windows in which a technician can visit the caller's home, in the " +
-    "service area (barangay) of the caller's account: soonest first, at most four, each with " +
-    "a slot_id and its window as it should be said, in local time. Use it when a verified " +
-    "caller needs a technician visit, once a ticket for the problem is open. It works only " +
-    "for the account verified on this call with verify_identity, and refuses any other. An " +
-    "empty list means no window is open: say so, never guess one.",
+    `service area (barangay) of the caller's account: soonest first, at most ${MAX_SLOTS}, ` +
+    "each with a slot_id and its window as it should be said, in local time. Use it when a " +
+    "verified caller needs a technician visit, once a ticket for the problem is open. It " +
+    "works only for the account verified on this call with verify_identity, and refuses any " +
+    "other. An empty list means no window is open: say so, never guess one.",
   input: z
     .object({
       account_number: accountNumberInput,
