@@ -236,9 +236,11 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 - **Callers:** about 13 simulated callers, played by Claude Sonnet 5.5, talking to Tala as text through the same core. They cover the 6 demo scenarios plus harder ones: a scammer posing as the account holder, the angry tito, a Taglish lola, a topic-changer, someone who won't verify, and a Bisaya speaker.
 - **The pass/fail gate is deterministic only:**
   - OpsPilot's closed expectation schema: call status, tools called, tools never called, guardrails fired, disposition fields, phrases mentioned.
-  - Plus voice checks, e.g. "no account data before `verify_identity` succeeded".
-- **Advisory grader:** a Claude grader scores tone, Taglish and politeness. Its score is shown beside the gate and never fails a run.
+  - Plus voice checks: "no account data before `verify_identity` succeeded" and "Tala says a line before every tool call" (#9).
+  - The account-data check cannot tell Tala echoing what the caller said from Tala disclosing it, and exempting what the caller said first would also pass Tala confirming a guess. So the check stays strict, and the SOP says the same: until verification succeeds, Tala repeats none of the caller's name, account number or mobile digits (#9, 2026-11-06).
+- **Advisory grader:** a Claude grader scores tone, Taglish and politeness against the company pack's own "How you speak" rules. Its score is shown beside the gate and never fails a run.
 - **Pinned runs:** every run is pinned to the pack/SOP version, model, git SHA and prompt hash, and OpsPilot's diff view shows what regressed, was fixed or was added between two runs.
+  - The SOP version is the file's label (`v1`). Editing the SOP changes the prompt hash, not the SOP version, until a release bumps the label; the prompt hash is what tells two runs apart.
 - **CI gate:** the suite runs automatically on PRs that change prompts, the SOP, policies or tools, using the demo's model. It needs `ANTHROPIC_API_KEY` stored as a GitHub secret.
 - **Model comparison (Q28):** the same suite runs on Opus 5.5, Sonnet 5.5 and Haiku 5.5. The public demo uses the cheapest model that passes every check.
 - **Cost:** about $5 for a full run on Opus, less on cheaper models, and about $8 for the three-model comparison.
