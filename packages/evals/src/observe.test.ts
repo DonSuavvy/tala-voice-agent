@@ -62,6 +62,9 @@ const OPENING = "Hello po! I'm Tala, an AI assistant, and this call is recorded.
 const FALLBACK = "Sorry po, our system is having a problem. Please call again later.";
 const FILLER = "Sandali lang po.";
 
+/** The pack's plan catalog, which the account-data check treats as public. */
+const PLANS = [{ id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 }];
+
 const SOURCE: PackSource = {
   id: "test-isp",
   sop: { version: "v1", body: "You are the assistant on Test ISP's support line.\n" },
@@ -73,7 +76,7 @@ const SOURCE: PackSource = {
     closingLine: "Salamat po sa pagtawag!",
   },
   policy: { identity: { maxFailedAttempts: 3 } },
-  plans: [{ id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 }],
+  plans: PLANS,
   help: [],
   world: WORLD,
 };
@@ -265,6 +268,22 @@ describe("observeCall: through a real call, the voice checks see what went wrong
     const result = score({ noAccountDataBeforeVerification: true }, observeCall(events, WORLD));
 
     expect(result.assertions[0].actual).toEqual(["surname of account ending 5601"]);
+  });
+
+  /** Maria is on Kidlat 300, which is also in the pack's public catalog. */
+  it("a plan from the pack's catalog, named before verification, is not account data", async () => {
+    const { session, events } = newCall([
+      turn([text("Kidlat 300 is our 300 Mbps plan po. May I have your account number?")]),
+    ]);
+    session.start();
+    await session.callerSaid("Gaano po kabilis ang Kidlat 300?");
+
+    const result = score(
+      { noAccountDataBeforeVerification: true },
+      observeCall(events, WORLD, PLANS),
+    );
+
+    expect(result.assertions[0]).toMatchObject({ passed: true, actual: [] });
   });
 });
 

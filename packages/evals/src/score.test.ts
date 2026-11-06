@@ -114,6 +114,7 @@ function observed(over: Partial<Observed> = {}): Observed {
     disposition: DISPOSITION,
     events: [],
     world: WORLD,
+    plans: [],
     ...over,
   };
 }
@@ -637,6 +638,37 @@ describe("score: noAccountDataBeforeVerification", () => {
 
   it("does not take a longer plan name for a shorter one", () => {
     expect(findings([said("Kidlat 1000 po.")])).toEqual(["plan name of account ending 5604"]);
+  });
+
+  /**
+   * The pack's plan catalog is public: the SOP names it, and the account gate
+   * keeps Tala from learning anyone's plan before verification. So a plan
+   * named in it says nothing about an account.
+   */
+  describe("with the pack's public plan catalog", () => {
+    const CATALOG = [{ name: "Kidlat 100" }, { name: "Kidlat 300" }, { name: "Kidlat 500" }];
+    const checkWith = (plans: Observed["plans"], events: ObservedEvent[]) =>
+      score({ noAccountDataBeforeVerification: true }, observed({ plans, events }));
+
+    it("does not count a plan in the catalog, named before verification", () => {
+      const result = checkWith(CATALOG, [said("Kidlat 300 po is faster than Kidlat 100, and Kidlat 500 more so.")]);
+
+      expect(result.assertions).toEqual([
+        { name: "noAccountDataBeforeVerification", expected: [], actual: [], passed: true },
+      ]);
+    });
+
+    it("still counts the name on an account said beside a catalog plan", () => {
+      expect(checkWith(CATALOG, [said("Ms. Santos, the Kidlat 300 po?")]).assertions[0].actual).toEqual([
+        "surname of account ending 5601",
+      ]);
+    });
+
+    it("still counts an account's plan when the catalog does not name it", () => {
+      expect(checkWith(CATALOG, [said("Kidlat 1000 po.")]).assertions[0].actual).toEqual([
+        "plan name of account ending 5604",
+      ]);
+    });
   });
 
   it("fails on a status word when the account is not active", () => {
