@@ -51,6 +51,9 @@ const WORLD: SeedWorld = {
       restorationMinutesAfterCall: 240,
     },
   ],
+  balances: [],
+  bills: [],
+  payments: [],
 };
 
 const OPENING = "Hello po! I'm Tala, an AI assistant, and this call is recorded.";
@@ -60,7 +63,7 @@ const FILLER = "Sandali lang po.";
 const SOURCE: PackSource = {
   id: "test-isp",
   sop: { version: "v1", body: "You are the assistant on Test ISP's support line.\n" },
-  company: { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH" },
+  company: { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
   persona: {
     openingLine: OPENING,
     fallbackLine: FALLBACK,
