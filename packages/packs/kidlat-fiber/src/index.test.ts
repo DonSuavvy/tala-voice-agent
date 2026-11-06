@@ -108,13 +108,20 @@ describe("the Kidlat Fiber pack", () => {
       for (const channel of ["GCash", "Maya", "bank", "7-Eleven", "Bayad"]) expect(body).toContain(channel);
     });
 
-    /** Prices, fees and limits belong to the plan catalog and the policy, never to an article. */
-    it("states no amount, price or other figure, and names no plan", () => {
+    /**
+     * Prices, fees and limits belong to the plan catalog and the policy, never
+     * to an article; and a count or a wait in an article is a figure too, so
+     * none is stated, in digits or in words. "7-Eleven" is a name.
+     */
+    it("states no number in digits or words, no amount, and names no plan", () => {
       const { help, plans } = loadKidlatFiber();
 
       for (const { id, title, body } of help) {
         const text = `${title} ${body}`;
         expect(text.replace(/7-Eleven/g, ""), id).not.toMatch(/\d/);
+        expect(text, id).not.toMatch(
+          /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i,
+        );
         expect(text, id).not.toMatch(/₱|peso/i);
         for (const plan of plans) expect(text, id).not.toContain(plan.name);
       }

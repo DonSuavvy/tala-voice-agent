@@ -416,14 +416,15 @@ describe("Kidlat Fiber's SOP, as Tala reads it", () => {
 
   /**
    * An example that copied the help case would tell Tala the answer (R2-15):
-   * neither the Help questions section nor the rest of the SOP mentions the
-   * modem's lights or names an article.
+   * neither the Help questions section, the rest of the SOP, nor what the
+   * tools tell the model mentions the modem's lights or names an article.
    */
-  it("uses neither the modem lights nor any help article as an example", () => {
+  it("uses neither the modem lights nor any help article as an example, in the SOP or the tools", () => {
     const pack = loadKidlatFiber();
     const sop = compilePackSop(pack);
+    const tools = JSON.stringify(buildTalaRegistry().toAnthropicTools());
 
-    for (const text of [sectionOf(sop, "Help questions"), sop]) {
+    for (const text of [sectionOf(sop, "Help questions"), sop, tools]) {
       expect(text).not.toMatch(/\bLOS\b|\blights?\b/i);
       for (const article of pack.help) {
         expect(text).not.toContain(article.id);
