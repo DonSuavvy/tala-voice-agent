@@ -16,8 +16,9 @@
  *
  * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 adds
  * diagnosis and remote reboots to the network side, a ticket lookup, and the
- * field-service side; a later ticket adds plans (#16). A ticket may add
- * interfaces and members; none changes a member already here.
+ * field-service side, and changes one member: `createTicket` is told when the
+ * ticket is opened, so a ticket can be checked as opened on the call. A later
+ * ticket adds plans (#16).
  */
 
 /** Where an account's line is: the unit outages are declared against. */
@@ -180,15 +181,24 @@ export interface TicketRecord {
   reference: string;
   category: TicketCategory;
   notes: string;
+  /** When it was opened. A ticket opened before a call started is not that call's. */
+  openedAt: Date;
 }
 
 /** The ticketing side. */
 export interface Ticketing {
-  /** Opens a ticket and returns the reference a caller can quote back, e.g. `TKT-2026-00001`. */
-  createTicket(ticket: NewTicket): Promise<{ reference: string }>;
+  /**
+   * Opens a ticket and returns the reference a caller can quote back, e.g.
+   * `TKT-2026-00001`.
+   *
+   * `openedAt` is when it is opened: the in-memory world has no clock of its
+   * own, so it is told, and `findTicket` gives it back.
+   */
+  createTicket(ticket: NewTicket, openedAt: Date): Promise<{ reference: string }>;
   /**
    * The ticket with exactly this reference, looked for among this account's
-   * tickets only, or null. Returns a copy.
+   * tickets only, or null. It may be from an earlier call: `openedAt` says
+   * when it was opened. Returns a copy.
    */
   findTicket(accountNumber: string, reference: string): Promise<TicketRecord | null>;
 }
@@ -220,6 +230,11 @@ export interface FieldService {
    * already booked: two visits never share a slot.
    */
   bookVisit(visit: NewVisit): Promise<{ reference: string }>;
+  /**
+   * The visit booked for this ticket, looked for among this account's visits
+   * only, or null when the ticket has none.
+   */
+  visitForTicket(accountNumber: string, ticketReference: string): Promise<{ reference: string } | null>;
 }
 
 export interface SmsMessage {

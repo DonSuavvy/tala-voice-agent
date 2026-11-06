@@ -40,6 +40,7 @@ const MINUTE_MS = 60_000;
 
 export interface OpenedTicket extends NewTicket {
   reference: string;
+  openedAt: Date;
 }
 
 export interface BookedVisit extends NewVisit {
@@ -62,8 +63,8 @@ export interface InMemorySystems extends BusinessSystems {
 
 /**
  * `timeZone` is the company's (an IANA name such as `Asia/Manila`): technician
- * slots are stated by the call's local date, so the world needs it to place
- * them.
+ * slots are stated by the call's local date, and references carry the year of
+ * the call's start there, so the world needs it.
  */
 export function createInMemorySystems(
   seed: SeedWorld,
@@ -205,25 +206,28 @@ export function createInMemorySystems(
   };
 
   // Deterministic within a call: the call's first ticket is always 00001, and
-  // its first visit too, in the year the call started (UTC).
+  // its first visit too, in the year the call started in the company's time
+  // zone (a Manila call at 12:30 AM on New Year's Day gets the new year).
+  const callYear = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(
+    callStartedAt,
+  );
   const nextReference = (prefix: string, count: number): string =>
-    `${prefix}-${callStartedAt.getUTCFullYear()}-${String(count + 1).padStart(5, "0")}`;
+    `${prefix}-${callYear}-${String(count + 1).padStart(5, "0")}`;
 
-  const createTicket = (ticket: NewTicket): { reference: string } => {
+  const createTicket = (ticket: NewTicket, openedAt: Date): { reference: string } => {
     const reference = nextReference("TKT", tickets.length);
     const { accountNumber, category, notes } = ticket;
-    tickets.push({ reference, accountNumber, category, notes });
+    tickets.push({ reference, accountNumber, category, notes, openedAt: new Date(openedAt) });
     return { reference };
   };
 
-  // The world holds only the tickets this call opened, so a ticket found here
-  // was opened on this call.
   const findTicket = (accountNumber: string, reference: string): TicketRecord | null => {
     const ticket = tickets.find(
       (t) => t.accountNumber === accountNumber && t.reference === reference,
     );
     if (!ticket) return null;
-    return { reference: ticket.reference, category: ticket.category, notes: ticket.notes };
+    const { category, notes, openedAt } = ticket;
+    return { reference: ticket.reference, category, notes, openedAt: new Date(openedAt) };
   };
 
   const isBooked = (slotId: string): boolean => visits.some((v) => v.slotId === slotId);
@@ -250,6 +254,16 @@ export function createInMemorySystems(
     return { reference };
   };
 
+  const visitForTicket = (
+    accountNumber: string,
+    ticketReference: string,
+  ): { reference: string } | null => {
+    const visit = visits.find(
+      (v) => v.accountNumber === accountNumber && v.ticketReference === ticketReference,
+    );
+    return visit ? { reference: visit.reference } : null;
+  };
+
   // Every real implementation is a network call, so these are async. Wrapping
   // in a promise (rather than an async body) turns a throw into a rejection.
   const later = <T>(work: () => T): Promise<T> => Promise.resolve().then(work);
@@ -268,7 +282,7 @@ export function createInMemorySystems(
       findPayment: (n, reference) => later(() => findPayment(n, reference)),
     },
     tickets: {
-      createTicket: (ticket) => later(() => createTicket(ticket)),
+      createTicket: (ticket, openedAt) => later(() => createTicket(ticket, openedAt)),
       findTicket: (n, reference) => later(() => findTicket(n, reference)),
     },
     sms: {
@@ -280,8 +294,9 @@ export function createInMemorySystems(
     fieldService: {
       availableSlots: (id) => later(() => availableSlots(id)),
       bookVisit: (visit) => later(() => bookVisit(visit)),
+      visitForTicket: (n, reference) => later(() => visitForTicket(n, reference)),
     },
-    openedTickets: () => tickets.map((t) => ({ ...t })),
+    openedTickets: () => tickets.map((t) => ({ ...t, openedAt: new Date(t.openedAt) })),
     outbox: () => outbox.map((m) => ({ ...m })),
     bookedVisits: () => visits.map((v) => ({ ...v })),
   };

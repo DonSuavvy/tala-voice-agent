@@ -1,12 +1,14 @@
 /**
  * `book_technician_visit`: book the window the verified caller picked, for
- * the ticket opened on this call.
+ * the connection ticket opened on this call.
  *
  * A booking is always linked to its ticket: the visit is booked against a
  * ticket the ticketing system holds for this account, and the field-service
- * system keeps the ticket's reference with the visit. The slot must be one
- * still open in the account's own barangay. The model proposes the slot and
- * the ticket; the code checks both before anything is booked.
+ * system keeps the ticket's reference with the visit. The ticket must be a
+ * connection ticket, opened at or after the call's start (the ticketing system
+ * may hold older ones), with no visit yet; the slot must be one still open in
+ * the account's own barangay. The model proposes the slot and the ticket; the
+ * code checks both before anything is booked.
  */
 import { z } from "zod";
 
@@ -18,12 +20,12 @@ export const bookTechnicianVisit = defineTalaTool({
   name: "book_technician_visit",
   description:
     "Books a technician visit to the caller's home in the window the caller picked, linked " +
-    "to the ticket opened on this call for the problem. Use it only after the caller has " +
-    "chosen one of the windows from get_technician_slots. It works only for the account " +
-    "verified on this call with verify_identity, and refuses any other. It refuses a ticket " +
-    "not opened for this account on this call, and a slot that is not open in the caller's " +
-    "area. Returns booked true, the booking reference to give the caller, and the window as " +
-    "it should be said. Calling it again books another visit.",
+    "to the connection ticket opened on this call for the problem. Use it only after the " +
+    "caller has chosen one of the windows from get_technician_slots. It works only for the " +
+    "account verified on this call with verify_identity, and refuses any other. It refuses a " +
+    "ticket that is not a connection ticket opened for this account on this call, or that " +
+    "already has a visit, and a slot that is not open in the caller's area. Returns booked " +
+    "true, the booking reference to give the caller, and the window as it should be said.",
   input: z
     .object({
       account_number: accountNumberInput,
@@ -38,21 +40,30 @@ export const bookTechnicianVisit = defineTalaTool({
         .string()
         .min(1)
         .max(40)
-        .describe("The reference create_trouble_ticket gave for the ticket opened on this call."),
+        .describe(
+          "The reference create_trouble_ticket gave for the connection ticket opened on this call.",
+        ),
     })
     .strict(),
   safetyClass: "auto_write",
   idempotent: false,
   handler: async (input, ctx) => {
     const account = await requireVerifiedAccount(ctx, input.account_number);
-    const { systems, company } = ctx.data;
+    const { systems, company, startedAt } = ctx.data;
     const { accountNumber } = account;
 
     const ticket = await systems.tickets.findTicket(accountNumber, input.ticket_reference);
-    if (ticket === null) {
+    const bookable =
+      ticket !== null &&
+      ticket.category === "connection" &&
+      ticket.openedAt.getTime() >= startedAt.getTime() &&
+      (await systems.fieldService.visitForTicket(accountNumber, ticket.reference)) === null;
+    if (!bookable) {
       throw new Error(
-        "Refused: no ticket with that reference was opened for this account on this call. " +
-          "Open one with create_trouble_ticket first, then book the visit with its reference.",
+        "Refused: a visit is booked once, against a connection ticket opened for this account " +
+          "on this call, and that reference is not one or already has a visit. If no connection " +
+          "ticket is open yet, open one with create_trouble_ticket, then book the visit with its " +
+          "reference.",
       );
     }
 

@@ -375,6 +375,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       locale: pack.company.locale,
       currency: pack.company.currency,
     },
+    startedAt,
     wait: options.wait ?? waitOnTimer,
   };
 

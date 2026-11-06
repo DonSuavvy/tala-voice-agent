@@ -24,7 +24,9 @@ export const remoteRebootModem = defineTalaTool({
     "Restarts the modem at the caller's home remotely, waits until the restart is over, then " +
     "checks the connection again. The caller's internet drops while the modem restarts. Use " +
     "it only after the caller agrees to the restart. It works only for the account verified " +
-    "on this call with verify_identity, and refuses any other. Returns rebooted true, " +
+    "on this call with verify_identity, and refuses any other. It refuses, restarting " +
+    "nothing, unless the latest check of the connection suggests a reboot (reboot_may_clear), " +
+    "so it refuses a second restart on the call. Returns rebooted true, " +
     "waited_seconds (how long the restart took), and the re-check in the same form as " +
     "run_line_diagnostics: the modem's status, the optical power it receives in dBm, when the " +
     "network last heard from it, and the fault the system still finds, or null if none.",
@@ -38,9 +40,24 @@ export const remoteRebootModem = defineTalaTool({
   handler: async (input, ctx) => {
     const account = await requireVerifiedAccount(ctx, input.account_number);
     const { systems, company, wait } = ctx.data;
-    const reboot = await systems.network.rebootModem(account.accountNumber, ctx.now);
-    if (reboot === null) {
+    // The SOP offers a restart only when the check suggests one; this makes
+    // sure. The check after a restart suggests none, so it is never repeated.
+    const latest = await systems.network.diagnose(account.accountNumber);
+    if (latest === null) {
       throw new Error("no modem is on record for the account verified on this call");
+    }
+    if (!latest.rebootMayClear) {
+      throw new Error(
+        "Refused: the latest check of this connection does not suggest a remote reboot, so the " +
+          "modem was not restarted. If the problem remains, open a connection ticket with " +
+          "create_trouble_ticket.",
+      );
+    }
+    const reboot = await systems.network.rebootModem(account.accountNumber, ctx.now);
+    // The modem was there a moment ago; missing now means the network system
+    // changed under the call.
+    if (reboot === null) {
+      throw new Error("the modem could not be restarted");
     }
     await wait(reboot.restartSeconds * SECOND_MS);
     const recheck = await systems.network.diagnose(account.accountNumber);

@@ -16,6 +16,11 @@ export interface CallData {
   /** How times and money are spoken: the company's time zone, locale and ISO 4217 currency. */
   company: { timeZone: string; locale: string; currency: string };
   /**
+   * When the call started, from the session's clock. "Opened on this call"
+   * means opened at or after this, whatever else the business systems hold.
+   */
+  startedAt: Date;
+  /**
    * Resolves after this many milliseconds, for a tool that has to wait, such
    * as a remote reboot waiting out the restart. The call session supplies it:
    * a real timer unless it is given another. Tests pass one that resolves at
