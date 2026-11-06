@@ -410,6 +410,17 @@ describe("Kidlat Fiber's SOP, as Tala reads it", () => {
     },
   );
 
+  /**
+   * change_plan takes only the latest quote, so a caller who heard two prices
+   * and picks the first must have it quoted again: the SOP says so, or Tala
+   * meets a refusal she was never told about.
+   */
+  it("tells Tala that only the latest quote can change a plan", () => {
+    const section = sectionOf(compilePackSop(loadKidlatFiber()), "Changing plans").replace(/\s+/g, " ");
+
+    expect(section).toMatch(/only the latest quote/i);
+  });
+
   it("states the plan catalog through its placeholder", () => {
     expect(sectionOf(loadKidlatFiber().sop.body, "Changing plans")).toContain("{{planCatalog}}");
   });
