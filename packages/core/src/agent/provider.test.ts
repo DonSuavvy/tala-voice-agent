@@ -14,7 +14,7 @@ import {
  * nothing downstream names a model by its id.
  *
  * OpsPilot's version also had an Amazon Bedrock provider, with its own ids,
- * unverified rates and credential checks. That provider and its 13 tests were
+ * unverified rates and credential checks. That provider and its 12 tests were
  * not carried over: Tala must never call Bedrock.
  */
 const MODELS: LogicalModel[] = ["haiku", "sonnet", "opus"];

@@ -13,8 +13,10 @@ credits and take over.
 Tala's core is the agent engine from
 [OpsPilot](https://github.com/DonSuavvy/opspilot), extended for real-time voice.
 
-> **Status: scaffold.** The repo installs, typechecks, tests and lints, and CI
-> runs on every pull request. No agent code yet. The full design is in
+> **Status: engine imported.** OpsPilot's agent engine runs inside Tala with
+> its tests, made company-agnostic and moved to the first-party API and the
+> 5.5 models ([ADR 1](docs/adr/0001-import-opspilot-engine.md)). No company
+> pack, calls or voice yet. The full design is in
 > [`docs/DESIGN.md`](docs/DESIGN.md), and the spec and tickets are in this
 > repo's [Issues](https://github.com/DonSuavvy/tala-voice-agent/issues/1).
 
