@@ -45,13 +45,20 @@ const accountSchema = z
   })
   .strict();
 
+/**
+ * 30 days, in minutes. An unbounded offset loads fine and then fails mid-call
+ * ("Invalid time value") once it is added to the call's start; a bad config
+ * must fail at boot instead (spec user story 69).
+ */
+const MAX_OFFSET_MINUTES = 43_200;
+
 const outageSchema = z
   .object({
     reference: nonEmpty,
     cause: nonEmpty,
     barangayIds: z.array(z.string()).min(1),
-    startedMinutesBeforeCall: z.number().int().min(0),
-    restorationMinutesAfterCall: z.number().int().positive().nullable(),
+    startedMinutesBeforeCall: z.number().int().min(0).max(MAX_OFFSET_MINUTES),
+    restorationMinutesAfterCall: z.number().int().positive().max(MAX_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
