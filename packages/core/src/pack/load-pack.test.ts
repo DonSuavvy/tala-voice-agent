@@ -354,6 +354,33 @@ describe("loadPack's help articles", () => {
     ]);
   });
 
+  it("keeps a colon inside a header value", () => {
+    const source = testPackSource();
+    source.help = [
+      {
+        file: "help/wifi.md",
+        markdown: "---\nid: wifi\ntitle: Wi-Fi: changing your password\ntags: wifi\n---\nOpen the settings.\n",
+      },
+    ];
+
+    expect(loadPack(source).help[0].title).toBe("Wi-Fi: changing your password");
+  });
+
+  /** Some editors on Windows start a UTF-8 file with a byte-order mark. */
+  it("reads a file that starts with a byte-order mark", () => {
+    const source = testPackSource();
+    source.help = [
+      {
+        file: "help/wifi.md",
+        markdown: "\uFEFF---\nid: wifi\ntitle: Changing your Wi-Fi password\ntags: wifi\n---\nOpen the settings.\n",
+      },
+    ];
+
+    expect(loadPack(source).help).toEqual([
+      { id: "wifi", title: "Changing your Wi-Fi password", tags: ["wifi"], body: "Open the settings." },
+    ]);
+  });
+
   it("loads a pack with no help articles", () => {
     const source = testPackSource();
     source.help = [];
