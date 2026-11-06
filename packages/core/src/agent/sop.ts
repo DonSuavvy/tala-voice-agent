@@ -81,6 +81,17 @@ export class UnknownPlaceholderError extends Error {
 /** `{{ anything.without.braces }}`, tolerant of surrounding whitespace. */
 const PLACEHOLDER = /\{\{\s*([^{}\s]+)\s*\}\}/g;
 
+/**
+ * The distinct placeholder names a body uses, in first-appearance order.
+ * Uses the same grammar as `compileSop`, so a boot check and the compiler can
+ * never disagree about what counts as a placeholder.
+ */
+export function placeholdersIn(body: string): string[] {
+  const names = new Set<string>();
+  for (const match of body.matchAll(PLACEHOLDER)) names.add(match[1]);
+  return [...names];
+}
+
 export interface CompileSopInput<P> {
   bodyMarkdown: string;
   policyConfig: P;
