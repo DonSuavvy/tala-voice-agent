@@ -315,8 +315,9 @@ export function createInMemorySystems(
   const quoteOf = (accountNumber: string, reference: string): PlanQuoteRecord | undefined =>
     quotes.find((q) => q.accountNumber === accountNumber && q.reference === reference);
 
-  const findQuote = (accountNumber: string, reference: string): PlanQuoteRecord | null => {
-    const quote = quoteOf(accountNumber, reference);
+  // Quotes are kept in the order they were made, so the last one is the latest.
+  const latestQuote = (accountNumber: string): PlanQuoteRecord | null => {
+    const quote = quotes.findLast((q) => q.accountNumber === accountNumber);
     return quote ? copyOfQuote(quote) : null;
   };
 
@@ -377,7 +378,7 @@ export function createInMemorySystems(
     },
     plans: {
       createQuote: (quote, quotedAt) => later(() => createQuote(quote, quotedAt)),
-      findQuote: (n, reference) => later(() => findQuote(n, reference)),
+      latestQuote: (n) => later(() => latestQuote(n)),
       applyQuote: (n, reference, appliedAt) => later(() => applyQuote(n, reference, appliedAt)),
       scheduledChange: (n) => later(() => scheduledChange(n)),
     },

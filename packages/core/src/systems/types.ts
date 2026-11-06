@@ -282,15 +282,15 @@ export interface PlanChanges {
    * Keeps a quote and returns the reference it goes by, e.g. `QTE-2026-00001`.
    *
    * `quotedAt` is when it was made: the in-memory world has no clock of its
-   * own, so it is told, and `findQuote` gives it back.
+   * own, so it is told, and `latestQuote` gives it back.
    */
   createQuote(quote: NewPlanQuote, quotedAt: Date): Promise<{ reference: string }>;
   /**
-   * The quote with exactly this reference, looked for among this account's
-   * quotes only, or null. It may be from an earlier call (`quotedAt` says when
-   * it was made) or used already. Returns a copy.
+   * The quote made most recently for this account, or null when it has none.
+   * It may be from an earlier call (`quotedAt` says when it was made) or used
+   * already. Returns a copy.
    */
-  findQuote(accountNumber: string, reference: string): Promise<PlanQuoteRecord | null>;
+  latestQuote(accountNumber: string): Promise<PlanQuoteRecord | null>;
   /**
    * Makes the change a quote priced, and marks the quote used.
    *
