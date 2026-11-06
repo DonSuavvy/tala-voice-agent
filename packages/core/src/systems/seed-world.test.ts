@@ -187,6 +187,24 @@ describe("seedWorldSchema", () => {
       expect(result.error?.issues.map((i) => i.path)).toContainEqual(["barangays"]);
     });
 
+    // 30 days, in minutes: the largest offset a seed may state.
+    const MAX_OFFSET = 43_200;
+
+    it.each(["startedMinutesBeforeCall", "restorationMinutesAfterCall"] as const)(
+      "accepts %s at 43_200 and refuses 43_201",
+      (field) => {
+        const atLimit = validSeed();
+        atLimit.outages[0][field] = MAX_OFFSET;
+        expect(seedWorldSchema.safeParse(atLimit).success).toBe(true);
+
+        const over = validSeed();
+        over.outages[0][field] = MAX_OFFSET + 1;
+        const result = seedWorldSchema.safeParse(over);
+        expect(result.success).toBe(false);
+        expect(result.error?.issues.map((i) => i.path)).toEqual([["outages", 0, field]]);
+      },
+    );
+
     it("accepts a null restoration time and an empty outage list", () => {
       const seed = validSeed();
       seed.outages[0].restorationMinutesAfterCall = null as unknown as number;
