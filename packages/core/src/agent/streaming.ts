@@ -36,6 +36,13 @@
  * beta header; a Haiku request carries neither and is otherwise the same
  * request as before.
  *
+ * **A turn a fallback took over goes back as the API asks.** A fallback
+ * mid-output keeps the declined attempt's partial before a `fallback` block.
+ * Of that partial, only its text stays, with every `fallback` block in
+ * place; its thinking and tool calls are left out before anyone sees them.
+ * The turn's `model` and `usage.iterations` pass through untouched: the loop
+ * prices and records the turn from them.
+ *
  * **No `thinking`, no `effort` yet.** On the 5.5 models, omitting `thinking`
  * runs adaptive thinking, which is the only setting Opus 5.5 accepts. Effort
  * per logical model is #20. Whatever thinking blocks come back round-trip
@@ -96,6 +103,33 @@ function interruptedTurn(
 }
 
 /**
+ * A turn as it can go back to the API after a server-side refusal fallback
+ * took over mid-output.
+ *
+ * The claude-api skill, refusal section, "Echoing fallback turns back":
+ * thinking, redacted_thinking and tool_use blocks, and any other
+ * model-internal block, that came before the turn's final `fallback` block
+ * are left out; text and everything from the boundary on go back as they
+ * came. The SDK's `BetaFallbackBlockParam` adds that every `fallback` block
+ * stays in its original position, and that no tool_result is sent for a
+ * tool_use left out. Text before the boundary stays: the caller heard it,
+ * and the fallback model continued from it. (The rule also keeps paired
+ * server-tool blocks; Tala sends no server tools, so there are none.)
+ *
+ * Not an edit of the conversation: the turn has never been sent back.
+ * Leaving the declined attempt out here, where it arrives, means nothing
+ * downstream ever runs a tool call it never stood behind.
+ */
+function asItCanGoBack(turn: AssistantTurn): AssistantTurn {
+  const boundary = turn.content.findLastIndex((block) => block.type === "fallback");
+  if (boundary <= 0) return turn;
+  const content = turn.content.filter(
+    (block, index) => index >= boundary || block.type === "fallback" || isSpokenText(block),
+  );
+  return { ...turn, content };
+}
+
+/**
  * The casts are contained here on purpose.
  *
  * The loop's `ContentBlock` is deliberately open-ended so thinking blocks and
@@ -130,14 +164,14 @@ export function streamingMessageCreator(client: Anthropic): MessageCreator {
 
     try {
       const message = await stream.finalMessage();
-      return message as unknown as AssistantTurn;
+      return asItCanGoBack(message as unknown as AssistantTurn);
     } catch (error) {
       // Only the caller's own abort is an interruption. Anything else is a
       // failure, and the loop books it as one.
       if (signal?.aborted !== true || !(error instanceof Anthropic.APIUserAbortError)) {
         throw error;
       }
-      return interruptedTurn(stream.currentMessage, finished);
+      return asItCanGoBack(interruptedTurn(stream.currentMessage, finished));
     }
   };
 }

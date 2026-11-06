@@ -30,7 +30,9 @@
  * in the conversation stays, and every tool call not run is answered "Not
  * run". A model call the abort cut off mid-stream is booked at no less than
  * its estimate, because its usage undercounts; one that had already returned
- * when the abort landed is booked exactly. What it does not own:
+ * when the abort landed is booked exactly. A turn a server-side refusal
+ * fallback served is priced by the models that served it and recorded on its
+ * llm_call span with who declined and who served. What it does not own:
  * the database, HTTP, the wall clock, or pricing. Those arrive as arguments,
  * which is what keeps this testable without a database and deterministic in
  * the eval suite.
@@ -84,6 +86,24 @@ export type ContentBlock =
   | ToolUseBlock
   | ToolResultBlock
   | { type: string; [key: string]: unknown };
+
+/**
+ * Where a server-side refusal fallback took over a turn: `from` declined,
+ * and `to` wrote what follows. One per switch, in `content` where it
+ * happened. It goes back to the API where it came, as every block does: the
+ * server validates the turn against it.
+ */
+export type FallbackBlock = {
+  type: "fallback";
+  from: { model: string };
+  to: { model: string };
+};
+
+function isFallbackBlock(block: ContentBlock): block is FallbackBlock {
+  if (block.type !== "fallback") return false;
+  const { from, to } = block as { from?: { model?: unknown }; to?: { model?: unknown } };
+  return typeof from?.model === "string" && typeof to?.model === "string";
+}
 
 export interface MessageParam {
   role: "user" | "assistant";
@@ -162,6 +182,24 @@ export type MessageCreator = (
 /* -------------------------------------------------------------------------- */
 
 export type SpanType = "llm_call" | "tool_exec" | "guardrail" | "approval_wait";
+
+/**
+ * A turn a server-side refusal fallback served, as its `llm_call` span's
+ * output records it under `fallback`. Absent on a turn the requested model
+ * served.
+ */
+export interface FallbackRecord {
+  /** The model the request named: the call's pinned model. */
+  requested: string;
+  /**
+   * Each model that ran and declined this turn, in order: the `from` of
+   * every `fallback` block. Empty on a sticky turn, which the API sent
+   * straight to the fallback model, so nothing declined.
+   */
+  declined: string[];
+  /** The model that produced the message. On a whole-chain refusal, the last to refuse. */
+  servedBy: string;
+}
 
 /**
  * One row of the flight recorder. Emitted as it happens rather than collected
@@ -384,6 +422,26 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
     cacheCreationInputTokens:
       a.cacheCreationInputTokens + b.cacheCreationInputTokens,
     cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+  };
+}
+
+/**
+ * Whether a server-side refusal fallback served this turn, and how.
+ *
+ * The served-by signal is a `fallback_message` entry in `usage.iterations`,
+ * not the block: a sticky turn has none (claude-api skill, refusal section).
+ * The blocks name who declined. A turn the caller cut before its fallback
+ * block came, which has neither, records nothing here; its cost is still
+ * priced at the model that was writing.
+ */
+function fallbackOf(turn: AssistantTurn, requested: string): FallbackRecord | null {
+  const switches = turn.content.filter(isFallbackBlock);
+  const serving = (turn.usage.iterations ?? []).find((a) => a.type === "fallback_message");
+  if (switches.length === 0 && serving === undefined) return null;
+  return {
+    requested,
+    declined: switches.map((block) => block.from.model),
+    servedBy: switches.at(-1)?.to.model ?? turn.model ?? serving?.model ?? requested,
   };
 }
 
@@ -686,6 +744,9 @@ export async function runAgentLoop<C extends ToolContext>(
       accruedNanos += callNanos;
       estimated = estimated || callEstimated;
 
+      // The span keeps the requested model's name, as the pin does; who
+      // declined and who served a fallback turn go in its output.
+      const fallback = fallbackOf(assistant, model);
       await span({
         type: "llm_call",
         name: model,
@@ -693,6 +754,7 @@ export async function runAgentLoop<C extends ToolContext>(
         output: {
           stop_reason: assistant.stop_reason,
           blocks: assistant.content.map((b) => b.type),
+          ...(fallback ? { fallback } : {}),
         },
         isError: false,
         usage: turnUsage,
