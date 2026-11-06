@@ -110,7 +110,7 @@ _Avoid_: rules, settings
 
 **Seed world**:
 The demo company's data that every call starts from a fresh copy of: its
-accounts, barangays, outages, balances, bills and payments.
+accounts, barangays, outages, balances, bills, payments, modems and slots.
 _Avoid_: mock data, fixtures, database
 
 **Barangay**:
@@ -130,6 +130,29 @@ _Avoid_: downtime, incident
 **Estimated restoration time**:
 When service is expected back after an outage.
 _Avoid_: ETA, ETR
+
+## Connections
+
+**Modem**:
+The device at the customer's home that their fiber connection ends in, which
+the network can see and restart.
+_Avoid_: router, ONU, ONT
+
+**Diagnosis**:
+What the network's own monitoring says about the connection at an account's
+home: the modem's status and signal, when it was last seen, any fault, and
+whether a remote reboot may clear it.
+_Avoid_: line test, line check
+
+**Fault**:
+A problem a diagnosis finds on one account's connection, described in plain
+words. An outage is a fault in a whole barangay; this is not.
+_Avoid_: error, issue
+
+**Remote reboot**:
+A restart of an account's modem from the network side, followed by a fresh
+diagnosis once the modem is back.
+_Avoid_: reset, power cycle
 
 ## Billing
 
@@ -172,6 +195,17 @@ _Avoid_: cut-off, termination
 A request, opened on the verified account, for a team to do what Tala cannot do
 on the call, with a reference the caller can quote back.
 _Avoid_: case, complaint, trouble report
+
+**Technician visit**:
+A technician coming to the customer's home in a slot the caller picked, booked
+against a ticket opened on the call, with a reference the caller can quote
+back.
+_Avoid_: appointment, dispatch, site visit
+
+**Slot**:
+A window of hours on one day in which a technician can visit a barangay. Tala
+offers slots by their windows, and a booked slot holds one technician visit.
+_Avoid_: appointment, time slot, schedule
 
 ## People
 

@@ -1,0 +1,28 @@
+{
+  "slug": "scenario-3-slow-internet",
+  "title": "Scenario 3: slow internet, a reboot that does not fix it, a technician visit",
+  "caller": {
+    "brief": "You are Ana Reyes, a Kidlat Fiber customer in San Antonio, Pasig. For two days your home internet has been very slow: video calls freeze and pages take a long time to load. You work from home, so you need it fixed soon. You speak Taglish, mostly English with some Tagalog mixed in, the way many callers in Metro Manila do. You are polite but want this sorted out. You know your Kidlat Fiber account number, 8012345603, and the last four digits of the mobile number registered on the account, 0103; give them when the agent asks for them. If the agent offers to restart your modem remotely, agree. If the agent offers you times for a technician visit, pick the earliest one. When the agent gives you a booking reference, you want it by text so you do not have to write it down: say yes if the agent offers to text it, or ask the agent to text it to your registered mobile if they do not offer. You are satisfied once a technician visit is booked and the reference has been texted to you. Then thank the agent and say goodbye.",
+    "maxTurns": 12
+  },
+  "expect": {
+    "endedBy": "end_call",
+    "toolsCalledInOrder": [
+      "verify_identity",
+      "run_line_diagnostics",
+      "remote_reboot_modem",
+      "create_trouble_ticket",
+      "get_technician_slots",
+      "book_technician_visit",
+      "send_sms",
+      "end_call"
+    ],
+    "toolResults": [
+      { "tool": "create_trouble_ticket", "input": { "category": "connection" } },
+      { "tool": "book_technician_visit", "result": { "booked": true } }
+    ],
+    "disposition": { "outcome": "resolved", "topic": "slow_internet" },
+    "noAccountDataBeforeVerification": true,
+    "speaksBeforeEveryToolCall": true
+  }
+}
