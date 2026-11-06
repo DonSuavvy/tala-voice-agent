@@ -10,7 +10,8 @@
  * while a supervisor approves a credit (#13).
  *
  * **The client is an interface, not a client.** The loop depends on
- * `MessageCreator` — `(params) => Promise<AssistantTurn>` — and nothing else.
+ * `MessageCreator` — `(params, options?) => Promise<AssistantTurn>` — and
+ * nothing else.
  * The production adapter streams from the Anthropic API and returns the SDK's
  * assembled final message; the tests hand it scripted turns. Two things fall out of that
  * split. `npm test` needs no API key, and the four-field `usage` object is
@@ -89,7 +90,12 @@ export interface MessageParam {
  */
 export interface AssistantTurn {
   content: ContentBlock[];
-  stop_reason: string | null;
+  /**
+   * The API's stop reason, or Tala's own `"interrupted"`: the caller cut the
+   * turn short, and `content` is what had streamed by then. The API never
+   * sends `"interrupted"`, and it is never sent back to it.
+   */
+  stop_reason: "interrupted" | (string & {}) | null;
   /**
    * Populated *only* on a refusal — and nullable even then, which is why the
    * loop branches on `stop_reason` and treats this as detail rather than
@@ -120,8 +126,20 @@ export interface MessageCreateParams {
   tools: unknown[];
 }
 
+/** What a model call can be given besides its request. Both are optional. */
+export interface MessageCreatorOptions {
+  /**
+   * Aborting it stops the turn. The creator then resolves, rather than
+   * throws, with what had streamed, marked `stop_reason: "interrupted"`.
+   */
+  signal?: AbortSignal;
+  /** Each piece of text as it streams, in order. Thinking is never passed. */
+  onTextDelta?: (text: string) => void;
+}
+
 export type MessageCreator = (
   params: MessageCreateParams,
+  options?: MessageCreatorOptions,
 ) => Promise<AssistantTurn>;
 
 /* -------------------------------------------------------------------------- */
