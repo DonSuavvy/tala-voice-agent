@@ -121,6 +121,22 @@ describe("the Kidlat Fiber pack", () => {
     });
   });
 
+  it("names its plans and their speeds from its catalog, not from typed text", () => {
+    const source = kidlatFiberSource();
+    const shipped = compilePackSop(loadPack(source));
+    const faster = compilePackSop(
+      loadPack({
+        ...source,
+        plans: (source.plans as { id: string; downloadMbps: number }[]).map((plan) =>
+          plan.id === "kidlat-1000" ? { ...plan, downloadMbps: 1200 } : plan,
+        ),
+      }),
+    );
+
+    expect(shipped).toContain("- Kidlat 1000: 1000 Mbps, plan id kidlat-1000");
+    expect(faster).toContain("- Kidlat 1000: 1200 Mbps, plan id kidlat-1000");
+  });
+
   it("opens every call by saying Tala is an AI and the call is recorded", () => {
     const { persona } = loadKidlatFiber();
 
