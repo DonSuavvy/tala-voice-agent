@@ -2,8 +2,8 @@ name: Evals
 
 # The eval gate (#9): plays every eval case against Tala on real Claude and
 # fails the PR if any case fails the deterministic gate. It spends API credit
-# (scripts/eval.ts says exactly what its $1.00 cap covers), so it runs only on
-# pull requests that can change what Tala says or does on a call.
+# (scripts/eval.ts says exactly what its $1.00 cap covers), so it runs the
+# suite only on pull requests that can change what Tala says or does on a call.
 #
 # That is wider than "prompts, the SOP, policies or tools", on purpose:
 # - The SOP, policy, persona, seed world and eval cases are company-pack data
@@ -15,24 +15,17 @@ name: Evals
 #   which also makes the model call.
 # - The SDK version that talks to Claude is pinned in package-lock.json.
 # - The eval package and its runner (packages/evals/**, scripts/eval.ts) are the
-#   gate itself, and this file is how it runs.
+#   gate itself, and this file is how it runs. A committed report is a result,
+#   not a change to what is tested.
+#
+# The workflow starts on every pull request and decides in its Scope step
+# whether to run the suite, instead of using a paths filter, because "eval
+# gate" is a required check on main: a required check whose workflow never
+# starts stays "expected" and blocks the PR forever. A PR that changes nothing
+# the gate tests passes it in seconds and spends nothing.
 # Unit tests, which need no key, are ci.yml.
 on:
   pull_request:
-    paths:
-      - "packages/packs/**"
-      - "packages/core/src/tools/**"
-      - "packages/core/src/systems/**"
-      - "packages/core/src/policy/**"
-      - "packages/core/src/pack/**"
-      - "packages/core/src/call/**"
-      - "packages/core/src/agent/**"
-      - "package-lock.json"
-      - "packages/evals/**"
-      - "scripts/eval.ts"
-      # A committed report is a result, not a change to what is tested.
-      - "!packages/evals/reports/**"
-      - ".github/workflows/evals.yml"
 
 permissions:
   contents: read
@@ -49,19 +42,41 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Does this PR change anything the gate tests? The list is the header's.
+      - name: Scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gated='^(packages/packs/|packages/core/src/(tools|systems|policy|pack|call|agent)/|packages/evals/|scripts/eval\.ts$|package-lock\.json$|\.github/workflows/evals\.yml$)'
+          relevant="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -v '^packages/evals/reports/' | grep -E "$gated" || true)"
+          if [ -n "$relevant" ]; then
+            printf 'Files the gate tests:\n%s\n' "$relevant"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::This PR changes nothing the eval gate tests, so the gate passes without a run."
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-node@v7
+        if: steps.scope.outputs.relevant == 'true'
         with:
           node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
+        if: steps.scope.outputs.relevant == 'true'
         run: npm ci
 
       # The runner names the report it wrote as this step's `report` output
       # (through $GITHUB_OUTPUT), also when the gate fails.
       - name: Eval suite
         id: eval
+        if: steps.scope.outputs.relevant == 'true'
         run: npm run eval
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -69,7 +84,7 @@ jobs:
       # This run's report only. A run that died before writing one names none,
       # so a report committed in the checkout is never uploaded in its place.
       - name: Upload the report
-        if: always() && steps.eval.outputs.report != ''
+        if: always() && steps.scope.outputs.relevant == 'true' && steps.eval.outputs.report != ''
         uses: actions/upload-artifact@v7
         with:
           name: eval-report
