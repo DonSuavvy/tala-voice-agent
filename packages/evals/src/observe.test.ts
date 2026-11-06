@@ -171,7 +171,7 @@ function outline(observed: Observed): string[] {
 
 describe("observeCall: a call that ended through end_call", () => {
   it("keeps Tala's lines, the caller's turns and the spans, in the call's order", async () => {
-    const observed = observeCall(await scenarioOneCall(), WORLD);
+    const observed = observeCall(await scenarioOneCall(), WORLD, PLANS);
 
     expect(outline(observed)).toEqual([
       `speech: ${OPENING}`,
@@ -196,7 +196,7 @@ describe("observeCall: a call that ended through end_call", () => {
 
   /** Timestamps are not the scorer's business: a clock in the observation invites a check on it. */
   it("drops the caller's timestamps", async () => {
-    const observed = observeCall(await scenarioOneCall(), WORLD);
+    const observed = observeCall(await scenarioOneCall(), WORLD, PLANS);
 
     expect(observed.events[1]).toEqual({
       type: "caller_said",
@@ -205,7 +205,7 @@ describe("observeCall: a call that ended through end_call", () => {
   });
 
   it("takes how the call ended and its disposition from call_ended, and passes the world through", async () => {
-    const observed = observeCall(await scenarioOneCall(), WORLD);
+    const observed = observeCall(await scenarioOneCall(), WORLD, PLANS);
 
     expect(observed.endedBy).toBe("end_call");
     expect(observed.disposition).toEqual(DISPOSITION);
@@ -222,7 +222,7 @@ describe("observeCall: a call that ended through end_call", () => {
       maxModelCalls: 6,
     };
 
-    const result = score(expectations, observeCall(await scenarioOneCall(), WORLD));
+    const result = score(expectations, observeCall(await scenarioOneCall(), WORLD, PLANS));
 
     expect(result.failureReason).toBeNull();
     expect(result.passed).toBe(true);
@@ -246,7 +246,7 @@ describe("observeCall: through a real call, the voice checks see what went wrong
     await session.callerSaid("Wala po kaming internet.");
     await session.callerSaid("8012345601 po, 0101.");
 
-    const observed = observeCall(events, WORLD);
+    const observed = observeCall(events, WORLD, PLANS);
     const result = score({ speaksBeforeEveryToolCall: true }, observed);
 
     expect(observed.events).toContainEqual({ type: "speech", text: FILLER });
@@ -265,7 +265,7 @@ describe("observeCall: through a real call, the voice checks see what went wrong
     session.start();
     await session.callerSaid("Maria Santos po, 8012345601, 0101.");
 
-    const result = score({ noAccountDataBeforeVerification: true }, observeCall(events, WORLD));
+    const result = score({ noAccountDataBeforeVerification: true }, observeCall(events, WORLD, PLANS));
 
     expect(result.assertions[0].actual).toEqual(["surname of account ending 5601"]);
   });
@@ -294,7 +294,7 @@ describe("observeCall: calls that did not end through end_call", () => {
     session.start();
     await session.callerSaid("Hello po.");
 
-    const observed = observeCall(events, WORLD);
+    const observed = observeCall(events, WORLD, PLANS);
 
     expect(observed.endedBy).toBe("not_ended");
     expect(observed.disposition).toBeNull();
@@ -305,7 +305,7 @@ describe("observeCall: calls that did not end through end_call", () => {
     session.start();
     await session.callerSaid("Hello po.");
 
-    const observed = observeCall(events, WORLD);
+    const observed = observeCall(events, WORLD, PLANS);
 
     expect(observed.endedBy).toBe("failed");
     expect(observed.disposition).toBeNull();
@@ -327,6 +327,6 @@ describe("observeCall: event types it does not know", () => {
     ] as unknown as CallEvent[];
     const withUnknown = [...events.slice(0, 3), ...unknown, ...events.slice(3)];
 
-    expect(observeCall(withUnknown, WORLD)).toEqual(observeCall(events, WORLD));
+    expect(observeCall(withUnknown, WORLD, PLANS)).toEqual(observeCall(events, WORLD, PLANS));
   });
 });

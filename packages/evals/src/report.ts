@@ -110,6 +110,8 @@ export interface CaseRowInput {
   call: SimulatedCall;
   /** The seed world the call started from. */
   world: Pick<SeedWorld, "accounts">;
+  /** The company pack's plan catalog: plans named in it are public. */
+  plans: readonly { name: string }[];
   grade: AdvisoryGrade;
   callId: string;
   /** How long the case took, as the runner measured it. */
@@ -135,7 +137,7 @@ function maskedRow(row: CaseReportRow): CaseReportRow {
 /** One case's row: scored here, from the call's own events. */
 export function caseRow(input: CaseRowInput): CaseReportRow {
   const { call, grade } = input;
-  const verdict = score(input.case.expect, observeCall(call.events, input.world));
+  const verdict = score(input.case.expect, observeCall(call.events, input.world, input.plans));
   const callerFailed = call.stoppedBy === "caller_failed";
 
   const spans = call.events.flatMap((e) => (e.type === "span" ? [e.span] : []));

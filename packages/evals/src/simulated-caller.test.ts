@@ -193,7 +193,7 @@ describe("runSimulatedCall: a call to its end", () => {
     expect(result.callerError).toBeNull();
     expect(result.callerTurns).toBe(3);
     expect(saidByCaller(result.events)).toEqual(CALLER_LINES);
-    expect(observeCall(result.events, WORLD).endedBy).toBe("end_call");
+    expect(observeCall(result.events, WORLD, []).endedBy).toBe("end_call");
   });
 
   /**
@@ -320,7 +320,7 @@ describe("runSimulatedCall: the turn cap", () => {
     expect(result.callerTurns).toBe(2);
     expect(callerRequests).toHaveLength(2);
     expect(saidByCaller(result.events)).toEqual(["Hello po.", "Hello po?"]);
-    expect(observeCall(result.events, WORLD).endedBy).toBe("not_ended");
+    expect(observeCall(result.events, WORLD, []).endedBy).toBe("not_ended");
   });
 });
 

@@ -194,6 +194,7 @@ describe("masking, end to end", () => {
       case: kase,
       call,
       world: pack.world,
+      plans: pack.plans,
       grade: { grade: null, reason: "not graded", usage: null, costNanos: 0, estimated: false },
       callId: "call_masking",
       latencyMs: 1,

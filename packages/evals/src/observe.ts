@@ -20,10 +20,13 @@ import type { Observed, ObservedEvent } from "./score";
 /**
  * A call with no `call_ended` is `not_ended`: the simulated caller ran out of
  * turns before Tala called `end_call`, so the call has no disposition either.
+ * `world` and `plans` are the seed world and the plan catalog the call's
+ * company pack started it with.
  */
 export function observeCall(
   events: readonly CallEvent[],
   world: Pick<SeedWorld, "accounts">,
+  plans: Observed["plans"],
 ): Observed {
   const observed: ObservedEvent[] = [];
   let ended: Extract<CallEvent, { type: "call_ended" }> | null = null;
@@ -40,5 +43,6 @@ export function observeCall(
     disposition: ended?.disposition ?? null,
     events: observed,
     world,
+    plans,
   };
 }
