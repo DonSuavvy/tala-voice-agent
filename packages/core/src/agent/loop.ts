@@ -238,9 +238,10 @@ export interface AgentLoopInput<C extends ToolContext = ToolContext> {
    * `rateCardForModelId`. A turn is priced by the model(s) that served it,
    * which a server-side refusal fallback makes more than the one requested.
    * Without it, the requested model is priced at `rates` and any other at
-   * `UNKNOWN_MODEL_CEILING`, so a turn is never priced below its cost.
+   * `UNKNOWN_MODEL_CEILING`, so a turn is never priced below its cost. An
+   * attempt that names no model is the requested model's (`costOfTurn`).
    */
-  rateCardFor?: (modelId: string | null) => RateCard;
+  rateCardFor?: (modelId: string) => RateCard;
   /** Pass `cachedSystem(prompt)` to mark the prefix cacheable. */
   system: string | SystemBlock[];
   messages: MessageParam[];
@@ -505,7 +506,7 @@ export async function runAgentLoop<C extends ToolContext>(
   });
   const rateVerified = rates.verifiedOn !== null;
   const rateCardFor =
-    input.rateCardFor ?? ((id: string | null) => (id === model ? rates : UNKNOWN_MODEL_CEILING));
+    input.rateCardFor ?? ((id: string) => (id === model ? rates : UNKNOWN_MODEL_CEILING));
 
   const messages: MessageParam[] = [...input.messages];
   const decisions = new Map(
@@ -727,9 +728,12 @@ export async function runAgentLoop<C extends ToolContext>(
 
       // Priced by the model(s) that served the turn, which a server-side
       // refusal fallback can make other than the one requested.
-      const cost = costOfTurn(assistant.usage, assistant.model ?? model, rateCardFor, {
-        cacheTtl: input.cacheTtl,
-      });
+      const cost = costOfTurn(
+        assistant.usage,
+        { requested: model, servedBy: assistant.model ?? null },
+        rateCardFor,
+        { cacheTtl: input.cacheTtl },
+      );
       const turnUsage = cost.usage;
       const cutShort = assistant.stop_reason === "interrupted";
       // A turn the caller cut short reports only what had streamed by then,

@@ -288,7 +288,11 @@ export function costOf(
 export interface AttemptUsage {
   /** `message` for an attempt that declined, `fallback_message` for the one that served. */
   type: string;
-  /** The model that ran the attempt. May be null on a `message` entry. */
+  /**
+   * The model that ran the attempt. Null on a `message` entry means the
+   * model the request named: an ordinary Sonnet 5.5 turn with `fallbacks` on
+   * came back with exactly one such entry (live, 2026-11-06, #35).
+   */
   model?: string | null;
   input_tokens: number;
   output_tokens: number;
@@ -325,6 +329,32 @@ function tokenUsageOf(usage: Omit<AttemptUsage, "type" | "model">): TokenUsage {
   };
 }
 
+/** The two models a turn's price can depend on, by wire id. */
+export interface TurnModels {
+  /** The model the request named. */
+  requested: string;
+  /** The response's `model`: who produced the message. Null when it has none. */
+  servedBy: string | null;
+}
+
+/**
+ * The card one attempt is priced at.
+ *
+ * A named model is priced at its own card (the ceiling, through
+ * `rateCardFor`, when Tala has none). An unnamed `message` attempt is the
+ * requested model's, even after a fallback, when `servedBy` names the
+ * fallback model instead. An unnamed attempt of any other type has never
+ * been seen; it is booked at the ceiling rather than guessed.
+ */
+function attemptRates(
+  attempt: AttemptUsage,
+  requested: string,
+  rateCardFor: (modelId: string) => RateCard,
+): RateCard {
+  if (attempt.model != null) return rateCardFor(attempt.model);
+  return attempt.type === "message" ? rateCardFor(requested) : UNKNOWN_MODEL_CEILING;
+}
+
 /**
  * Price one model turn by the model(s) that served it, not the one requested.
  *
@@ -332,22 +362,26 @@ function tokenUsageOf(usage: Omit<AttemptUsage, "type" | "model">): TokenUsage {
  * and the results summed: an attempt that declined mid-stream bills at
  * normal rates and the fallback at its own model's (claude-api skill,
  * refusal section, "Billing"). Without them, or with an empty list, the turn
- * is priced at `servedBy`, the response's `model`.
+ * is priced at `servedBy`, the response's `model`, or at the requested
+ * model when the turn names none.
  *
  * `rateCardFor` is the provider's: it maps a wire id to a card, and a model
- * it has no card for, or a missing one, to `UNKNOWN_MODEL_CEILING`. This
- * module still owns only arithmetic.
+ * it has no card for to `UNKNOWN_MODEL_CEILING`. This module still owns only
+ * arithmetic.
  */
 export function costOfTurn(
   usage: TurnUsage,
-  servedBy: string | null,
-  rateCardFor: (modelId: string | null) => RateCard,
+  models: TurnModels,
+  rateCardFor: (modelId: string) => RateCard,
   options: { cacheTtl?: CacheTtl } = {},
 ): TurnCost {
   const attempts =
     usage.iterations && usage.iterations.length > 0
-      ? usage.iterations.map((a) => ({ rates: rateCardFor(a.model ?? null), tokens: tokenUsageOf(a) }))
-      : [{ rates: rateCardFor(servedBy), tokens: tokenUsageOf(usage) }];
+      ? usage.iterations.map((a) => ({
+          rates: attemptRates(a, models.requested, rateCardFor),
+          tokens: tokenUsageOf(a),
+        }))
+      : [{ rates: rateCardFor(models.servedBy ?? models.requested), tokens: tokenUsageOf(usage) }];
 
   const total: TurnCost = {
     inputNanos: 0,
