@@ -113,7 +113,10 @@ function interruptedTurn(
  * came. The SDK's `BetaFallbackBlockParam` adds that every `fallback` block
  * stays in its original position, and that no tool_result is sent for a
  * tool_use left out. Text before the boundary stays: the caller heard it,
- * and the fallback model continued from it. (The rule also keeps paired
+ * and the fallback model continued from it. One exception: a text block
+ * before the boundary that is empty or only whitespace is left out too.
+ * The API rejects such a block in a request, the declined attempt can stop
+ * on one, and there was nothing in it to hear. (The rule also keeps paired
  * server-tool blocks; Tala sends no server tools, so there are none.)
  *
  * Not an edit of the conversation: the turn has never been sent back.

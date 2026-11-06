@@ -631,7 +631,7 @@ describe("a call session — ending", () => {
  * fallback model inside the same call (#35). The call goes on; what changes
  * is who served the turn, which the cost and the call record must say.
  */
-describe("a call session — a turn a server-side fallback served", () => {
+describe("a call session — a turn a refusal fallback served", () => {
   const llmSpans = (events: CallEvent[]) =>
     events.flatMap((e) => (e.type === "span" && e.span.type === "llm_call" ? [e.span] : []));
 
@@ -654,7 +654,7 @@ describe("a call session — a turn a server-side fallback served", () => {
     const { session, events } = newCall(
       [
         turn([text("Opo.")], {
-          model: "claude-sonnet-5-5",
+          model: anthropicProvider.modelId("sonnet"),
           usage: {
             input_tokens: 16,
             output_tokens: 11,
@@ -710,7 +710,7 @@ describe("a call session — a turn a server-side fallback served", () => {
     },
   );
 
-  const REQUESTED = "claude-opus-5-5";
+  const REQUESTED = anthropicProvider.modelId("opus");
   const FALLBACK = "claude-opus-5";
   const switched: ContentBlock = {
     type: "fallback",
@@ -728,7 +728,7 @@ describe("a call session — a turn a server-side fallback served", () => {
       ...over,
     });
 
-  it("keeps the pin on the requested model, and the call record says which turn a fallback served", async () => {
+  it("keeps the pin on the requested model, and the call record says which turn a refusal fallback served", async () => {
     const served = [switched, text("Opo, may outage po.")];
     const { session, events, claude } = newCall(
       [turn([text("Ano po ang account number ninyo?")]), servedByFallback(served), turn([text("Sige po.")])],
@@ -752,7 +752,7 @@ describe("a call session — a turn a server-side fallback served", () => {
     expect(claude.requests[2].messages.at(-2)).toEqual({ role: "assistant", content: served });
   });
 
-  it("says the fallback line and ends the call when the whole chain refuses", async () => {
+  it("says the fallback line and ends the call when every model in a refusal fallback refuses", async () => {
     const { session, events, pack } = newCall(
       [
         servedByFallback([switched, text("partial")], {
@@ -784,7 +784,7 @@ describe("a call session — a turn a server-side fallback served", () => {
    * stays while the caller heard past it, and goes with everything after a
    * cut that falls before it.
    */
-  it("keeps the fallback block when the caller heard past it, and cuts after what they heard", async () => {
+  it("keeps the `fallback` block when the caller heard past it, and cuts after what they heard", async () => {
     const call = interruptWhen(
       [
         { parts: [say("Sige po, "), switched, say("iche-check ", "ko po.")] },

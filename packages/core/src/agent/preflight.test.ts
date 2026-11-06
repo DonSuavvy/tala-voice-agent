@@ -4,7 +4,9 @@ import { z } from "zod";
 
 import { runAgentLoop, type AssistantTurn, type SpanEvent } from "./loop";
 import { buildRegistry, type ToolContext } from "./registry";
-import { rateCard } from "./cost";
+import { rateCard, UNKNOWN_MODEL_CEILING } from "./cost";
+
+const RATES = rateCard(1, 5, { verifiedOn: "2026-08-15", source: "test fixture" });
 
 /**
  * What has to happen *before* a confirm-write call pauses the run.
@@ -108,7 +110,9 @@ async function run(
     registry: registry(preflight),
     createMessage: async () => turns[i++],
     model: "test-model",
-    rates: rateCard(1, 5, { verifiedOn: "2026-08-15", source: "test fixture" }),
+    rates: RATES,
+    // The requested model at the fixture card; no other model serves here.
+    rateCardFor: (id) => (id === "test-model" ? RATES : UNKNOWN_MODEL_CEILING),
     system: "You are Tala.",
     messages: [{ role: "user", content: "credit please" }],
     toolContext: ctx(),

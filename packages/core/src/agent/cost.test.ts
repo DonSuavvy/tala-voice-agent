@@ -10,6 +10,7 @@ import {
   UNKNOWN_MODEL_CEILING,
   type ModelPricing,
   type RateCard,
+  type RateCardFor,
   type TokenUsage,
   type TurnUsage,
 } from "./cost";
@@ -367,7 +368,7 @@ describe("costOf — Haiku 5.5's long-prompt card", () => {
  * input, reads at 0.1x, the higher of the two read prices.
  */
 describe("FALLBACK_TARGET_RATES", () => {
-  it("prices exactly the three documented fallback targets", () => {
+  it("prices exactly the three models a refusal fallback documents as its targets", () => {
     expect(Object.keys(FALLBACK_TARGET_RATES).sort()).toEqual([
       "claude-opus-4-8",
       "claude-opus-5",
@@ -442,8 +443,13 @@ describe("UNKNOWN_MODEL_CEILING", () => {
  * Booking it at the ceiling over-counted every ordinary turn about 11 times.
  */
 describe("costOfTurn", () => {
-  /** Prices the 5.5 models and the fallback targets from their tables, anything else at the ceiling. */
-  const cardFor = (modelId: string): RateCard => {
+  /**
+   * Stands in for the provider's lookup: the 5.5 models and the fallback
+   * targets from their tables; anything else, or no model at all, at the
+   * ceiling.
+   */
+  const cardFor: RateCardFor = (modelId) => {
+    if (modelId === null) return UNKNOWN_MODEL_CEILING;
     if (Object.hasOwn(ANTHROPIC_RATES, modelId)) {
       return ANTHROPIC_RATES[modelId as keyof typeof ANTHROPIC_RATES];
     }

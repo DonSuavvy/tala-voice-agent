@@ -397,7 +397,7 @@ describe("runSimulatedCall: what the caller cost", () => {
    * unnamed first `message` attempt at the caller model's card. The
    * top-level usage covers only the attempt that served.
    */
-  it("prices a caller call a fallback served by every attempt, not the top-level usage", async () => {
+  it("prices a caller call a refusal fallback served by every attempt, not the top-level usage", async () => {
     const { run } = simulate(
       [turn([text("Salamat po!"), toolUse("end_call", DISPOSITION)])],
       [
@@ -438,7 +438,7 @@ describe("runSimulatedCall: what the caller cost", () => {
       [turn([text("Salamat po!"), toolUse("end_call", DISPOSITION)])],
       [
         turn([text("Hello po.")], {
-          model: "claude-sonnet-5-5",
+          model: anthropicProvider.modelId("sonnet"),
           usage: {
             ...usage(1000, 200),
             iterations: [{ type: "message", model: null, input_tokens: 1000, output_tokens: 200 }],

@@ -13,6 +13,7 @@ import {
   type MessageParam,
   type SpanEvent,
 } from "./loop";
+import { anthropicProvider } from "./provider";
 import {
   buildRegistry,
   type ToolContext,
@@ -222,7 +223,11 @@ function loopInput(
     },
     ...over,
   };
-  return { input, client, spans };
+  // This file's pricing world, unless a test brings its own: the requested
+  // model at the card under test, any other model at the ceiling. A call
+  // passes the provider's lookup instead.
+  const rateCardFor = (id: string | null) => (id === input.model ? input.rates : UNKNOWN_MODEL_CEILING);
+  return { input: { rateCardFor, ...input }, client, spans };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1343,8 +1348,8 @@ describe("runAgentLoop — trace and cost", () => {
  * each switch with a `fallback` block (claude-api skill, refusal section).
  * A turn is priced by the models that served it, never the one requested.
  */
-describe("runAgentLoop — a turn a server-side fallback served", () => {
-  const REQUESTED = "claude-opus-5-5";
+describe("runAgentLoop — a turn a refusal fallback served", () => {
+  const REQUESTED = anthropicProvider.modelId("opus");
   const FALLBACK = "claude-opus-5";
 
   /** $2/$10 per MTok: 10 in + 10 out = 10*2000 + 10*10_000 = 120_000 nanos. */
@@ -1427,7 +1432,7 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
       ...over,
     });
 
-  it("records a fallback turn on its llm_call span: the model requested, the one that declined, the one that served", async () => {
+  it("records a turn a refusal fallback served on its llm_call span: the model requested, the one that declined, the one that served", async () => {
     const { input, spans } = loopInput(
       [servedByFallback([switched(REQUESTED, FALLBACK), { type: "text", text: "Opo." }])],
       { model: REQUESTED },
@@ -1448,7 +1453,7 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
    * go straight to the fallback model, and such a turn carries no `fallback`
    * block. `usage.iterations` is the served-by signal (claude-api skill).
    */
-  it("records a sticky turn, which carries no fallback block, from usage.iterations", async () => {
+  it("records a sticky turn, which carries no `fallback` block, from usage.iterations", async () => {
     const { input, spans } = loopInput(
       [
         turn([{ type: "text", text: "Opo." }], {
@@ -1468,7 +1473,7 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
     });
   });
 
-  it("records no fallback on a turn the requested model served", async () => {
+  it("records no refusal fallback on a turn the requested model served", async () => {
     const { input, spans } = loopInput(
       [
         turn([{ type: "text", text: "Opo." }], {
@@ -1505,7 +1510,7 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
    * and the SDK's `BetaFallbackBlockParam` asks for the block to go back in
    * its original position: the server validates the turn against it.
    */
-  it("keeps the fallback block in the conversation where it came, for the next request", async () => {
+  it("keeps the `fallback` block in the conversation where it came, for the next request", async () => {
     const served = [switched(REQUESTED, FALLBACK), toolUse("search_knowledge_base", { q: "outage" })];
     const { input, client } = loopInput([servedByFallback(served), resolveTurn()], {
       model: REQUESTED,
@@ -1560,7 +1565,7 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
     expect(result.estimated).toBe(false);
   });
 
-  it("prices the requested model's unnamed attempt at its card in a turn a fallback served", async () => {
+  it("prices the requested model's unnamed attempt at its card in a turn a refusal fallback served", async () => {
     const { input, spans } = loopInput(
       [
         turn([{ type: "text", text: "Opo." }], {
@@ -1581,7 +1586,7 @@ describe("runAgentLoop — a turn a server-side fallback served", () => {
     expect(spans[0].estimated).toBe(true);
   });
 
-  it("books an interrupted turn a fallback served at its model's price when that tops the estimate", async () => {
+  it("books an interrupted turn a refusal fallback served at its model's price when that tops the estimate", async () => {
     const { input, spans } = loopInput(
       [
         turn([{ type: "text", text: "Opo, sandali" }], {

@@ -521,7 +521,7 @@ const betaMessageDelta = (
   },
 });
 
-describe("streamingMessageCreator — a turn a server-side fallback served", () => {
+describe("streamingMessageCreator — a turn a refusal fallback served", () => {
   it("returns the model that served the turn and the usage of every attempt", async () => {
     const iterations = [
       attempt("message", REQUESTED, 2400, 0),
@@ -566,7 +566,7 @@ describe("streamingMessageCreator — a turn a server-side fallback served", () 
    * stays append-only: nothing downstream ever holds the declined attempt's
    * thinking or a tool call it never stood behind.
    */
-  it("returns a turn a fallback took over mid-stream as it can go back to the API", async () => {
+  it("returns a turn a refusal fallback took over mid-stream as it can go back to the API", async () => {
     const transport = scriptedTransport([
       betaMessageStart(REQUESTED),
       startThinking(0),
@@ -620,7 +620,7 @@ describe("streamingMessageCreator — a turn a server-side fallback served", () 
     ]);
   });
 
-  it("leaves out what came before the final boundary only, keeping every fallback block in place", async () => {
+  it("leaves out what came before the final boundary only, keeping every `fallback` block in place", async () => {
     const SECOND = "claude-opus-4-8";
     const transport = scriptedTransport([
       betaMessageStart(REQUESTED),
@@ -655,7 +655,7 @@ describe("streamingMessageCreator — a turn a server-side fallback served", () 
     expect(turn.model).toBe(SECOND);
   });
 
-  it("returns an interrupted turn a fallback took over as it can go back too", async () => {
+  it("returns an interrupted turn a refusal fallback took over as it can go back too", async () => {
     const transport = scriptedTransport([
       betaMessageStart(REQUESTED),
       startThinking(0),
@@ -684,7 +684,7 @@ describe("streamingMessageCreator — a turn a server-side fallback served", () 
     expect(turn.content.map((b) => b.type)).toEqual(["text", "fallback", "text"]);
   });
 
-  it("says which model was writing when the caller interrupted a turn a fallback served", async () => {
+  it("says which model was writing when the caller interrupted a turn a refusal fallback served", async () => {
     const transport = scriptedTransport([
       betaMessageStart(REQUESTED),
       startText(0),

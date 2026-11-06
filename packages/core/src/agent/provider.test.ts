@@ -112,7 +112,7 @@ describe("server-side refusal fallback", () => {
     },
   );
 
-  it("never opts haiku in: Haiku 5.5 has no server-side fallback", () => {
+  it("never opts haiku in: Haiku 5.5 has no refusal fallback", () => {
     expect(refusalFallbackFor(anthropicProvider.modelId("haiku"))).toBeNull();
   });
 

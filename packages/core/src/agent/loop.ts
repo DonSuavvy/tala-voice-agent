@@ -41,11 +41,11 @@ import { checkBudget, type BudgetConfig, type BudgetRefusal } from "./budget";
 import type { SystemBlock } from "./cache";
 import {
   costOfTurn,
-  UNKNOWN_MODEL_CEILING,
-  type AttemptUsage,
   type CacheTtl,
   type RateCard,
+  type RateCardFor,
   type TokenUsage,
+  type TurnUsage,
 } from "./cost";
 import {
   ToolRegistryError,
@@ -135,14 +135,8 @@ export interface AssistantTurn {
    * without it (a scripted one) is priced as the requested model's.
    */
   model?: string;
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_creation_input_tokens?: number | null;
-    cache_read_input_tokens?: number | null;
-    /** One entry per attempt; the source of truth for cost when present. */
-    iterations?: AttemptUsage[] | null;
-  };
+  /** As the SDK reports it; `usage.iterations`, when present, is what cost is priced from. */
+  usage: TurnUsage;
 }
 
 export interface MessageCreateParams {
@@ -231,17 +225,16 @@ export interface AgentLoopInput<C extends ToolContext = ToolContext> {
   createMessage: MessageCreator;
   /** The provider's wire id. Logical names are resolved in provider.ts. */
   model: string;
-  /** The requested model's card: the pre-flight's, and the default price. */
+  /** The requested model's card, for the spend pre-flight. */
   rates: RateCard;
   /**
    * The card for a model a turn says served it, by wire id: the provider's
    * `rateCardForModelId`. A turn is priced by the model(s) that served it,
-   * which a server-side refusal fallback makes more than the one requested.
-   * Without it, the requested model is priced at `rates` and any other at
-   * `UNKNOWN_MODEL_CEILING`, so a turn is never priced below its cost. An
-   * attempt that names no model is the requested model's (`costOfTurn`).
+   * which a refusal fallback makes more than the one requested. Which card a
+   * model with none of its own gets is the provider's decision, not the
+   * loop's (`costOfTurn`).
    */
-  rateCardFor?: (modelId: string) => RateCard;
+  rateCardFor: RateCardFor;
   /** Pass `cachedSystem(prompt)` to mark the prefix cacheable. */
   system: string | SystemBlock[];
   messages: MessageParam[];
@@ -431,7 +424,7 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
  *
  * The served-by signal is a `fallback_message` entry in `usage.iterations`,
  * not the block: a sticky turn has none (claude-api skill, refusal section).
- * The blocks name who declined. A turn the caller cut before its fallback
+ * The blocks name who declined. A turn the caller cut before its `fallback`
  * block came, which has neither, records nothing here; its cost is still
  * priced at the model that was writing.
  */
@@ -487,6 +480,7 @@ export async function runAgentLoop<C extends ToolContext>(
     createMessage,
     model,
     rates,
+    rateCardFor,
     system,
     toolContext,
     budget,
@@ -505,8 +499,6 @@ export async function runAgentLoop<C extends ToolContext>(
     strict: input.strictTools ?? false,
   });
   const rateVerified = rates.verifiedOn !== null;
-  const rateCardFor =
-    input.rateCardFor ?? ((id: string) => (id === model ? rates : UNKNOWN_MODEL_CEILING));
 
   const messages: MessageParam[] = [...input.messages];
   const decisions = new Map(
@@ -748,8 +740,8 @@ export async function runAgentLoop<C extends ToolContext>(
       accruedNanos += callNanos;
       estimated = estimated || callEstimated;
 
-      // The span keeps the requested model's name, as the pin does; who
-      // declined and who served a fallback turn go in its output.
+      // The span keeps the requested model's name, as the pin does. On a turn
+      // a refusal fallback served, who declined and who served go in its output.
       const fallback = fallbackOf(assistant, model);
       await span({
         type: "llm_call",
