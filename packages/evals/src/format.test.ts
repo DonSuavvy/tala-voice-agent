@@ -1,8 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { CallPin } from "@tala/core";
+import type { CallEvent, CallPin, SpanEvent } from "@tala/core";
 
-import { formatCaseResult, formatCost, formatDiff, parseReport, type DiffableReport } from "./format";
+import {
+  formatCaseResult,
+  formatCost,
+  formatDiff,
+  formatEvent,
+  parseReport,
+  type DiffableReport,
+} from "./format";
 import type { CaseReportRow, CostLine, ReportPin } from "./report";
 import type { Assertion, CaseResultRow } from "./types";
 
@@ -295,5 +302,53 @@ describe("parseReport", () => {
     expect(() => parseReport({ format: 2, pin: {} }, "notes.json")).toThrow(
       /^notes\.json is not an eval report: format: .+; ranAt: .+; pin\.packId: .+/,
     );
+  });
+});
+
+/**
+ * The live transcript `npm run eval` prints. In CI these logs are public, so
+ * account and phone numbers are masked here too (#10).
+ */
+describe("formatEvent", () => {
+  const AT = new Date("2026-11-06T05:00:00Z");
+
+  it("prints what was said, with account and phone numbers masked", () => {
+    expect(formatEvent({ type: "speech", text: "Ending in 0101, po? Account 8012345601." })).toBe(
+      "    Tala:   Ending in 0101, po? Account ******5601.",
+    );
+    expect(formatEvent({ type: "caller_said", text: "0917 555 0101 po", at: AT })).toBe(
+      "    Caller: *******0101 po",
+    );
+  });
+
+  it("prints a tool span's name and whether it failed, not its payload", () => {
+    const span = (over: Partial<SpanEvent>): CallEvent => ({
+      type: "span",
+      span: {
+        seq: 1,
+        type: "tool_exec",
+        name: "verify_identity",
+        input: { account_number: "8012345601" },
+        output: null,
+        isError: false,
+        usage: null,
+        costNanos: 0,
+        estimated: false,
+        latencyMs: 1,
+        startedAt: AT,
+        endedAt: AT,
+        ...over,
+      },
+    });
+
+    expect(formatEvent(span({}))).toBe("            [tool_exec verify_identity]");
+    expect(formatEvent(span({ isError: true }))).toBe(
+      "            [tool_exec verify_identity (error)]",
+    );
+    expect(formatEvent(span({ type: "llm_call" }))).toBeNull();
+  });
+
+  it("prints nothing for other events", () => {
+    expect(formatEvent({ type: "awaiting_caller" })).toBeNull();
   });
 });

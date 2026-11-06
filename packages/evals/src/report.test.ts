@@ -225,12 +225,46 @@ describe("caseRow: cost", () => {
 });
 
 describe("caseRow: what was said", () => {
-  it("keeps the transcript, unmasked", () => {
+  it("keeps the transcript", () => {
     expect(row().transcript).toEqual([
       { speaker: "tala", text: "Hello po! I'm Tala." },
       { speaker: "caller", text: "Wala po kaming internet." },
       { speaker: "tala", text: "May fiber cut po." },
     ]);
+  });
+
+  /** The report is committed to a public repo (#10, Q21). */
+  it("masks account and phone numbers in the transcript", () => {
+    const result = row({
+      call: simulated({
+        events: [
+          { type: "caller_said", text: "Account 8012345601, mobile 0917 555 0101.", at: AT },
+          { type: "speech", text: "Salamat po, ma'am. Ending in 0101, tama po?" },
+        ],
+      }),
+    });
+
+    expect(result.transcript).toEqual([
+      { speaker: "caller", text: "Account ******5601, mobile *******0101." },
+      { speaker: "tala", text: "Salamat po, ma'am. Ending in 0101, tama po?" },
+    ]);
+  });
+
+  it("masks numbers in the failure reason, the assertions and the other free text", () => {
+    const result = row({
+      case: { ...CASE, expect: { endedBy: "end_call", toolsCalled: ["verify_identity"] } },
+      call: simulated({
+        events: events([llmSpan(1)], false),
+        callerError: "caller crashed on 8012345601",
+      }),
+      grade: { ...NO_GRADE, reason: "the caller gave +63 917 555 0101" },
+    });
+    const stored = JSON.stringify(result);
+
+    expect(stored).not.toContain("8012345601");
+    expect(stored).not.toContain("9175550101");
+    expect(result.caller.error).toBe("caller crashed on ******5601");
+    expect(result.advisory.reason).toBe("the caller gave ********0101");
   });
 });
 
@@ -251,12 +285,12 @@ describe("buildReport", () => {
     });
   }
 
-  it("pins the run and says the record is not masked yet", () => {
+  it("pins the run and says what the record masks", () => {
     const result = report([row()]);
 
     expect(result).toMatchObject({
       format: 1,
-      masking: "none (#10)",
+      masking: "numbers of 10 or more digits, last 4 kept",
       ranAt: "2026-11-06T08:30:05.123Z",
       pin: {
         packId: "kidlat-fiber",
