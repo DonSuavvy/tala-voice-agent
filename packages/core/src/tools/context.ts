@@ -5,6 +5,7 @@
 import type { z } from "zod";
 
 import type { ToolContext, ToolDefinition } from "../agent/registry";
+import type { Plan } from "../pack/plan-catalog";
 import type { IdentityState } from "../policy/identity";
 import type { SupportPolicy } from "../policy/support-policy";
 import type { BusinessSystems } from "../systems/types";
@@ -15,6 +16,8 @@ export interface CallData {
   identity: IdentityState;
   /** How times and money are spoken: the company's time zone, locale and ISO 4217 currency. */
   company: { timeZone: string; locale: string; currency: string };
+  /** The company pack's plan catalog: the plans the SOP names, and what each costs a month. */
+  plans: readonly Plan[];
   /**
    * When the call started, from the session's clock. "Opened on this call"
    * means opened at or after this, whatever else the business systems hold.
