@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 import { diffEvalRuns } from "./diff";
-import { REPORT_FORMAT, type CaseReportRow, type CostSplit } from "./report";
+import { REPORT_FORMAT, type CaseReportRow, type CostSplit, type ReportPin } from "./report";
 import type { AssertionFlip, CaseDiff, CaseResultRow } from "./types";
 
 const INDENT = "      ";
@@ -62,7 +62,14 @@ const rowSchema = z.object({
   agentRunId: z.string().nullable(),
 });
 
-const pinSchema = z.object({
+/**
+ * One schema per pin field. The `satisfies` is the guard, in both directions:
+ * a field core adds to `CallPin` is a missing property here and one it drops
+ * is an excess property, so either fails `tsc` (Tala FAILURES entry 6). The
+ * values are read as plain text: an older report may name a model or a pack
+ * this code no longer knows.
+ */
+const pinShape = {
   packId: z.string(),
   sopVersion: z.string(),
   promptVersion: z.string(),
@@ -72,7 +79,24 @@ const pinSchema = z.object({
   gitSha: z.string().nullable(),
   // Reports from before the pin recorded it say nothing, which reads as unknown.
   gitDirty: z.boolean().nullable().default(null),
-});
+} satisfies { [K in keyof ReportPin]-?: z.ZodType };
+
+const pinSchema = z.object(pinShape);
+
+/**
+ * What `pin changes` calls each field, in the pin's order, guarded the same
+ * way. `model` and `modelId` share a label because they move together.
+ */
+const PIN_LABELS = {
+  packId: "pack",
+  sopVersion: "sop",
+  promptVersion: "prompt",
+  policyVersion: "policy",
+  model: "model",
+  modelId: "model",
+  gitSha: "git",
+  gitDirty: "dirty",
+} as const satisfies { readonly [K in keyof ReportPin]-?: string };
 
 const diffableSchema = z.object({
   format: z.literal(REPORT_FORMAT),
@@ -117,16 +141,11 @@ function pinLine(label: string, report: DiffableReport): string {
 
 /** Which parts of the pin moved, in the pin's own order. */
 function pinChanges(before: DiffableReport["pin"], after: DiffableReport["pin"]): string {
-  const changes = [
-    ["pack", before.packId !== after.packId],
-    ["sop", before.sopVersion !== after.sopVersion],
-    ["prompt", before.promptVersion !== after.promptVersion],
-    ["policy", before.policyVersion !== after.policyVersion],
-    ["model", before.model !== after.model || before.modelId !== after.modelId],
-    ["git", before.gitSha !== after.gitSha],
-    ["dirty", before.gitDirty !== after.gitDirty],
-  ] as const;
-  const moved = changes.filter(([, changed]) => changed).map(([name]) => name);
+  const moved: string[] = [];
+  for (const field of Object.keys(PIN_LABELS) as (keyof ReportPin)[]) {
+    const label = PIN_LABELS[field];
+    if (before[field] !== after[field] && !moved.includes(label)) moved.push(label);
+  }
   return `pin changes: ${moved.length > 0 ? moved.join(", ") : "none"}`;
 }
 

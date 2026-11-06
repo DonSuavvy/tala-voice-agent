@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+
+import type { CallPin } from "@tala/core";
 
 import { formatCaseResult, formatCost, formatDiff, parseReport, type DiffableReport } from "./format";
-import type { CaseReportRow, CostLine } from "./report";
+import type { CaseReportRow, CostLine, ReportPin } from "./report";
 import type { Assertion, CaseResultRow } from "./types";
 
 /**
@@ -225,6 +227,50 @@ describe("formatDiff", () => {
       "after:  2026-11-06T10:00:00.000Z  sonnet (model-id-for-sonnet)  pack kidlat-fiber  sop v1  prompt 1a2b3c4d5e6f  policy 0f9e8d7c6b5a  git 3913f4a (dirty unknown)",
       "pin changes: dirty",
     ]);
+  });
+});
+
+/**
+ * The diff copies no pin field by hand without a check: core adding a field
+ * to CallPin, or removing one, must fail `tsc` (Tala FAILURES entry 6:
+ * `satisfies T[]` proves membership, not coverage).
+ */
+describe("the pin the diff reads", () => {
+  it("is exactly the call's pin, the git commit and whether the tree was dirty", () => {
+    expectTypeOf<keyof DiffableReport["pin"]>().toEqualTypeOf<keyof CallPin | "gitSha" | "gitDirty">();
+  });
+
+  /** Every field, changed one at a time. `satisfies` makes a missing or extra field a type error. */
+  it("names every pin field that moved", () => {
+    const base = { ...PIN, model: "sonnet" } satisfies ReportPin;
+    const other = {
+      packId: "other-pack",
+      sopVersion: "v2",
+      promptVersion: "bbbbbbbbbbbb",
+      policyVersion: "cccccccccccc",
+      model: "opus",
+      modelId: "model-id-for-opus",
+      gitSha: "ffffffffffffffffffffffffffffffffffffffff",
+      gitDirty: true,
+    } satisfies ReportPin;
+
+    const changes = Object.fromEntries(
+      (Object.keys(other) as (keyof ReportPin)[]).map((key) => {
+        const after: DiffableReport = { ...BEFORE, pin: { ...base, [key]: other[key] } };
+        return [key, formatDiff({ ...BEFORE, pin: base }, after).split("\n")[2]];
+      }),
+    );
+
+    expect(changes).toEqual({
+      packId: "pin changes: pack",
+      sopVersion: "pin changes: sop",
+      promptVersion: "pin changes: prompt",
+      policyVersion: "pin changes: policy",
+      model: "pin changes: model",
+      modelId: "pin changes: model",
+      gitSha: "pin changes: git",
+      gitDirty: "pin changes: dirty",
+    });
   });
 });
 

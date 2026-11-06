@@ -66,7 +66,18 @@ import {
 } from "@tala/evals";
 import { loadKidlatFiber } from "@tala/kidlat-fiber";
 
-const MODELS: readonly LogicalModel[] = ["haiku", "sonnet", "opus"];
+/**
+ * Every logical model `--model` accepts. The annotation is the guard both ways:
+ * a model core adds is a missing property and one it drops an excess one, so
+ * either fails `tsc`. A `LogicalModel[]` list would only prove membership
+ * (Tala FAILURES entry 6).
+ */
+const MODEL_NAMES: { readonly [M in LogicalModel]: M } = {
+  haiku: "haiku",
+  sonnet: "sonnet",
+  opus: "opus",
+};
+const MODELS: readonly LogicalModel[] = Object.values(MODEL_NAMES);
 
 /** Checked before each of Tala's model calls; see the header for what counts toward it. */
 const RUN_CAP_NANOS = 1_000_000_000;
