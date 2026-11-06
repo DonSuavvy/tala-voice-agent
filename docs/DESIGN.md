@@ -153,7 +153,7 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 **Claude integration (Q6, Q15, Q28):**
 - Official `@anthropic-ai/sdk` behind OpsPilot's `MessageCreator` seam.
 - Models are named logically (`haiku` / `sonnet` / `opus`); real model IDs appear only in the provider file.
-- Development defaults to Sonnet 5.5. The public demo uses the model the eval comparison picks. (Changed 2026-11-06 from Opus 5.5 at low effort: in the first live runs of scenario 1, three per model, Sonnet cost half as much as Opus, answered faster, and was the only model that said a line before every tool call in all three runs. Effort arrives with #6.)
+- Development defaults to Sonnet 5.5. The public demo uses the model the eval comparison picks. (Changed 2026-11-06 from Opus 5.5 at low effort: in the first live runs of scenario 1, three per model, Sonnet cost half as much as Opus, answered faster, and was the only model that said a line before every tool call in all three runs. Effort is chosen with the model in #20.)
 - Thinking blocks round-trip byte-identical, because the loop copies assistant content wholesale.
 - Server-side fallback on refusals, prompt caching, eager tool-input streaming, and zod parsing of every tool call before its handler runs.
 - After-call work uses structured output (zod schema).
@@ -227,6 +227,7 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 **Test seams (Q39):** as few as possible.
 - **Main seam:** Tala's call session in the core, driven by text. Caller turns go in; what Tala says, spans, approval requests and the `end_call` outcome come out. Unit tests, the terminal chat and the eval suite all use it.
 - **Fakes behind it:** only the ones OpsPilot already uses: a scripted `MessageCreator` instead of Claude, an in-memory Kidlat world instead of the business systems (the `OpsData` pattern), and an injected clock.
+  - One more, below the seam (#6): the streaming creator's own tests run the real SDK client over a fake `fetch` that serves scripted stream events, so the SDK's own stream assembly and abort handling are what get tested, with no network and a dummy key.
 - **Voice seam:** a voice-transport interface that LiveKit and the hand-built path both implement. Transcripts and interruptions go in; speech text comes out. Barge-in, the echo guard and fillers are tested against a fake transport.
 - **Console:** tested by feeding it recorded event streams from the main seam.
 

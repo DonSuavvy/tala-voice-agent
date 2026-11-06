@@ -21,9 +21,19 @@ The fixed first line of every call, saying that Tala is an AI assistant and
 that the call is recorded.
 _Avoid_: greeting, intro
 
+**Line**:
+What Tala says in one go: the opening disclosure, one reply, or the fallback
+line.
+_Avoid_: utterance, message, response
+
 **Caller turn**:
 What the caller says before Tala replies, taken as one final transcript.
 _Avoid_: message, utterance
+
+**Interruption**:
+The caller cutting in while Tala is still saying a line. She stops, and the
+call remembers only the part of the line the caller heard.
+_Avoid_: abort, cancellation
 
 **Disposition**:
 How a call ended: whether the caller's concern was resolved, what the call was
