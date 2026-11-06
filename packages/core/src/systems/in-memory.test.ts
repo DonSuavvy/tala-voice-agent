@@ -571,6 +571,126 @@ describe("createInMemorySystems", () => {
     });
   });
 
+  /** Quotes for plan changes, and the changes made with them. */
+  describe("plans", () => {
+    /** Maria, from Kidlat 300 to Kidlat 500, priced five minutes into the call. */
+    const QUOTE = {
+      accountNumber: "1234567890",
+      currentPlanName: "Kidlat 300",
+      newPlanName: "Kidlat 500",
+      newMonthlyPriceMinor: 209_900,
+      proratedAmountMinor: 7_742,
+      effectiveAt: new Date("2026-11-06T06:05:00Z"),
+    };
+    const QUOTED_AT = new Date("2026-11-06T06:05:00Z");
+
+    it("numbers the call's quotes in order, in the call's year", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+
+      expect(await systems.plans.createQuote(QUOTE, QUOTED_AT)).toEqual({
+        reference: "QTE-2026-00001",
+      });
+      expect(await systems.plans.createQuote(QUOTE, QUOTED_AT)).toEqual({
+        reference: "QTE-2026-00002",
+      });
+    });
+
+    /** 12:30 AM on New Year's Day in Manila is still the old year in UTC. */
+    it("numbers quotes in the year of the call's start in the company's time zone", async () => {
+      const newYear = new Date("2026-12-31T16:30:00Z");
+      const systems = createInMemorySystems(seed(), newYear, MANILA);
+
+      expect(await systems.plans.createQuote(QUOTE, newYear)).toEqual({ reference: "QTE-2027-00001" });
+    });
+
+    it("finds a quote by its exact reference, with when it was made, not yet used", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      expect(await systems.plans.findQuote("1234567890", reference)).toEqual({
+        reference: "QTE-2026-00001",
+        ...QUOTE,
+        quotedAt: QUOTED_AT,
+        used: false,
+      });
+    });
+
+    it("does not find another account's quote, or a reference never given", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      expect(await systems.plans.findQuote("2234567890", reference)).toBeNull();
+      expect(await systems.plans.findQuote("1234567890", "QTE-2026-00002")).toBeNull();
+    });
+
+    it("hands back a copy, and keeps one: mutating either changes nothing stored", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const given = { ...QUOTE, effectiveAt: new Date(QUOTE.effectiveAt) };
+      const { reference } = await systems.plans.createQuote(given, QUOTED_AT);
+      given.effectiveAt.setUTCFullYear(1999);
+      const found = await systems.plans.findQuote("1234567890", reference);
+      found!.quotedAt.setUTCFullYear(1999);
+      found!.newPlanName = "Kidlat 1000";
+
+      expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({
+        newPlanName: "Kidlat 500",
+        effectiveAt: QUOTE.effectiveAt,
+        quotedAt: QUOTED_AT,
+      });
+    });
+
+    it("changes the account's plan to the quote's, and marks the quote used", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      await systems.plans.applyQuote("1234567890", reference);
+
+      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 500");
+      expect(await systems.plans.findQuote("1234567890", reference)).toMatchObject({ used: true });
+    });
+
+    it("rejects a quote already used, so one quote changes a plan once", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+      await systems.plans.applyQuote("1234567890", reference);
+      await systems.plans.createQuote(
+        { ...QUOTE, currentPlanName: "Kidlat 500", newPlanName: "Kidlat 100" },
+        QUOTED_AT,
+      );
+
+      await expect(systems.plans.applyQuote("1234567890", reference)).rejects.toThrow(
+        'quote "QTE-2026-00001" cannot be applied',
+      );
+      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 500");
+    });
+
+    it("rejects another account's quote, or a reference never given, and changes no plan", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.plans.createQuote(QUOTE, QUOTED_AT);
+
+      await expect(systems.plans.applyQuote("2234567890", reference)).rejects.toThrow(
+        'quote "QTE-2026-00001" cannot be applied',
+      );
+      await expect(systems.plans.applyQuote("1234567890", "QTE-2026-00009")).rejects.toThrow(
+        'quote "QTE-2026-00009" cannot be applied',
+      );
+      expect((await systems.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 300");
+      expect((await systems.accounts.findAccount("2234567890"))?.planName).toBe("Kidlat 100");
+    });
+
+    it("changes the plan in this call's copy only, never in the seed", async () => {
+      const shared = seed();
+      const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      const { reference } = await one.plans.createQuote(QUOTE, QUOTED_AT);
+      await one.plans.applyQuote("1234567890", reference);
+
+      const two = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
+      expect(shared.accounts[0].planName).toBe("Kidlat 300");
+      expect((await two.accounts.findAccount("1234567890"))?.planName).toBe("Kidlat 300");
+      expect(await two.plans.findQuote("1234567890", reference)).toBeNull();
+    });
+  });
+
   /**
    * The technician calendar, stated in the seed by the day after the call's
    * local date, and the visits booked from it.
