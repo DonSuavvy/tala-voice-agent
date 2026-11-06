@@ -28,6 +28,7 @@ describe("buildTalaRegistry", () => {
       "end_call",
       "get_account_overview",
       "get_billing_history",
+      "get_technician_slots",
       "remote_reboot_modem",
       "run_line_diagnostics",
       "send_sms",
@@ -50,6 +51,7 @@ describe("buildTalaRegistry", () => {
       get_billing_history: "read",
       verify_payment: "read",
       run_line_diagnostics: "read",
+      get_technician_slots: "read",
       create_trouble_ticket: "auto_write",
       remote_reboot_modem: "auto_write",
       send_sms: "auto_write",
@@ -94,6 +96,7 @@ describe("the account gate, on every account tool", () => {
     send_sms: { message: "Salamat po." },
     run_line_diagnostics: { account_number: "8012345601" },
     remote_reboot_modem: { account_number: "8012345601" },
+    get_technician_slots: { account_number: "8012345601" },
   };
 
   const accountTools = buildTalaRegistry()

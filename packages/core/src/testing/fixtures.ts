@@ -162,7 +162,18 @@ export function testWorld(): SeedWorld {
         },
       },
     ],
-    technicianSlots: [],
+    // Five open windows in San Antonio over the four days after the call, one
+    // each elsewhere. Out of order on purpose: the world lists them soonest
+    // first.
+    technicianSlots: [
+      { id: "san-antonio-3", barangayId: "san-antonio", daysAfterCall: 2, startHour: 9, lengthHours: 3 },
+      { id: "san-antonio-1", barangayId: "san-antonio", daysAfterCall: 1, startHour: 9, lengthHours: 3 },
+      { id: "commonwealth-1", barangayId: "commonwealth", daysAfterCall: 1, startHour: 9, lengthHours: 3 },
+      { id: "san-antonio-2", barangayId: "san-antonio", daysAfterCall: 1, startHour: 13, lengthHours: 3 },
+      { id: "san-antonio-4", barangayId: "san-antonio", daysAfterCall: 3, startHour: 13, lengthHours: 3 },
+      { id: "san-antonio-5", barangayId: "san-antonio", daysAfterCall: 4, startHour: 9, lengthHours: 3 },
+      { id: "batasan-hills-1", barangayId: "batasan-hills", daysAfterCall: 2, startHour: 13, lengthHours: 3 },
+    ],
   };
 }
 
