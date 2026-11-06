@@ -476,30 +476,56 @@ describe("createInMemorySystems", () => {
       category: "billing",
       notes: "GCash payment from yesterday has not posted; please post it.",
     } as const;
+    /** 2:05 PM in Manila, five minutes into the call. */
+    const OPENED_AT = new Date("2026-11-06T06:05:00Z");
 
     it("numbers the call's tickets in order, in the call's year", async () => {
       const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
-      expect(await systems.tickets.createTicket(BILLING_TICKET)).toEqual({ reference: "TKT-2026-00001" });
-      expect(await systems.tickets.createTicket({ ...BILLING_TICKET, category: "other" })).toEqual({
-        reference: "TKT-2026-00002",
+      expect(await systems.tickets.createTicket(BILLING_TICKET, OPENED_AT)).toEqual({
+        reference: "TKT-2026-00001",
       });
+      expect(
+        await systems.tickets.createTicket({ ...BILLING_TICKET, category: "other" }, OPENED_AT),
+      ).toEqual({ reference: "TKT-2026-00002" });
     });
 
-    it("keeps what was opened, oldest first, as copies", async () => {
+    it("keeps what was opened, and when, oldest first, as copies", async () => {
       const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
-      await systems.tickets.createTicket(BILLING_TICKET);
+      await systems.tickets.createTicket(BILLING_TICKET, OPENED_AT);
       const [opened] = systems.openedTickets();
       opened.notes = "tampered";
-      expect(systems.openedTickets()).toEqual([{ reference: "TKT-2026-00001", ...BILLING_TICKET }]);
+      opened.openedAt.setUTCFullYear(1999);
+      expect(systems.openedTickets()).toEqual([
+        { reference: "TKT-2026-00001", ...BILLING_TICKET, openedAt: OPENED_AT },
+      ]);
     });
 
     it("starts each call's numbering afresh, and follows the call's start", async () => {
       const shared = seed();
       const one = createInMemorySystems(shared, CALL_STARTED_AT, MANILA);
-      await one.tickets.createTicket(BILLING_TICKET);
+      await one.tickets.createTicket(BILLING_TICKET, OPENED_AT);
       const two = createInMemorySystems(shared, new Date("2031-02-14T22:15:00Z"), MANILA);
-      expect(await two.tickets.createTicket(BILLING_TICKET)).toEqual({ reference: "TKT-2031-00001" });
+      expect(await two.tickets.createTicket(BILLING_TICKET, OPENED_AT)).toEqual({
+        reference: "TKT-2031-00001",
+      });
       expect(two.openedTickets()).toHaveLength(1);
+    });
+
+    /** 12:30 AM on New Year's Day in Manila is still the old year in UTC. */
+    it("numbers tickets and visits in the year of the call's start in the company's time zone", async () => {
+      const newYear = new Date("2026-12-31T16:30:00Z");
+      const systems = createInMemorySystems(seed(), newYear, MANILA);
+
+      expect(await systems.tickets.createTicket(BILLING_TICKET, newYear)).toEqual({
+        reference: "TKT-2027-00001",
+      });
+      expect(
+        await systems.fieldService.bookVisit({
+          accountNumber: "1234567890",
+          slotId: "batasan-hills-1",
+          ticketReference: "TKT-2027-00001",
+        }),
+      ).toEqual({ reference: "VIS-2027-00001" });
     });
   });
 
@@ -510,23 +536,36 @@ describe("createInMemorySystems", () => {
       notes: "Signal loss on the line; a remote reboot did not clear it.",
     } as const;
 
-    it("finds a ticket opened on this call by its exact reference", async () => {
+    it("finds a ticket by its exact reference, with when it was opened", async () => {
       const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
-      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET);
+      const openedAt = new Date("2026-11-06T06:05:00Z");
+      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET, openedAt);
 
       expect(await systems.tickets.findTicket("1234567890", reference)).toEqual({
         reference: "TKT-2026-00001",
         category: "connection",
         notes: "Signal loss on the line; a remote reboot did not clear it.",
+        openedAt,
       });
     });
 
     it("does not find another account's ticket, or a reference never given", async () => {
       const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
-      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET);
+      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET, CALL_STARTED_AT);
 
       expect(await systems.tickets.findTicket("2234567890", reference)).toBeNull();
       expect(await systems.tickets.findTicket("1234567890", "TKT-2026-00002")).toBeNull();
+    });
+
+    it("hands back a copy: mutating it changes nothing stored", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      const { reference } = await systems.tickets.createTicket(CONNECTION_TICKET, CALL_STARTED_AT);
+      const found = await systems.tickets.findTicket("1234567890", reference);
+      found!.openedAt.setUTCFullYear(1999);
+
+      expect((await systems.tickets.findTicket("1234567890", reference))?.openedAt).toEqual(
+        CALL_STARTED_AT,
+      );
     });
   });
 
@@ -616,6 +655,17 @@ describe("createInMemorySystems", () => {
       await systems.fieldService.bookVisit(VISIT);
       systems.bookedVisits()[0].ticketReference = "tampered";
       expect(systems.bookedVisits()[0].ticketReference).toBe("TKT-2026-00001");
+    });
+
+    it("finds the visit booked for a ticket, on its own account only", async () => {
+      const systems = createInMemorySystems(seed(), CALL_STARTED_AT, MANILA);
+      await systems.fieldService.bookVisit(VISIT);
+
+      expect(await systems.fieldService.visitForTicket("1234567890", "TKT-2026-00001")).toEqual({
+        reference: "VIS-2026-00001",
+      });
+      expect(await systems.fieldService.visitForTicket("2234567890", "TKT-2026-00001")).toBeNull();
+      expect(await systems.fieldService.visitForTicket("1234567890", "TKT-2026-00002")).toBeNull();
     });
 
     it("keeps one call's bookings out of another call from the same seed", async () => {

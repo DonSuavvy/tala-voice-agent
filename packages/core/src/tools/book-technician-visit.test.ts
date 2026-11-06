@@ -31,6 +31,7 @@ function newCall(): { ctx: TalaToolContext; systems: InMemorySystems } {
       systems,
       identity: initialIdentityState(),
       company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+      startedAt: CALL_STARTED_AT,
       wait: () => Promise.resolve(),
     },
     policyConfig: { identity: { maxFailedAttempts: 3 } },
@@ -50,9 +51,8 @@ async function verifyAs(ctx: TalaToolContext, who: { accountNumber: string; mobi
   );
 }
 
-/** Ana verified, with a connection ticket opened on the call; returns its reference. */
-async function anaWithTicket(ctx: TalaToolContext): Promise<string> {
-  await verifyAs(ctx, ANA);
+/** Opens a connection ticket on the verified account, as Tala would; returns its reference. */
+async function openConnectionTicket(ctx: TalaToolContext): Promise<string> {
   const opened = await createTroubleTicket.handler(
     createTroubleTicket.input.parse({
       category: "connection",
@@ -63,9 +63,16 @@ async function anaWithTicket(ctx: TalaToolContext): Promise<string> {
   return (opened as { reference: string }).reference;
 }
 
+/** Ana verified, with a connection ticket opened on the call; returns its reference. */
+async function anaWithTicket(ctx: TalaToolContext): Promise<string> {
+  await verifyAs(ctx, ANA);
+  return openConnectionTicket(ctx);
+}
+
 const NO_TICKET =
-  "Refused: no ticket with that reference was opened for this account on this call. " +
-  "Open one with create_trouble_ticket first, then book the visit with its reference.";
+  "Refused: a visit is booked once, against a connection ticket opened for this account on " +
+  "this call, and that reference is not one or already has a visit. If no connection ticket " +
+  "is open yet, open one with create_trouble_ticket, then book the visit with its reference.";
 const NO_SLOT =
   "Refused: that slot is not open in the caller's area. " +
   "Call get_technician_slots and offer the caller one of the windows it lists.";
@@ -164,16 +171,59 @@ describe("book_technician_visit — a visit, linked to its ticket", () => {
   it("refuses another account's ticket, and books nothing", async () => {
     const { ctx, systems } = newCall();
     await verifyAs(ctx, ANA);
-    const { reference } = await systems.tickets.createTicket({
-      accountNumber: JOSE.accountNumber,
-      category: "connection",
-      notes: "The modem has hung.",
-    });
+    const { reference } = await systems.tickets.createTicket(
+      { accountNumber: JOSE.accountNumber, category: "connection", notes: "The modem has hung." },
+      CALL_STARTED_AT,
+    );
 
     await expect(
       book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: reference }),
     ).rejects.toThrow(NO_TICKET);
     expect(systems.bookedVisits()).toEqual([]);
+  });
+
+  it("refuses a ticket that is not a connection ticket, and books nothing", async () => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, ANA);
+    const opened = await createTroubleTicket.handler(
+      createTroubleTicket.input.parse({ category: "billing", notes: "A payment has not posted yet." }),
+      ctx,
+    );
+    const { reference } = opened as { reference: string };
+
+    await expect(
+      book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: reference }),
+    ).rejects.toThrow(NO_TICKET);
+    expect(systems.bookedVisits()).toEqual([]);
+  });
+
+  /**
+   * "Opened on this call" is checked against when the ticket was opened, so it
+   * holds for a ticketing system that also keeps tickets from earlier calls.
+   */
+  it("refuses a connection ticket opened before the call started, and books nothing", async () => {
+    const { ctx, systems } = newCall();
+    await verifyAs(ctx, ANA);
+    const { reference } = await systems.tickets.createTicket(
+      { accountNumber: ANA.accountNumber, category: "connection", notes: "Slow internet last week." },
+      new Date(CALL_STARTED_AT.getTime() - 60_000),
+    );
+
+    await expect(
+      book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: reference }),
+    ).rejects.toThrow(NO_TICKET);
+    expect(systems.bookedVisits()).toEqual([]);
+  });
+
+  it("refuses a second visit for a ticket that already has one", async () => {
+    const { ctx, systems } = newCall();
+    const ticket = await anaWithTicket(ctx);
+    await book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: ticket });
+
+    await expect(
+      book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-2", ticket_reference: ticket }),
+    ).rejects.toThrow(NO_TICKET);
+    expect(systems.bookedVisits().map((v) => v.slotId)).toEqual(["san-antonio-1"]);
   });
 
   it.each([
@@ -191,11 +241,14 @@ describe("book_technician_visit — a visit, linked to its ticket", () => {
 
   it("refuses a window already booked, so one slot never holds two visits", async () => {
     const { ctx, systems } = newCall();
-    const ticket = await anaWithTicket(ctx);
-    const input = { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: ticket };
-    await book(ctx, input);
+    const first = await anaWithTicket(ctx);
+    await book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: first });
+    // A second concern on the call, with its own connection ticket.
+    const second = await openConnectionTicket(ctx);
 
-    await expect(book(ctx, input)).rejects.toThrow(NO_SLOT);
+    await expect(
+      book(ctx, { account_number: ANA.accountNumber, slot_id: "san-antonio-1", ticket_reference: second }),
+    ).rejects.toThrow(NO_SLOT);
     expect(systems.bookedVisits()).toHaveLength(1);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { initialIdentityState } from "../policy/identity";
 import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
+import type { SeedWorld } from "../systems/seed-world";
 import { ANA, CALL_STARTED_AT, JOSE, MARIA, testWorld } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
@@ -19,8 +20,8 @@ import { verifyIdentity } from "./verify-identity";
  * restart. Jose's modem has hung, which a reboot clears, in 60 seconds.
  */
 
-function newCall(now: Date = CALL_STARTED_AT) {
-  const systems: InMemorySystems = createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila");
+function newCall(now: Date = CALL_STARTED_AT, world: SeedWorld = testWorld()) {
+  const systems: InMemorySystems = createInMemorySystems(world, CALL_STARTED_AT, "Asia/Manila");
   const waits: number[] = [];
   const ctx: TalaToolContext = {
     workspaceId: "test-isp",
@@ -31,6 +32,7 @@ function newCall(now: Date = CALL_STARTED_AT) {
       systems,
       identity: initialIdentityState(),
       company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+      startedAt: CALL_STARTED_AT,
       wait: (ms) => {
         waits.push(ms);
         return Promise.resolve();
@@ -40,6 +42,11 @@ function newCall(now: Date = CALL_STARTED_AT) {
   };
   return { ctx, systems, waits };
 }
+
+const NO_REBOOT =
+  "Refused: the latest check of this connection does not suggest a remote reboot, so the " +
+  "modem was not restarted. If the problem remains, open a connection ticket with " +
+  "create_trouble_ticket.";
 
 /** As the loop does it: parse with the tool's own schema, then run the handler. */
 function reboot(ctx: TalaToolContext, accountNumber: string) {
@@ -153,6 +160,35 @@ describe("remote_reboot_modem — a reboot, then a re-check", () => {
 
     release();
     expect(await rebooting).toMatchObject({ rebooted: true, waited_seconds: 90 });
+  });
+
+  /**
+   * The SOP offers a restart only when the check suggests one; the handler
+   * makes sure. The check after a restart suggests none, so a second restart
+   * on the call is refused too.
+   */
+  it("refuses when the latest check does not suggest a reboot: nothing restarted, nothing waited", async () => {
+    const world = testWorld();
+    const jose = world.modems.find((m) => m.accountNumber === JOSE.accountNumber)!;
+    jose.rebootMayClear = false;
+    const { ctx, systems, waits } = newCall(CALL_STARTED_AT, world);
+    await verifyAs(ctx, JOSE);
+
+    await expect(reboot(ctx, JOSE.accountNumber)).rejects.toThrow(NO_REBOOT);
+    expect(waits).toEqual([]);
+    expect(await systems.network.diagnose(JOSE.accountNumber)).toMatchObject({
+      modemStatus: "degraded",
+      lastSeenAt: new Date("2026-11-06T04:55:00Z"),
+    });
+  });
+
+  it("refuses a second restart on the call, since the check after the first suggests none", async () => {
+    const { ctx, waits } = newCall();
+    await verifyAs(ctx, ANA);
+    await reboot(ctx, ANA.accountNumber);
+
+    await expect(reboot(ctx, ANA.accountNumber)).rejects.toThrow(NO_REBOOT);
+    expect(waits).toEqual([90_000]);
   });
 
   it("says plainly when the verified account has no modem on record, and waits for nothing", async () => {

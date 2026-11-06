@@ -24,6 +24,7 @@ function newContext(): TalaToolContext {
       systems: createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila"),
       identity: initialIdentityState(),
       company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+      startedAt: CALL_STARTED_AT,
       wait: () => Promise.resolve(),
     },
     policyConfig: { identity: { maxFailedAttempts: 3 } },

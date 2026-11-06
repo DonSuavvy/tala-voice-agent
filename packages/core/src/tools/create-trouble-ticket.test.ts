@@ -14,17 +14,18 @@ import { verifyIdentity } from "./verify-identity";
  * opened tickets is how a test sees what the tool did.
  */
 
-function newCall(): { ctx: TalaToolContext; systems: InMemorySystems } {
+function newCall(now: Date = CALL_STARTED_AT): { ctx: TalaToolContext; systems: InMemorySystems } {
   const systems = createInMemorySystems(testWorld(), CALL_STARTED_AT, "Asia/Manila");
   const ctx: TalaToolContext = {
     workspaceId: "test-isp",
     runId: "call_1",
     callId: "call_1",
-    now: CALL_STARTED_AT,
+    now,
     data: {
       systems,
       identity: initialIdentityState(),
       company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
+      startedAt: CALL_STARTED_AT,
       wait: () => Promise.resolve(),
     },
     policyConfig: { identity: { maxFailedAttempts: 3 } },
@@ -80,8 +81,25 @@ describe("create_trouble_ticket — on the verified account", () => {
 
     expect(result).toEqual({ created: true, reference: "TKT-2026-00001" });
     expect(systems.openedTickets()).toEqual([
-      { reference: "TKT-2026-00001", accountNumber: JOSE.accountNumber, category: "billing", notes: NOTES },
+      {
+        reference: "TKT-2026-00001",
+        accountNumber: JOSE.accountNumber,
+        category: "billing",
+        notes: NOTES,
+        openedAt: CALL_STARTED_AT,
+      },
     ]);
+  });
+
+  it("opens the ticket at the call's now, which the context gives", async () => {
+    // 1:10 PM: a later caller turn of the same call.
+    const now = new Date("2026-11-06T05:10:00Z");
+    const { ctx, systems } = newCall(now);
+    await verifyAs(ctx, JOSE);
+
+    await openTicket(ctx, { category: "billing", notes: NOTES });
+
+    expect(systems.openedTickets().map((t) => t.openedAt)).toEqual([now]);
   });
 
   it("gives a second ticket on the call the next reference", async () => {
