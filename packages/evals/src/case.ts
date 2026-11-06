@@ -98,3 +98,45 @@ export type Expectations = z.infer<typeof expectationsSchema>;
 export const EXPECTATION_KEYS = Object.keys(
   expectationsSchema.shape,
 ) as ReadonlyArray<keyof Expectations>;
+
+/* -------------------------------------------------------------------------- */
+/* A case                                                                     */
+/* -------------------------------------------------------------------------- */
+
+const someText = (what: string) =>
+  z.string().refine((text) => text.trim().length > 0, { error: `${what} must not be empty` });
+
+/**
+ * One eval case, as the JSON file in the company pack holds it: who the
+ * simulated caller is and what the call must show. Closed at every level.
+ *
+ * The slug is lowercase words joined by hyphens because it is both the case's
+ * file name and the diff's join key between two runs.
+ */
+export const caseSchema = z
+  .object({
+    slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, {
+      error: "a slug is lowercase letters and digits joined by single hyphens",
+    }),
+    title: someText("a title"),
+    caller: z
+      .object({
+        /**
+         * The simulated caller's brief: the situation, the persona, what they
+         * know (such as the account number and the mobile's last four), and
+         * when they are satisfied.
+         */
+        brief: someText("a brief"),
+        /** Caller turns before the case ends as `not_ended`. */
+        maxTurns: z.number().int().positive(),
+      })
+      .strict(),
+    // A case that expects nothing passes on every run, which is the failure
+    // the closed schema exists to prevent.
+    expect: expectationsSchema.refine((e) => Object.keys(e).length > 0, {
+      error: "a case must expect at least one thing",
+    }),
+  })
+  .strict();
+
+export type EvalCase = z.infer<typeof caseSchema>;
