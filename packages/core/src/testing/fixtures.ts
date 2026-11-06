@@ -11,6 +11,7 @@
  *
  * Test-only. Nothing outside `*.test.ts` files imports this module.
  */
+import { helpArticlesSchema } from "../pack/help-articles";
 import type { PackSource } from "../pack/load-pack";
 import { initialIdentityState } from "../policy/identity";
 import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
@@ -37,8 +38,9 @@ export function testSystems(
 
 /**
  * A tool context for one test call that started at `CALL_STARTED_AT`: nobody
- * verified yet, the test company, its plans, the test policy, and a wait that
- * resolves at once unless one is given. `now` defaults to the call's start.
+ * verified yet, the test company, its plans and help articles, the test
+ * policy, and a wait that resolves at once unless one is given. `now` defaults
+ * to the call's start.
  */
 export function testToolContext(
   systems: BusinessSystems,
@@ -54,6 +56,7 @@ export function testToolContext(
       identity: initialIdentityState(),
       company: { ...TEST_COMPANY },
       plans: testPlans(),
+      helpArticles: helpArticlesSchema.parse(testHelpFiles()),
       startedAt: CALL_STARTED_AT,
       wait: options.wait ?? noWait,
     },
