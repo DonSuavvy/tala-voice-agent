@@ -340,3 +340,29 @@ state is settled. RED `993f1d4`, GREEN `b4a553b`.
 
 **Lesson:** code that calls back into someone else's code from inside an
 accounting boundary inherits their failures as its own.
+
+## 13. An interruption with differently spaced words would have left Tala talking — 2026-11-06
+
+**Severity: medium (latent).** No voice transport exists yet (#7), and the
+terminal chat always passes the default heard text, so it could not happen
+there.
+
+**Caught by:** review round 3 (Spec), reading `interrupt()`'s prefix check.
+
+`interrupt(heard)` required the heard text to be an exact prefix of what Tala
+had streamed, whitespace included, and threw otherwise. A speech-to-text
+transport reports words, not layout: "Opo. Sandali" for "Opo.\n\nSandali".
+Two text blocks' deltas also join with no separator ("Opo.Sandali"). Either
+way `interrupt()` would have rejected, the turn would have run on, and Tala
+would have kept talking over a caller who had cut in.
+
+**What made it dangerous:** the check protected the conversation, and refusing
+a heard text that is not a prefix is right. But refusing meant not stopping,
+and stopping is the one thing an interruption must do.
+
+**Fix:** whitespace is left out when matching. A heard text that still does
+not match falls back to the default and is reported as `mismatchedHeard`. An
+interruption never throws. RED `e9dfd2d`, GREEN `5bd1879`.
+
+**Lesson:** a guard on a safety action must fail toward the action, not away
+from it.
