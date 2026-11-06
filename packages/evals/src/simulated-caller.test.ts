@@ -393,9 +393,9 @@ describe("runSimulatedCall: what the caller cost", () => {
    * The caller's Sonnet calls go through the same streaming creator as
    * Tala's, so they ask for server-side refusal fallback too (#35), and are
    * priced by core's rules: each attempt in `usage.iterations` at its own
-   * model's card, an unnamed `message` attempt at the caller model's card,
-   * and a model Tala has no card for at the ceiling. The top-level usage
-   * covers only the attempt that served.
+   * model's card (Sonnet 5, the documented fallback target, has one), an
+   * unnamed first `message` attempt at the caller model's card. The
+   * top-level usage covers only the attempt that served.
    */
   it("prices a caller call a fallback served by every attempt, not the top-level usage", async () => {
     const { run } = simulate(
@@ -415,8 +415,8 @@ describe("runSimulatedCall: what the caller cost", () => {
     );
     const result = await run;
 
-    // Sonnet 5.5 declined: 1000 * 2000. Sonnet 5 served, at the ceiling:
-    // 1000 * 10_000 + 200 * 50_000.
+    // Sonnet 5.5 declined: 1000 * 2000. Sonnet 5 served, at its own card:
+    // 1000 * 2000 + 200 * 10_000. That card is unverified, so: estimated.
     expect(result.callerCalls).toEqual([
       {
         usage: {
@@ -425,7 +425,7 @@ describe("runSimulatedCall: what the caller cost", () => {
           cacheCreationInputTokens: 0,
           cacheReadInputTokens: 0,
         },
-        costNanos: 22_000_000,
+        costNanos: 6_000_000,
         estimated: true,
         isError: false,
       },

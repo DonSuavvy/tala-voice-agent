@@ -676,34 +676,39 @@ describe("a call session — a turn a server-side fallback served", () => {
   });
 
   /**
-   * Wiring, not a real fallback route: a serving model that has a card of
-   * its own shows the call prices through the provider's cards, not only
-   * the requested model's.
+   * The routes a refusal fallback documents: Opus 5.5 to Opus 4.8 (or Opus
+   * 5), Sonnet 5.5 to Sonnet 5. The declined attempt, which names no model,
+   * is priced at the pinned model's card and the serving one at its own,
+   * which is unverified, so the turn is marked estimated.
    */
-  it("prices each attempt at the provider's card for the model that ran it", async () => {
-    const { session, events } = newCall(
-      [
-        turn([text("Opo.")], {
-          model: "claude-sonnet-5-5",
-          usage: {
-            ...usage,
-            iterations: [
-              attempt("message", "claude-opus-5-5", 10, 0),
-              attempt("fallback_message", "claude-sonnet-5-5", 10, 10),
-            ],
-          },
-        }),
-      ],
-      { model: "opus" },
-    );
-    session.start();
+  it.each([
+    // Opus 5.5 declined: 10 * 4000. Opus 4.8 served: 10 * 5000 + 10 * 25_000.
+    ["opus", "claude-opus-4-8", 340_000],
+    // Sonnet 5.5 declined: 10 * 2000. Sonnet 5 served: 10 * 2000 + 10 * 10_000.
+    ["sonnet", "claude-sonnet-5", 140_000],
+  ] as const)(
+    "prices a %s turn a refusal fallback served on %s at that model's card",
+    async (model, servedBy, nanos) => {
+      const { session, events } = newCall(
+        [
+          turn([text("Opo.")], {
+            model: servedBy,
+            usage: {
+              ...usage,
+              iterations: [attempt("message", null, 10, 0), attempt("fallback_message", servedBy, 10, 10)],
+            },
+          }),
+        ],
+        { model },
+      );
+      session.start();
 
-    await session.callerSaid("Hello?");
+      await session.callerSaid("Hello?");
 
-    // Opus 5.5 declined: 10 * 4000. Sonnet 5.5 served: 10 * 2000 + 10 * 10_000.
-    expect(llmSpans(events)[0].costNanos).toBe(160_000);
-    expect(llmSpans(events)[0].estimated).toBe(false);
-  });
+      expect(llmSpans(events)[0].costNanos).toBe(nanos);
+      expect(llmSpans(events)[0].estimated).toBe(true);
+    },
+  );
 
   const REQUESTED = "claude-opus-5-5";
   const FALLBACK = "claude-opus-5";

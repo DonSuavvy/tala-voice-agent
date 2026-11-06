@@ -4,6 +4,7 @@ import {
   ANTHROPIC_RATES,
   costOf,
   costOfTurn,
+  FALLBACK_TARGET_RATES,
   nanosToMicros,
   rateCard,
   UNKNOWN_MODEL_CEILING,
@@ -357,8 +358,52 @@ describe("costOf — Haiku 5.5's long-prompt card", () => {
 });
 
 /**
- * A model Tala has no card for, such as the model a server-side fallback ran
- * on, is booked at a ceiling, never at a cheaper card it happens to know:
+ * The models a refusal fallback documents as its targets: Opus 5.5 falls back
+ * to Opus 5 or Opus 4.8, Sonnet 5.5 to Sonnet 5 (claude-api skill). A turn
+ * one of them served bills at its rates, so each has a card: $5 / $25 for
+ * the two Opus models and $2 / $10 for Sonnet 5, from the skill's model
+ * table. Not checked against the live pricing page, so they are unverified,
+ * and the cache multiples are OpsPilot's pre-5.5 ones: writes at 1.25x
+ * input, reads at 0.1x, the higher of the two read prices.
+ */
+describe("FALLBACK_TARGET_RATES", () => {
+  it("prices exactly the three documented fallback targets", () => {
+    expect(Object.keys(FALLBACK_TARGET_RATES).sort()).toEqual([
+      "claude-opus-4-8",
+      "claude-opus-5",
+      "claude-sonnet-5",
+    ]);
+  });
+
+  it.each([
+    ["claude-opus-5", 5_000, 25_000, 500, 6_250, 10_000],
+    ["claude-opus-4-8", 5_000, 25_000, 500, 6_250, 10_000],
+    ["claude-sonnet-5", 2_000, 10_000, 200, 2_500, 4_000],
+  ] as const)(
+    "%s carries the skill's prices, with a cache read at a tenth of input",
+    (model, input, output, read, write5m, write1h) => {
+      expect(pricingOf(FALLBACK_TARGET_RATES[model])).toEqual({
+        inputNanosPerToken: input,
+        outputNanosPerToken: output,
+        cacheReadNanosPerToken: read,
+        cacheWrite5mNanosPerToken: write5m,
+        cacheWrite1hNanosPerToken: write1h,
+      });
+    },
+  );
+
+  it.each(["claude-opus-5", "claude-opus-4-8", "claude-sonnet-5"] as const)(
+    "never presents a %s turn as measured",
+    (model) => {
+      expect(FALLBACK_TARGET_RATES[model].verifiedOn).toBeNull();
+      expect(costOf(FALLBACK_TARGET_RATES[model], usage({ inputTokens: 1 })).estimated).toBe(true);
+    },
+  );
+});
+
+/**
+ * A model Tala has no card for is booked at a ceiling, never at a cheaper
+ * card it happens to know:
  * the spend guard's rule is never to under-count (ADR 4). The ceiling is the
  * dearest card in the claude-api skill's model table, Claude Fable 5.1's
  * ($10 in, $50 out), with cache writes at the usual multiples of input and
@@ -397,11 +442,16 @@ describe("UNKNOWN_MODEL_CEILING", () => {
  * Booking it at the ceiling over-counted every ordinary turn about 11 times.
  */
 describe("costOfTurn", () => {
-  /** Prices the 5.5 models from the table, and anything else at the ceiling. */
-  const cardFor = (modelId: string): RateCard =>
-    Object.hasOwn(ANTHROPIC_RATES, modelId)
-      ? ANTHROPIC_RATES[modelId as keyof typeof ANTHROPIC_RATES]
-      : UNKNOWN_MODEL_CEILING;
+  /** Prices the 5.5 models and the fallback targets from their tables, anything else at the ceiling. */
+  const cardFor = (modelId: string): RateCard => {
+    if (Object.hasOwn(ANTHROPIC_RATES, modelId)) {
+      return ANTHROPIC_RATES[modelId as keyof typeof ANTHROPIC_RATES];
+    }
+    if (Object.hasOwn(FALLBACK_TARGET_RATES, modelId)) {
+      return FALLBACK_TARGET_RATES[modelId as keyof typeof FALLBACK_TARGET_RATES];
+    }
+    return UNKNOWN_MODEL_CEILING;
+  };
 
   const wire = (over: Partial<TurnUsage> = {}): TurnUsage => ({
     input_tokens: 0,
@@ -481,7 +531,7 @@ describe("costOfTurn", () => {
           },
           {
             type: "fallback_message",
-            model: "claude-sonnet-5-5",
+            model: "claude-opus-4-8",
             input_tokens: 1_000,
             output_tokens: 200,
             cache_creation_input_tokens: 500,
@@ -489,19 +539,20 @@ describe("costOfTurn", () => {
           },
         ],
       }),
-      { requested: "claude-opus-5-5", servedBy: "claude-sonnet-5-5" },
+      { requested: "claude-opus-5-5", servedBy: "claude-opus-4-8" },
       cardFor,
     );
 
     // Opus 5.5 declined: 1000 * 4000 + 40 * 20_000 + 2000 * 200 = 5_200_000.
-    // Sonnet 5.5 served: 1000 * 2000 + 200 * 10_000 + 500 * 2500 = 5_250_000.
-    expect(c.totalNanos).toBe(10_450_000);
+    // Opus 4.8 served: 1000 * 5000 + 200 * 25_000 + 500 * 6250 = 13_125_000.
+    expect(c.totalNanos).toBe(18_325_000);
     expect(c).toMatchObject({
-      inputNanos: 6_000_000,
-      outputNanos: 2_800_000,
+      inputNanos: 9_000_000,
+      outputNanos: 5_800_000,
       cacheReadNanos: 400_000,
-      cacheWriteNanos: 1_250_000,
-      estimated: false,
+      cacheWriteNanos: 3_125_000,
+      // Opus 4.8's card is unverified.
+      estimated: true,
     });
     expect(c.usage).toEqual(
       usage({
@@ -514,34 +565,50 @@ describe("costOfTurn", () => {
   });
 
   /**
-   * After a fallback, `response.model` names the model that served; the
-   * unnamed `message` attempt before it is still the requested model's.
-   * (The serving model here has a card of its own so the two prices differ.)
+   * After a refusal fallback, `response.model` names the model that served;
+   * the first attempt, which names no model, is still the requested model's.
+   * Sonnet 5.5 reads cache at 0.05x input and Sonnet 5's card at 0.1x, so the
+   * two prices differ.
    */
-  it("prices the requested model's unnamed attempt at its card after a fallback, not the serving model's", () => {
+  it("prices the first, unnamed attempt at the requested model's card after a refusal fallback, not the serving model's", () => {
     const c = costOfTurn(
       wire({
         iterations: [
-          { ...attempt("message", null, 1_000, 40), cache_read_input_tokens: 2_000 },
-          {
-            ...attempt("fallback_message", "claude-sonnet-5-5", 1_000, 200),
-            cache_creation_input_tokens: 500,
-          },
+          { ...attempt("message", null, 1_000, 40), cache_read_input_tokens: 10_000 },
+          attempt("fallback_message", "claude-sonnet-5", 1_000, 200),
         ],
       }),
-      { requested: "claude-opus-5-5", servedBy: "claude-sonnet-5-5" },
+      { requested: "claude-sonnet-5-5", servedBy: "claude-sonnet-5" },
       cardFor,
     );
 
-    // As above: 5_200_000 on Opus 5.5's card, 5_250_000 on Sonnet 5.5's.
-    expect(c.totalNanos).toBe(10_450_000);
-    expect(c.estimated).toBe(false);
+    // Sonnet 5.5 declined: 1000 * 2000 + 40 * 10_000 + 10_000 * 100 = 3_400_000
+    // (4_400_000 on Sonnet 5's card). Sonnet 5 served: 1000 * 2000 + 200 * 10_000.
+    expect(c.totalNanos).toBe(7_400_000);
+    expect(c.estimated).toBe(true);
+  });
+
+  /**
+   * Only the first attempt is known to be the requested model's: the API runs
+   * it first. A later attempt that names no model could be any hop, so it is
+   * booked at the ceiling rather than at a card that might be too cheap.
+   */
+  it("books a later unnamed `message` attempt at the ceiling: only the first is known to be the requested model's", () => {
+    const c = costOfTurn(
+      wire({ iterations: [attempt("message", null, 10, 0), attempt("message", null, 10, 0)] }),
+      { requested: "claude-opus-5-5", servedBy: null },
+      cardFor,
+    );
+
+    // 10 * 4000 on Opus 5.5's card, then 10 * 10_000 at the ceiling.
+    expect(c.totalNanos).toBe(140_000);
+    expect(c.estimated).toBe(true);
   });
 
   it("books an attempt by a model with no card at the ceiling, and marks the turn estimated", () => {
     const c = costOfTurn(
-      wire({ iterations: [attempt("fallback_message", "claude-opus-5", 1_000, 100)] }),
-      { requested: "claude-opus-5-5", servedBy: "claude-opus-5" },
+      wire({ iterations: [attempt("fallback_message", "claude-opus-4-7", 1_000, 100)] }),
+      { requested: "claude-opus-5-5", servedBy: "claude-opus-4-7" },
       cardFor,
     );
 

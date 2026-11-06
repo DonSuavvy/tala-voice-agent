@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ANTHROPIC_RATES, UNKNOWN_MODEL_CEILING } from "./cost";
+import { ANTHROPIC_RATES, FALLBACK_TARGET_RATES, UNKNOWN_MODEL_CEILING } from "./cost";
 import {
   anthropicProvider,
   createClient,
@@ -67,10 +67,21 @@ describe("the card for the model that served a turn", () => {
     );
   });
 
-  /** Opus 5.5's server-side fallbacks run on Opus 5 or Opus 4.8. */
+  /**
+   * A refusal fallback runs Opus 5.5's turns on Opus 5 or Opus 4.8, and
+   * Sonnet 5.5's on Sonnet 5. Those are wire ids a response can name, never
+   * logical models Tala requests.
+   */
+  it.each(["claude-opus-5", "claude-opus-4-8", "claude-sonnet-5"] as const)(
+    "finds the card of %s, a documented fallback target",
+    (modelId) => {
+      expect(anthropicProvider.rateCardForModelId(modelId)).toBe(FALLBACK_TARGET_RATES[modelId]);
+    },
+  );
+
   it("books a model it has no card for at the ceiling, never at a cheaper card", () => {
-    expect(anthropicProvider.rateCardForModelId("claude-opus-5")).toBe(UNKNOWN_MODEL_CEILING);
-    expect(anthropicProvider.rateCardForModelId("claude-opus-4-8")).toBe(UNKNOWN_MODEL_CEILING);
+    expect(anthropicProvider.rateCardForModelId("claude-opus-4-7")).toBe(UNKNOWN_MODEL_CEILING);
+    expect(anthropicProvider.rateCardForModelId("claude-fable-5-1")).toBe(UNKNOWN_MODEL_CEILING);
   });
 
   it("books a missing model id, or one Object.prototype supplies, at the ceiling", () => {
