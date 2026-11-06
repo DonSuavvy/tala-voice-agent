@@ -511,3 +511,32 @@ too; it fails 2 of 4 against the old masking (`174fd1c`).
 
 **Lesson:** a test for a filter must not share the filter's idea of what to
 look for.
+
+## 19. A remote reboot could repeat on every turn, and a visit could be booked on any ticket — 2026-11-06
+
+**Severity: medium (latent, caught before merge).** Each reboot is a minute
+of silence on a voice call, and a technician sent on a billing ticket, an
+old ticket, or twice for one fault is a wasted visit.
+
+**Caught by:** review round 8, both axes.
+
+The SOP allowed one restart, and only when the diagnosis advised it, but
+`remote_reboot_modem` checked neither, so nothing but the model stopped a
+second and third restart. `book_technician_visit` checked only that the
+ticket existed on the account; "opened on this call" held only because the
+in-memory world starts each call with no tickets, so a real ticketing adapter
+would have let an old ticket through, and nothing limited a ticket to one
+visit. The live run behaved; the code did not guarantee it.
+
+**What made it dangerous:** the guarantee lived in a fake. The in-memory
+world made the rule true by accident, so every test passed and the seam's
+contract never said what a real system must do.
+
+**Fix:** the reboot refuses unless the current diagnosis advises one, and
+the post-reboot state does not; a visit needs a `connection` ticket opened
+at or after the call's start (the session's start time is now call data, and
+tickets carry when they were opened) with no visit yet. RED `3d19dfb`, GREEN
+`7329b5f`.
+
+**Lesson:** a rule that holds only because the test double is empty is not
+enforced; write it against the seam's contract.
