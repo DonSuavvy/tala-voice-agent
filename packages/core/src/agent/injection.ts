@@ -1,20 +1,24 @@
 /**
  * Deterministic prompt-injection pre-scan.
  *
- * This runs before the model sees the ticket, and it is the only layer in the
- * injection story that cannot itself be talked out of its job: no network, no
- * model call, no clock, no database. Given the same ticket it returns the same
- * answer forever, which is what lets the eval suite assert on it.
+ * This runs before the model sees untrusted text, and it is the only layer in
+ * the injection story that cannot itself be talked out of its job: no network,
+ * no model call, no clock, no database. Given the same text it returns the
+ * same answer forever, which is what lets the eval suite assert on it.
  *
  * It is a heuristic and it is meant to be one. The real guarantees live in the
- * layers behind it — the ticket is wrapped as data in `prompt.ts`, the SOP
- * tells the model to ignore instructions found in a ticket, refund limits are
- * revalidated in the handler, and confirm-write tools pause for a human. The
- * scan exists so a flagged run can be *narrowed* before any of that is tested,
- * and so the trace can say plainly what was seen.
+ * layers behind it — the SOP tells the model that what a caller says is data,
+ * limits are revalidated in the handler, and confirm-write tools pause for a
+ * human. The scan exists so a flagged turn can be *narrowed* before any of
+ * that is tested (`guardrails.ts`), and so the trace can say plainly what was
+ * seen.
+ *
+ * The patterns are OpsPilot's, written against English support tickets.
+ * Tagalog and Taglish phrasings, and spoken rather than written attacks, are
+ * #15.
  *
  * Precision matters more than recall here. A false positive strips a real
- * customer's refund of its tooling; a false negative still meets every control
+ * customer's credit of its tooling; a false negative still meets every control
  * downstream. That asymmetry is why one weak signal is reported but does not
  * flag.
  */
@@ -30,18 +34,13 @@ export const INJECTION_SIGNALS = [
 
 export type InjectionSignal = (typeof INJECTION_SIGNALS)[number];
 
-export interface InjectionScanInput {
-  subject: string;
-  body: string;
-}
-
 export interface InjectionScanResult {
   flagged: boolean;
   signals: string[];
 }
 
 /**
- * The only strong signal. A ticket that tells the agent to drop its
+ * The only strong signal. Text that tells the agent to drop its
  * instructions is not a customer with an unusual turn of phrase, so it flags
  * on its own. Everything else needs corroboration.
  */
@@ -103,17 +102,16 @@ function normalise(text: string): string {
 }
 
 /**
- * Scan a ticket's subject and body for text aimed at the agent rather than at
- * a human reading the ticket.
+ * Scan untrusted text for words aimed at the agent rather than at a human.
+ * When the input has several model-visible parts (OpsPilot scanned a ticket's
+ * subject and body), join them first: an injection in any part counts.
  *
  * Returns the signals that fired, named and in a fixed order, each at most
  * once. `flagged` is true when the strong signal is present or when two or more
  * distinct signals corroborate each other.
  */
-export function scanForInjection(input: InjectionScanInput): InjectionScanResult {
-  // The subject is scanned too: it is model-visible and attacker-controlled,
-  // and an injection there with an innocent body would otherwise sail through.
-  const text = normalise(`${input.subject} ${input.body}`);
+export function scanForInjection(input: string): InjectionScanResult {
+  const text = normalise(input);
 
   const signals: string[] = [];
   for (const { name, patterns } of PATTERNS) {

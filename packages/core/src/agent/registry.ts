@@ -20,10 +20,6 @@
  */
 import { z } from "zod";
 
-import type { PolicyConfig } from "@/policy/refund";
-
-import type { OpsData } from "./data";
-
 export type SafetyClass = "read" | "auto_write" | "confirm_write";
 
 const SAFETY_CLASSES: readonly SafetyClass[] = [
@@ -112,40 +108,53 @@ export interface AnthropicToolSpec {
   strict?: true;
 }
 
-export interface ToolContext {
+/**
+ * What every tool handler receives.
+ *
+ * The engine knows the run, the call and the clock. Everything about the
+ * business comes from the company pack, through the two type parameters:
+ * `TData` is the pack's data seam and `TPolicy` the policy the call was pinned
+ * to. In OpsPilot these were Beacon Analytics' `OpsData` and refund policy; in
+ * Tala they are the Kidlat Fiber world (#5) and its credit policy (#13).
+ */
+export interface ToolContext<TData = unknown, TPolicy = unknown> {
+  /** The tenant the data seam is scoped to. */
   workspaceId: string;
   runId: string;
   /**
-   * The ticket this run was dispatched for.
+   * The call this run serves.
    *
-   * `resolve_ticket` has no ticket id in its schema, deliberately: the run
-   * already knows which ticket it is about, so the terminal tool reads it from
-   * here rather than from model output. A ticket id the model chooses is a
-   * ticket id the model can get wrong.
+   * The terminal tool has no call id in its schema, deliberately: the run
+   * already knows which call it is about, so the tool reads it from here
+   * rather than from model output. An id the model chooses is an id the model
+   * can get wrong.
    */
-  ticketId: string;
+  callId: string;
   /** Injected so tool handlers stay as deterministic as the policy engine. */
   now: Date;
   /**
    * The data seam. Already scoped to `workspaceId` when it was built, which is
-   * why no method on it takes one — see src/agent/data.ts. Handlers reach the
-   * database only through here, so a unit test needs a fake rather than
-   * Postgres.
+   * why none of its methods should take one: a handler then cannot read
+   * another tenant's rows by forgetting a filter. Handlers reach the business
+   * systems only through here, so a unit test needs a fake, not a database.
    */
-  data: OpsData;
+  data: TData;
   /**
-   * The policy this run was pinned to at start, from `agent_runs.sop_version_id`.
+   * The policy this call was pinned to when it started.
    *
-   * Passed in rather than re-queried on purpose. `issue_refund` must revalidate
-   * against the *same* version the model was briefed on — re-resolving "what is
-   * active now" would let an edit landing mid-run enforce a policy the model was
-   * never given, which is the drift `compileSop` exists to remove reappearing
-   * one layer up.
+   * Passed in rather than re-read on purpose. A confirm-write handler must
+   * revalidate against the *same* version the model was briefed on.
+   * Re-resolving "what is active now" would let an edit landing mid-call
+   * enforce a policy the model was never given, which is the drift
+   * `compileSop` exists to remove, reappearing one layer up.
    */
-  policyConfig: PolicyConfig;
+  policyConfig: TPolicy;
 }
 
-export interface ToolDefinition<T extends AnyZodObject = AnyZodObject> {
+export interface ToolDefinition<
+  T extends AnyZodObject = AnyZodObject,
+  C extends ToolContext = ToolContext,
+> {
   name: string;
   description: string;
   input: T;
@@ -169,8 +178,8 @@ export interface ToolDefinition<T extends AnyZodObject = AnyZodObject> {
    * Receives input already parsed by the tool's own schema, so a preflight can
    * trust its argument rather than re-validating shape.
    */
-  preflight?: (input: z.infer<T>, ctx: ToolContext) => Promise<void>;
-  handler: (input: z.infer<T>, ctx: ToolContext) => Promise<unknown>;
+  preflight?: (input: z.infer<T>, ctx: C) => Promise<void>;
+  handler: (input: z.infer<T>, ctx: C) => Promise<unknown>;
 }
 
 export class ToolRegistryError extends Error {
@@ -333,19 +342,19 @@ export function toStrictJsonSchema(schema: AnyZodObject): StrictJsonSchema {
   };
 }
 
-export interface ToolRegistry {
-  list(): ToolDefinition[];
-  get(name: string): ToolDefinition | undefined;
+export interface ToolRegistry<C extends ToolContext = ToolContext> {
+  list(): ToolDefinition<AnyZodObject, C>[];
+  get(name: string): ToolDefinition<AnyZodObject, C> | undefined;
   /**
    * Deterministically ordered — the tools block is the head of the cache prefix.
    *
    * **`strict` is the caller's decision, because it is a provider capability.**
-   * The nine-tool set is rejected by Bedrock with `400 Compiled grammar size
-   * (329.9MB) exceeds maximum allowed size (300MB)` — from 3.2KB of schema.
-   * Probed against the live account (`scripts/probe-grammar.ts`): every tool
-   * alone compiles, any eight compile, nine do not, and all nine compile with
-   * `strict` removed. The cost is in the grammar and it accumulates across the
-   * set, so no single schema can be simplified to fix it.
+   * In OpsPilot, Amazon Bedrock rejected a nine-tool set with `400 Compiled
+   * grammar size (329.9MB) exceeds maximum allowed size (300MB)`, from 3.2KB
+   * of schema: every tool alone compiled, any eight compiled, nine did not.
+   * The cost is in the grammar and it accumulates across the set. Whether the
+   * first-party API accepts Tala's seventeen tools under `strict` has not been
+   * measured yet.
    *
    * What the registry still guarantees is unchanged: the emitted schema is
    * strict-*legal* either way — closed objects, explicit `required`, no
@@ -358,7 +367,9 @@ export interface ToolRegistry {
   terminalToolName: string;
 }
 
-function validate(definitions: ToolDefinition[]): string[] {
+function validate<C extends ToolContext>(
+  definitions: ToolDefinition<AnyZodObject, C>[],
+): string[] {
   const issues: string[] = [];
   const seen = new Set<string>();
 
@@ -436,7 +447,9 @@ function validate(definitions: ToolDefinition[]): string[] {
  * problem found, so a misconfiguration is fixed in one pass rather than
  * discovered one boot at a time.
  */
-export function buildRegistry(definitions: ToolDefinition[]): ToolRegistry {
+export function buildRegistry<C extends ToolContext = ToolContext>(
+  definitions: ToolDefinition<AnyZodObject, C>[],
+): ToolRegistry<C> {
   const issues = validate(definitions);
   if (issues.length > 0) throw new ToolRegistryError(issues);
 
@@ -466,7 +479,7 @@ export function buildRegistry(definitions: ToolDefinition[]): ToolRegistry {
       // Optional chaining made this fail *open*: `undefined === "confirm_write"`
       // is false, so a name the registry never heard of was reported as needing
       // no approval — the one input it cannot vouch for getting the safest-
-      // sounding answer. From Day 2 these names come out of model output.
+      // sounding answer. These names come out of model output.
       //
       // Throws rather than returning true because an unknown name is a caller
       // bug, not a risky-but-real tool call: the loop has to reject it as an

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_POLICY } from "@/policy/refund";
 
 import { checkBudget, type BudgetConfig } from "./budget";
 import { rateCard, type RateCard } from "./cost";
@@ -23,9 +22,8 @@ import { z } from "zod";
 /**
  * The hand-rolled agent loop.
  *
- * This is the module PLAN.md calls out as load-bearing for the interview
- * story: pause/resume across serverless invocations requires serializing the
- * message array mid-loop and reconstructing it later, which the SDK's tool
+ * Imported from OpsPilot with its tests. Pause/resume requires serializing
+ * the message array mid-loop and reconstructing it later, which the SDK's tool
  * runner does not support. So the loop is ours, and it has to be tested like
  * production code rather than demonstrated once in a script.
  *
@@ -33,7 +31,7 @@ import { z } from "zod";
  * need a database *or* an API key, so `createMessage` is a narrow interface the
  * loop owns — `(params) => Promise<AssistantTurn>` — and the tests hand it
  * queued turns. The production adapter behind that interface streams from
- * Bedrock and returns the SDK's assembled final message, which is structurally
+ * the Anthropic API and returns the SDK's assembled final message, which is structurally
  * an `AssistantTurn`. That split is deliberate: the four-field `usage` object
  * arrives split across event types on the streaming path, and hand-assembling
  * it is exactly how a run silently records zero cache cost. Let the SDK
@@ -90,9 +88,9 @@ function turn(
 /** A turn that calls the forced terminal tool and ends the run. */
 function resolveTurn(action = "answered") {
   return turn([
-    toolUse("resolve_ticket", {
+    toolUse("end_call", {
       action,
-      refund_amount_cents: 0,
+      credit_minor: 0,
       reply: "All set.",
       confidence: "high",
     }),
@@ -135,31 +133,31 @@ function tool(
 function testRegistry(
   over: {
     handler?: ToolDefinition["handler"];
-    refundHandler?: ToolDefinition["handler"];
+    creditHandler?: ToolDefinition["handler"];
   } = {},
 ) {
   return buildRegistry([
-    tool("get_customer", over.handler ? { handler: over.handler } : {}),
-    tool("search_kb"),
-    tool("issue_refund", {
+    tool("get_account_overview", over.handler ? { handler: over.handler } : {}),
+    tool("search_knowledge_base"),
+    tool("apply_bill_credit", {
       safetyClass: "confirm_write",
-      input: z.object({ invoice_id: z.string(), amount_cents: z.number() }),
+      input: z.object({ account_number: z.string(), amount_minor: z.number() }),
       // Throws unless a test opts in, so any run that dispatches a
       // confirm-write without an approval fails loudly rather than passing.
       handler:
-        over.refundHandler ??
+        over.creditHandler ??
         (async () => {
           throw new Error(
             "confirm_write handler must never run before approval",
           );
         }),
     }),
-    tool("resolve_ticket", {
+    tool("end_call", {
       safetyClass: "auto_write",
       terminal: true,
       input: z.object({
         action: z.string(),
-        refund_amount_cents: z.number(),
+        credit_minor: z.number(),
         reply: z.string(),
         confidence: z.string(),
       }),
@@ -193,15 +191,16 @@ function loopInput(
   const input = {
     registry: testRegistry(),
     createMessage: client.create,
-    model: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    model: "claude-haiku-5-5",
     rates: VERIFIED_RATES,
-    system: "You are OpsPilot.",
-    messages: [{ role: "user" as const, content: "Ticket: where is my refund?" }],
+    system: "You are Tala.",
+    messages: [{ role: "user" as const, content: "Caller: where is my credit?" }],
     toolContext: {
-      policyConfig: DEFAULT_POLICY,
+      // The loop never reads the policy either; it only forwards the context.
+      policyConfig: {},
       workspaceId: "ws_1",
       runId: "run_1",
-      ticketId: "tkt_1",
+      callId: "call_1",
       now: new Date("2026-08-13T00:00:00Z"),
       // The loop never touches the repository — it only forwards the context
       // to handlers, and this file's handlers are fakes that ignore it.
@@ -225,7 +224,7 @@ function loopInput(
 describe("runAgentLoop — reaching an outcome", () => {
   it("runs a read tool, then the terminal tool, and completes", async () => {
     const { input, client } = loopInput([
-      turn([toolUse("get_customer", { q: "cus_0007" })]),
+      turn([toolUse("get_account_overview", { q: "KF-1007" })]),
       resolveTurn("answered"),
     ]);
 
@@ -241,14 +240,14 @@ describe("runAgentLoop — reaching an outcome", () => {
   });
 
   /**
-   * `resolve_ticket` is the forced terminal tool: the deterministic eval
+   * `end_call` is the forced terminal tool: the deterministic eval
    * scorers key off its structured output, so a run that kept going after it
    * would produce two candidate outcomes and no rule for picking one.
    */
   it("stops at the terminal tool without asking the model for another turn", async () => {
     const { input, client } = loopInput([
       resolveTurn(),
-      turn([toolUse("search_kb", { q: "never reached" })]),
+      turn([toolUse("search_knowledge_base", { q: "never reached" })]),
     ]);
 
     const result = await runAgentLoop(input);
@@ -276,7 +275,7 @@ describe("runAgentLoop — reaching an outcome", () => {
 
   it("gives up after maxIterations rather than looping forever", async () => {
     const turns = Array.from({ length: 12 }, () =>
-      turn([toolUse("search_kb", { q: "again" })]),
+      turn([toolUse("search_knowledge_base", { q: "again" })]),
     );
     const { input } = loopInput(turns, { maxIterations: 12 });
 
@@ -303,7 +302,7 @@ describe("runAgentLoop — refusal", () => {
     const handler = vi.fn(async () => ({ ok: true }));
     const { input } = loopInput(
       [
-        turn([toolUse("get_customer", { q: "cus_0007" })], {
+        turn([toolUse("get_account_overview", { q: "KF-1007" })], {
           stop_reason: "refusal",
           stop_details: { type: "refusal", category: "cyber" },
         }),
@@ -384,7 +383,7 @@ describe("runAgentLoop — budget", () => {
    */
   it("counts spend accrued inside the run against the cap", async () => {
     const turns = Array.from({ length: 5 }, () =>
-      turn([toolUse("search_kb", { q: "again" })]),
+      turn([toolUse("search_knowledge_base", { q: "again" })]),
     );
     const { input, client } = loopInput(turns, {
       budget: {
@@ -402,15 +401,16 @@ describe("runAgentLoop — budget", () => {
   });
 
   /**
-   * Bedrock's rates are unverified and the one comparable AWS figure was 2x
-   * the first-party price, so the guard charges unverified cards at
+   * A rate card with no `verifiedOn` date might be wrong by any amount
+   * (OpsPilot's Bedrock card was, and the one comparable AWS figure was 2x the
+   * first-party price), so the guard charges unverified cards at
    * UNVERIFIED_RATE_SAFETY_FACTOR. Enforcing a cap with rates that might be
    * half the real ones is not a cap. Same cap as above, but doubled charging
    * means iteration 2 is already refused.
    */
   it("charges an unverified rate card at the pessimistic multiple", async () => {
     const turns = Array.from({ length: 5 }, () =>
-      turn([toolUse("search_kb", { q: "again" })]),
+      turn([toolUse("search_knowledge_base", { q: "again" })]),
     );
     const { input, client } = loopInput(turns, {
       rates: UNVERIFIED_RATES,
@@ -454,7 +454,7 @@ describe("runAgentLoop — confirm-write pause", () => {
   it("pauses on a confirm-write tool without running its handler", async () => {
     const { input, client } = loopInput([
       turn([
-        toolUse("issue_refund", { invoice_id: "INV-2002", amount_cents: 4900 }),
+        toolUse("apply_bill_credit", { account_number: "KF-1002", amount_minor: 4900 }),
       ]),
       resolveTurn(),
     ]);
@@ -464,9 +464,9 @@ describe("runAgentLoop — confirm-write pause", () => {
     expect(result.status).toBe("paused_for_approval");
     expect(client.create).toHaveBeenCalledTimes(1);
     expect(result.pendingApproval).toMatchObject({
-      toolName: "issue_refund",
-      toolUseId: "toolu_issue_refund",
-      toolInput: { invoice_id: "INV-2002", amount_cents: 4900 },
+      toolName: "apply_bill_credit",
+      toolUseId: "toolu_apply_bill_credit",
+      toolInput: { account_number: "KF-1002", amount_minor: 4900 },
     });
   });
 
@@ -479,7 +479,7 @@ describe("runAgentLoop — confirm-write pause", () => {
   it("serializes a message array that round-trips through JSON", async () => {
     const { input } = loopInput([
       turn([
-        toolUse("issue_refund", { invoice_id: "INV-2002", amount_cents: 4900 }),
+        toolUse("apply_bill_credit", { account_number: "KF-1002", amount_minor: 4900 }),
       ]),
     ]);
 
@@ -496,7 +496,7 @@ describe("runAgentLoop — confirm-write pause", () => {
   it("emits an approval_wait span so the pause is visible in the trace", async () => {
     const { input, spans } = loopInput([
       turn([
-        toolUse("issue_refund", { invoice_id: "INV-2002", amount_cents: 4900 }),
+        toolUse("apply_bill_credit", { account_number: "KF-1002", amount_minor: 4900 }),
       ]),
     ]);
 
@@ -521,11 +521,11 @@ describe("runAgentLoop — confirm-write pause", () => {
   it("pauses before dispatching anything else in the same turn", async () => {
     const { input, spans } = loopInput([
       turn([
-        toolUse("get_customer", { q: "cus_0007" }, "toolu_read"),
+        toolUse("get_account_overview", { q: "KF-1007" }, "toolu_read"),
         toolUse(
-          "issue_refund",
-          { invoice_id: "INV-2002", amount_cents: 4900 },
-          "toolu_refund",
+          "apply_bill_credit",
+          { account_number: "KF-1002", amount_minor: 4900 },
+          "toolu_credit",
         ),
       ]),
     ]);
@@ -533,7 +533,7 @@ describe("runAgentLoop — confirm-write pause", () => {
     const result = await runAgentLoop(input);
 
     expect(result.status).toBe("paused_for_approval");
-    expect(result.pendingApproval?.toolUseId).toBe("toolu_refund");
+    expect(result.pendingApproval?.toolUseId).toBe("toolu_credit");
     // The read must not have executed: its result would be thrown away.
     expect(spans.filter((s) => s.type === "tool_exec")).toHaveLength(0);
   });
@@ -548,11 +548,11 @@ describe("runAgentLoop — confirm-write pause", () => {
   it("serializes history plus the assistant turn and nothing else", async () => {
     const { input } = loopInput([
       turn([
-        toolUse("get_customer", { q: "cus_0007" }, "toolu_read"),
+        toolUse("get_account_overview", { q: "KF-1007" }, "toolu_read"),
         toolUse(
-          "issue_refund",
-          { invoice_id: "INV-2002", amount_cents: 4900 },
-          "toolu_refund",
+          "apply_bill_credit",
+          { account_number: "KF-1002", amount_minor: 4900 },
+          "toolu_credit",
         ),
       ]),
     ]);
@@ -616,22 +616,22 @@ describe("runAgentLoop — resuming a decided approval", () => {
     };
   }
 
-  const refundTurn = () =>
+  const creditTurn = () =>
     turn([
       toolUse(
-        "issue_refund",
-        { invoice_id: "INV-2002", amount_cents: 4900 },
-        "toolu_refund",
+        "apply_bill_credit",
+        { account_number: "KF-1002", amount_minor: 4900 },
+        "toolu_credit",
       ),
     ]);
 
   it("dispatches an approved call and runs on to the terminal tool", async () => {
-    const { messages, pending } = await pausedAt([refundTurn()]);
-    const refunded = vi.fn(async () => ({ refunded: true }));
+    const { messages, pending } = await pausedAt([creditTurn()]);
+    const credited = vi.fn(async () => ({ credited: true }));
 
-    const { input, client } = loopInput([resolveTurn("refunded")], {
+    const { input, client } = loopInput([resolveTurn("credited")], {
       messages,
-      registry: testRegistry({ refundHandler: refunded }),
+      registry: testRegistry({ creditHandler: credited }),
       resumeDecisions: [
         { toolUseId: pending.toolUseId, approved: true, reason: null },
       ],
@@ -639,9 +639,9 @@ describe("runAgentLoop — resuming a decided approval", () => {
 
     const result = await runAgentLoop(input);
 
-    expect(refunded).toHaveBeenCalledTimes(1);
+    expect(credited).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("completed");
-    expect(result.outcome).toMatchObject({ action: "refunded" });
+    expect(result.outcome).toMatchObject({ action: "credited" });
     // One model call: the turn being resumed was already paid for.
     expect(client.create).toHaveBeenCalledTimes(1);
   });
@@ -652,24 +652,24 @@ describe("runAgentLoop — resuming a decided approval", () => {
    * the agent has no way to know why it was stopped and cannot escalate.
    */
   it("answers a denied call with is_error carrying the reviewer's reason", async () => {
-    const { messages, pending } = await pausedAt([refundTurn()]);
-    const refunded = vi.fn(async () => ({ refunded: true }));
+    const { messages, pending } = await pausedAt([creditTurn()]);
+    const credited = vi.fn(async () => ({ credited: true }));
 
     const { input, client } = loopInput([resolveTurn("escalated")], {
       messages,
-      registry: testRegistry({ refundHandler: refunded }),
+      registry: testRegistry({ creditHandler: credited }),
       resumeDecisions: [
         {
           toolUseId: pending.toolUseId,
           approved: false,
-          reason: "Outside the refund window — send to management.",
+          reason: "Above the credit limit — send to a supervisor.",
         },
       ],
     });
 
     const result = await runAgentLoop(input);
 
-    expect(refunded).not.toHaveBeenCalled();
+    expect(credited).not.toHaveBeenCalled();
     expect(result.status).toBe("completed");
 
     const blocks = client.calls[0]!.messages.at(-1)!.content as ContentBlock[];
@@ -678,13 +678,13 @@ describe("runAgentLoop — resuming a decided approval", () => {
       content: string;
       tool_use_id: string;
     };
-    expect(denial.tool_use_id).toBe("toolu_refund");
+    expect(denial.tool_use_id).toBe("toolu_credit");
     expect(denial.is_error).toBe(true);
-    expect(denial.content).toContain("Outside the refund window");
+    expect(denial.content).toContain("Above the credit limit");
   });
 
   it("records the denial as a guardrail span so the trace shows the refusal", async () => {
-    const { messages, pending } = await pausedAt([refundTurn()]);
+    const { messages, pending } = await pausedAt([creditTurn()]);
 
     const { input, spans } = loopInput([resolveTurn("escalated")], {
       messages,
@@ -696,31 +696,31 @@ describe("runAgentLoop — resuming a decided approval", () => {
     await runAgentLoop(input);
 
     const guardrail = spans.find(
-      (s) => s.type === "guardrail" && s.name === "issue_refund",
+      (s) => s.type === "guardrail" && s.name === "apply_bill_credit",
     );
     expect(guardrail?.isError).toBe(true);
   });
 
   /**
-   * The mixed turn, end to end. `issue_refund` is decided; `get_customer`
+   * The mixed turn, end to end. `apply_bill_credit` is decided; `get_account_overview`
    * shares the turn and was never dispatched, because the pause is decided
    * before anything runs. Both need a `tool_result` in the single user message
    * resume appends — a turn with an unanswered tool_use is rejected by the API.
    */
   it("returns a result for every tool_use in the resumed turn", async () => {
     const mixed = turn([
-      toolUse("get_customer", { q: "cus_0007" }, "toolu_read"),
+      toolUse("get_account_overview", { q: "KF-1007" }, "toolu_read"),
       toolUse(
-        "issue_refund",
-        { invoice_id: "INV-2002", amount_cents: 4900 },
-        "toolu_refund",
+        "apply_bill_credit",
+        { account_number: "KF-1002", amount_minor: 4900 },
+        "toolu_credit",
       ),
     ]);
     const { messages, pending } = await pausedAt([mixed]);
 
-    const { input, client } = loopInput([resolveTurn("refunded")], {
+    const { input, client } = loopInput([resolveTurn("credited")], {
       messages,
-      registry: testRegistry({ refundHandler: async () => ({ ok: true }) }),
+      registry: testRegistry({ creditHandler: async () => ({ ok: true }) }),
       resumeDecisions: [
         { toolUseId: pending.toolUseId, approved: true, reason: null },
       ],
@@ -730,7 +730,7 @@ describe("runAgentLoop — resuming a decided approval", () => {
 
     const blocks = client.calls[0]!.messages.at(-1)!.content as ContentBlock[];
     const ids = blocks.map((b) => (b as { tool_use_id: string }).tool_use_id);
-    expect(ids).toEqual(["toolu_read", "toolu_refund"]);
+    expect(ids).toEqual(["toolu_read", "toolu_credit"]);
   });
 
   /**
@@ -742,7 +742,7 @@ describe("runAgentLoop — resuming a decided approval", () => {
     const { input } = loopInput([resolveTurn()], {
       messages: [{ role: "user", content: "not a paused conversation" }],
       resumeDecisions: [
-        { toolUseId: "toolu_refund", approved: true, reason: null },
+        { toolUseId: "toolu_credit", approved: true, reason: null },
       ],
     });
 
@@ -767,8 +767,8 @@ describe("runAgentLoop — tool execution", () => {
   it("returns all tool results for one turn in a single user message", async () => {
     const { input, client } = loopInput([
       turn([
-        toolUse("get_customer", { q: "cus_0007" }, "toolu_a"),
-        toolUse("search_kb", { q: "refunds" }, "toolu_b"),
+        toolUse("get_account_overview", { q: "KF-1007" }, "toolu_a"),
+        toolUse("search_knowledge_base", { q: "credits" }, "toolu_b"),
       ]),
       resolveTurn(),
     ]);
@@ -789,7 +789,7 @@ describe("runAgentLoop — tool execution", () => {
   });
 
   /**
-   * Tool names arrive as model output from Day 2 onward, so an unregistered
+   * Tool names arrive as model output, so an unregistered
    * name is an input the loop must survive rather than a programmer error.
    * `requiresApproval` throws on unknown names by design; the loop has to
    * catch that and answer the model instead of crashing the run.
@@ -808,18 +808,18 @@ describe("runAgentLoop — tool execution", () => {
   });
 
   /**
-   * The `issue_refund` handler rejects out-of-policy calls with `is_error`, and
+   * The `apply_bill_credit` handler rejects out-of-policy calls with `is_error`, and
    * the agent is expected to adapt (typically by escalating). That contract
    * only holds if a throwing handler becomes a tool_result the model can read,
    * rather than an exception that kills the run.
    */
   it("turns a throwing handler into an is_error tool result", async () => {
     const handler = vi.fn(async () => {
-      throw new Error("refund exceeds the policy window");
+      throw new Error("credit exceeds the policy limit");
     });
     const { input, client } = loopInput(
       [
-        turn([toolUse("get_customer", { q: "cus_0007" }, "toolu_c")]),
+        turn([toolUse("get_account_overview", { q: "KF-1007" }, "toolu_c")]),
         resolveTurn(),
       ],
       { registry: testRegistry({ handler }) },
@@ -830,7 +830,7 @@ describe("runAgentLoop — tool execution", () => {
     expect(result.status).toBe("completed");
     const blocks = client.calls[1]!.messages.at(-1)!.content as ContentBlock[];
     expect(blocks[0]).toMatchObject({ is_error: true });
-    expect(JSON.stringify(blocks[0])).toMatch(/policy window/);
+    expect(JSON.stringify(blocks[0])).toMatch(/policy limit/);
   });
 
   /**
@@ -843,7 +843,7 @@ describe("runAgentLoop — tool execution", () => {
     const handler = vi.fn(async () => ({ ok: true }));
     const { input } = loopInput(
       [
-        turn([toolUse("get_customer", { q: 42 }, "toolu_bad")]),
+        turn([toolUse("get_account_overview", { q: 42 }, "toolu_bad")]),
         resolveTurn(),
       ],
       { registry: testRegistry({ handler }) },
@@ -863,7 +863,7 @@ describe("runAgentLoop — tool execution", () => {
 describe("runAgentLoop — trace and cost", () => {
   it("emits an llm_call span per model turn and a tool_exec span per tool call", async () => {
     const { input, spans } = loopInput([
-      turn([toolUse("get_customer", { q: "cus_0007" })]),
+      turn([toolUse("get_account_overview", { q: "KF-1007" })]),
       resolveTurn(),
     ]);
 
@@ -874,7 +874,7 @@ describe("runAgentLoop — trace and cost", () => {
       return acc;
     }, {});
     expect(byType.llm_call).toBe(2);
-    expect(byType.tool_exec).toBe(2); // get_customer + resolve_ticket
+    expect(byType.tool_exec).toBe(2); // get_account_overview + end_call
   });
 
   /**
@@ -884,7 +884,7 @@ describe("runAgentLoop — trace and cost", () => {
    */
   it("numbers spans from zero with no gaps or repeats", async () => {
     const { input, spans } = loopInput([
-      turn([toolUse("get_customer", { q: "cus_0007" })]),
+      turn([toolUse("get_account_overview", { q: "KF-1007" })]),
       resolveTurn(),
     ]);
 
@@ -895,7 +895,7 @@ describe("runAgentLoop — trace and cost", () => {
 
   it("prices each llm_call span and totals them onto the run", async () => {
     const { input, spans } = loopInput([
-      turn([toolUse("get_customer", { q: "cus_0007" })]),
+      turn([toolUse("get_account_overview", { q: "KF-1007" })]),
       resolveTurn(),
     ]);
 
@@ -961,11 +961,11 @@ describe("runAgentLoop — trace and cost", () => {
 
 describe("runAgentLoop — strict decoding", () => {
   /**
-   * Measured, not assumed: the nine-tool registry is rejected by Bedrock with
+   * Measured in OpsPilot: Amazon Bedrock rejected a nine-tool registry with
    * `400 Compiled grammar size (329.9MB) exceeds maximum allowed size (300MB)`.
    * The loop therefore has to be able to send the tool block without asking for
-   * constrained decoding, and it defaults that way because the only provider
-   * this project actually runs on cannot do it.
+   * constrained decoding. It defaults that way until the first-party limit for
+   * Tala's tool set has been measured.
    *
    * This costs nothing that matters. The test directly below shows why: the
    * loop still parses every tool call with the tool own Zod schema, so the

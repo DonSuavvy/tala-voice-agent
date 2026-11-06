@@ -1,16 +1,18 @@
 /**
  * The hand-rolled agent loop.
  *
- * **Why this is not the SDK's tool runner.** Pause/resume across serverless
- * invocations means serializing the message array *mid-loop* and rebuilding it
- * in a later invocation, which the SDK runner does not expose. That single
- * requirement is also the Vercel-timeout answer and the approval-queue
- * mechanism, so the loop stays ours. PLAN.md calls this out as load-bearing.
+ * Imported from OpsPilot (commit 83b5414), where it ran support tickets.
+ *
+ * **Why this is not the SDK's tool runner.** Pause/resume means serializing
+ * the message array *mid-loop* and rebuilding it later, which the SDK runner
+ * does not expose. In OpsPilot that carried a paused run across serverless
+ * invocations to a human's approval; in Tala the same mechanism holds a call
+ * while a supervisor approves a credit (#13).
  *
  * **The client is an interface, not a client.** The loop depends on
  * `MessageCreator` — `(params) => Promise<AssistantTurn>` — and nothing else.
- * The production adapter streams from Bedrock and returns the SDK's assembled
- * final message; the tests hand it scripted turns. Two things fall out of that
+ * The production adapter streams from the Anthropic API and returns the SDK's
+ * assembled final message; the tests hand it scripted turns. Two things fall out of that
  * split. `npm test` needs no API key, and the four-field `usage` object is
  * assembled by the SDK rather than by hand — on the streaming path those
  * counts arrive across several event types, and reassembling them manually is
@@ -30,7 +32,11 @@ import {
   type RateCard,
   type TokenUsage,
 } from "./cost";
-import { ToolRegistryError, type ToolContext, type ToolRegistry } from "./registry";
+import {
+  ToolRegistryError,
+  type ToolContext,
+  type ToolRegistry,
+} from "./registry";
 
 /* -------------------------------------------------------------------------- */
 /* Wire shapes                                                                */
@@ -120,9 +126,9 @@ export type MessageCreator = (
 export type SpanType = "llm_call" | "tool_exec" | "guardrail" | "approval_wait";
 
 /**
- * One row of the flight recorder, shaped for `run_spans`. Emitted as it
- * happens rather than collected at the end, so the SSE trace and the database
- * writer are the same code path — a run that dies halfway still has its spans.
+ * One row of the flight recorder. Emitted as it happens rather than collected
+ * at the end, so a live view and a database writer can share one code path,
+ * and a run that dies halfway still has its spans.
  */
 export interface SpanEvent {
   seq: number;
@@ -144,8 +150,8 @@ export interface SpanEvent {
 /* Input and result                                                           */
 /* -------------------------------------------------------------------------- */
 
-export interface AgentLoopInput {
-  registry: ToolRegistry;
+export interface AgentLoopInput<C extends ToolContext = ToolContext> {
+  registry: ToolRegistry<C>;
   createMessage: MessageCreator;
   /** The provider's wire id. Logical names are resolved in provider.ts. */
   model: string;
@@ -153,7 +159,7 @@ export interface AgentLoopInput {
   /** Pass `cachedSystem(prompt)` to mark the prefix cacheable. */
   system: string | SystemBlock[];
   messages: MessageParam[];
-  toolContext: ToolContext;
+  toolContext: C;
   budget: { config: BudgetConfig; spentTodayNanos: number };
   /**
    * What one model call is assumed to cost, for the pre-flight only. A guard
@@ -168,10 +174,11 @@ export interface AgentLoopInput {
   /**
    * Whether to ask the provider for constrained decoding.
    *
-   * Defaults to **off**, from measurement rather than preference: Bedrock
-   * rejects the nine-tool set with `400 Compiled grammar size (329.9MB)
-   * exceeds maximum allowed size (300MB)`, and that is the only provider this
-   * project actually runs on. `scripts/probe-grammar.ts` has the breakdown.
+   * Defaults to **off**, as OpsPilot shipped it: there, Amazon Bedrock
+   * rejected a nine-tool set with `400 Compiled grammar size (329.9MB)
+   * exceeds maximum allowed size (300MB)`. Tala calls the first-party API
+   * only, where the limit for its seventeen tools has not been measured, so
+   * the default stays off until it is.
    *
    * Nothing is weakened by leaving it off. The wire schema constrains the
    * model; Zod constrains reality. Every tool call is parsed with the tool's
@@ -181,15 +188,15 @@ export interface AgentLoopInput {
   /**
    * Where this invocation's span numbering starts. Defaults to 0.
    *
-   * A resumed run keeps its original `agent_runs` row so the trace viewer
-   * renders one continuous waterfall, and `run_spans` is unique on
-   * `(run_id, seq)`. A second invocation numbering from zero collides with the
-   * spans the paused one already wrote, and dies on its first insert.
+   * A resumed run keeps its original run id so a trace renders as one
+   * continuous waterfall, and spans are unique on `(run id, seq)`. A second
+   * invocation numbering from zero would collide with the spans the paused
+   * one already wrote.
    */
   startSeq?: number;
   /**
-   * Every decided approval for this run, keyed by tool_use id. Set only by
-   * `/api/agent/resume`.
+   * Every decided approval for this run, keyed by tool_use id. Set only when
+   * resuming a paused run.
    *
    * When non-empty, the loop's first iteration re-processes the trailing
    * assistant turn already on `messages` instead of calling the model — that
@@ -233,7 +240,7 @@ export interface AgentLoopResult {
   costNanos: number;
   estimated: boolean;
   messages: MessageParam[];
-  /** Set on pause: what /api/agent/resume rebuilds the conversation from. */
+  /** Set on pause: what a resume rebuilds the conversation from. */
   serializedMessages: string | null;
   pendingApproval: {
     toolUseId: string;
@@ -249,10 +256,13 @@ export interface AgentLoopResult {
 /* Implementation                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** PLAN.md's loop guard. Twelve is generous for the seeded scenarios. */
+/** OpsPilot's loop guard. Twelve was generous for its seeded scenarios. */
 const DEFAULT_MAX_ITERATIONS = 12;
 
-/** Haiku 4.5 tops out at 64K; this leaves headroom without inviting essays. */
+/**
+ * Well under the 5.5 models' 128K output ceiling: headroom without inviting
+ * essays. A spoken reply is a few sentences.
+ */
 const DEFAULT_MAX_TOKENS = 8_192;
 
 const EMPTY_USAGE: TokenUsage = {
@@ -312,8 +322,8 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export async function runAgentLoop(
-  input: AgentLoopInput,
+export async function runAgentLoop<C extends ToolContext>(
+  input: AgentLoopInput<C>,
 ): Promise<AgentLoopResult> {
   const {
     registry,
@@ -572,7 +582,7 @@ export async function runAgentLoop(
     /**
      * Pause before *anything* in this turn is dispatched.
      *
-     * FAILURES #23: the pause used to fire mid-dispatch, so a read earlier in
+     * OpsPilot FAILURES #23: the pause used to fire mid-dispatch, so a read earlier in
      * the same turn had already run — its handler fired, its `tool_exec` span
      * was persisted — and then the pause returned, discarding the local
      * results array it had written into. The trace claimed a tool ran while
@@ -584,7 +594,7 @@ export async function runAgentLoop(
      * `serializedMessages` is exactly `[...history, assistant]`, so resume
      * appends one user message with a result for every tool_use in that turn.
      *
-     * Validation and preflight still run first (FAILURES #22) — nobody should
+     * Validation and preflight still run first (OpsPilot FAILURES #22) — nobody should
      * be interrupted to approve a call its own schema rejects, or one the
      * policy engine was always going to refuse. Both are pure, so running them
      * again below when we do *not* pause is free and keeps span emission in
@@ -623,8 +633,8 @@ export async function runAgentLoop(
       const startedAt = clock();
       const definition = registry.get(call.name);
 
-      // Unknown names are model output from Day 2 onward, so this is an input
-      // to survive rather than a programmer error. `requiresApproval` throws
+      // Unknown names are model output, so this is an input to survive
+      // rather than a programmer error. `requiresApproval` throws
       // on unknown names by design; answering the model is the loop's job.
       if (!definition) {
         const detail = `unknown tool "${call.name}" — it is not registered`;
@@ -678,10 +688,11 @@ export async function runAgentLoop(
 
       // Parsed *before* the pause, not after.
       //
-      // FAILURES #22: this sat below the approval branch, so a confirm-write
-      // call whose input its own schema rejects was still queued for a human —
-      // someone could be asked to approve `amount_cents: -5`. The pause is a
-      // commitment to interrupt a person; nothing unvalidated should reach it.
+      // OpsPilot FAILURES #22: this sat below the approval branch, so a
+      // confirm-write call whose input its own schema rejects was still queued
+      // for a human — someone could be asked to approve a refund of -5 cents.
+      // The pause is a commitment to interrupt a person; nothing unvalidated
+      // should reach it.
       const parsed = definition.input.safeParse(call.input);
       if (!parsed.success) {
         const detail = `invalid arguments for ${call.name}: ${parsed.error.issues
@@ -708,8 +719,8 @@ export async function runAgentLoop(
       }
 
       // The policy gate, for tools that declare one. Runs before the pause for
-      // the same reason: a refund the policy engine refuses must never become a
-      // question someone has to answer.
+      // the same reason: an action the policy engine refuses must never become
+      // a question someone has to answer.
       if (requiresApproval && definition.preflight) {
         try {
           await definition.preflight(parsed.data, toolContext);
@@ -774,8 +785,8 @@ export async function runAgentLoop(
           // Denial adaptation. The reviewer's reason goes back as an
           // `is_error` tool_result — the same channel the policy guardrail
           // uses — so the agent adapts and escalates rather than retrying
-          // blindly. PLAN.md lists this as a demo moment; mechanically it is
-          // the preflight path with a human in place of the policy engine.
+          // blindly. Mechanically it is the preflight path with a human in
+          // place of the policy engine.
           const reason = decision.reason?.trim();
           const detail = reason
             ? `refused by a human reviewer: ${reason}`
@@ -826,8 +837,8 @@ export async function runAgentLoop(
           terminalOutcome = parsed.data;
         }
       } catch (error) {
-        // `issue_refund` rejects out-of-policy calls by throwing, and the agent
-        // is expected to adapt — usually by escalating. That only works if the
+        // A confirm-write handler rejects out-of-policy calls by throwing, and
+        // the agent is expected to adapt — usually by escalating. That only works if the
         // throw becomes a result the model can read.
         const detail = errorText(error);
         results.push({

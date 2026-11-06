@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { DEFAULT_POLICY } from "@/policy/refund";
 
 import { runAgentLoop, type AssistantTurn, type SpanEvent } from "./loop";
 import { buildRegistry, type ToolContext } from "./registry";
@@ -10,30 +9,34 @@ import { rateCard } from "./cost";
 /**
  * What has to happen *before* a confirm-write call pauses the run.
  *
- * FAILURES #22: `issue_refund`'s policy revalidation was written, tested, and
- * unreachable — the loop pauses on a confirm-write call and returns before ever
- * dispatching the handler, so the guard ran on resume, if at all. That is the
- * wrong order in a way that costs more than a missed check: an out-of-policy
- * refund gets queued, a human is asked to approve something the code will refuse
- * anyway, and the rejection arrives after they have already said yes.
+ * OpsPilot FAILURES #22: its refund tool's policy revalidation was written,
+ * tested, and unreachable — the loop pauses on a confirm-write call and returns
+ * before ever dispatching the handler, so the guard ran on resume, if at all.
+ * That is the wrong order in a way that costs more than a missed check: an
+ * out-of-policy action gets queued, a human is asked to approve something the
+ * code will refuse anyway, and the rejection arrives after they have already
+ * said yes.
  *
  * Reading the pause block for that also surfaced a sharper one. The pause sits
  * *above* the Zod parse, so the approval queue can be handed input that fails
- * the tool's own schema — a human could be asked to approve `amount_cents: -5`.
+ * the tool's own schema — a human could be asked to approve `amount_minor: -5`.
  *
  * Both are the same fix: validate, then pause.
  */
 
 const NOW = new Date("2026-08-15T12:00:00Z");
 
+/** The loop only forwards the policy; the preflight receives this exact object. */
+const POLICY = { fixture: "policy" };
+
 function ctx(): ToolContext {
   return {
     workspaceId: "ws_1",
     runId: "run_1",
-    ticketId: "tkt_1",
+    callId: "call_1",
     now: NOW,
     data: {} as ToolContext["data"],
-    policyConfig: DEFAULT_POLICY,
+    policyConfig: POLICY,
   };
 }
 
@@ -52,10 +55,10 @@ const resolveTurn: AssistantTurn = {
     {
       type: "tool_use",
       id: "toolu_2",
-      name: "resolve_ticket",
+      name: "end_call",
       input: {
         action: "escalated",
-        refund_amount_cents: 0,
+        credit_minor: 0,
         reply: "escalated",
         confidence: "high",
       },
@@ -70,7 +73,7 @@ function registry(preflight?: (input: unknown, ctx: ToolContext) => Promise<void
     {
       name: "risky_write",
       description: "A confirm-write tool that moves money and pauses for approval.",
-      input: z.object({ amount_cents: z.number().int().positive() }),
+      input: z.object({ amount_minor: z.number().int().positive() }),
       safetyClass: "confirm_write" as const,
       idempotent: true,
       preflight,
@@ -79,11 +82,11 @@ function registry(preflight?: (input: unknown, ctx: ToolContext) => Promise<void
       },
     },
     {
-      name: "resolve_ticket",
+      name: "end_call",
       description: "The forced terminal tool that ends every run with an outcome.",
       input: z.object({
         action: z.string(),
-        refund_amount_cents: z.number(),
+        credit_minor: z.number(),
         reply: z.string(),
         confidence: z.string(),
       }),
@@ -106,8 +109,8 @@ async function run(
     createMessage: async () => turns[i++]!,
     model: "test-model",
     rates: rateCard(1, 5, { verifiedOn: "2026-08-15", source: "test fixture" }),
-    system: "You are OpsPilot.",
-    messages: [{ role: "user", content: "refund please" }],
+    system: "You are Tala.",
+    messages: [{ role: "user", content: "credit please" }],
     toolContext: ctx(),
     budget: {
       config: {
@@ -128,22 +131,22 @@ async function run(
 
 describe("confirm-write validation runs before the pause", () => {
   it("pauses when the call is valid and the preflight allows it", async () => {
-    const { result, spans } = await run([turn({ amount_cents: 4_900 })]);
+    const { result, spans } = await run([turn({ amount_minor: 4_900 })]);
 
     expect(result.status).toBe("paused_for_approval");
     expect(spans.some((s) => s.type === "approval_wait")).toBe(true);
   });
 
   /**
-   * The FAILURES #22 case. A preflight that refuses must stop the run reaching
+   * The OpsPilot FAILURES #22 case. A preflight that refuses must stop the run reaching
    * the queue at all — and must hand the model an error it can act on, because
-   * a silent denial leaves it believing the refund is pending.
+   * a silent denial leaves it believing the credit is pending.
    */
   it("does not pause when the preflight refuses", async () => {
     const { result } = await run(
-      [turn({ amount_cents: 4_900 }), resolveTurn],
+      [turn({ amount_minor: 4_900 }), resolveTurn],
       async () => {
-        throw new Error("refund denied by policy: outside_window");
+        throw new Error("credit denied by policy: above_limit");
       },
     );
 
@@ -152,9 +155,9 @@ describe("confirm-write validation runs before the pause", () => {
 
   it("emits no approval_wait span when the preflight refuses", async () => {
     const { spans } = await run(
-      [turn({ amount_cents: 4_900 }), resolveTurn],
+      [turn({ amount_minor: 4_900 }), resolveTurn],
       async () => {
-        throw new Error("refund denied by policy: outside_window");
+        throw new Error("credit denied by policy: above_limit");
       },
     );
 
@@ -162,13 +165,13 @@ describe("confirm-write validation runs before the pause", () => {
   });
 
   it("tells the model why, so it can escalate instead of retrying", async () => {
-    const turns = [turn({ amount_cents: 4_900 }), resolveTurn];
+    const turns = [turn({ amount_minor: 4_900 }), resolveTurn];
     const { result } = await run(turns, async () => {
-      throw new Error("refund denied by policy: outside_window");
+      throw new Error("credit denied by policy: above_limit");
     });
 
     const toolResult = JSON.stringify(result.messages);
-    expect(toolResult).toContain("outside_window");
+    expect(toolResult).toContain("above_limit");
   });
 
   /**
@@ -177,7 +180,7 @@ describe("confirm-write validation runs before the pause", () => {
    */
   it("does not pause on input the tool's own schema rejects", async () => {
     const { result, spans } = await run([
-      turn({ amount_cents: -5 }),
+      turn({ amount_minor: -5 }),
       resolveTurn,
     ]);
 
@@ -189,11 +192,11 @@ describe("confirm-write validation runs before the pause", () => {
     const seen = vi.fn<(input: unknown, ctx: ToolContext) => Promise<void>>(
       async () => {},
     );
-    await run([turn({ amount_cents: 4_900 })], seen);
+    await run([turn({ amount_minor: 4_900 })], seen);
 
     expect(seen).toHaveBeenCalledWith(
-      { amount_cents: 4_900 },
-      expect.objectContaining({ policyConfig: DEFAULT_POLICY }),
+      { amount_minor: 4_900 },
+      expect.objectContaining({ policyConfig: POLICY }),
     );
   });
 
@@ -203,8 +206,8 @@ describe("confirm-write validation runs before the pause", () => {
     const seen = vi.fn<(input: unknown, ctx: ToolContext) => Promise<void>>(
       async () => {},
     );
-    await run([turn({ amount_cents: 4_900, extra: "ignored" })], seen);
+    await run([turn({ amount_minor: 4_900, extra: "ignored" })], seen);
 
-    expect(seen.mock.calls[0]?.[0]).toEqual({ amount_cents: 4_900 });
+    expect(seen.mock.calls[0]?.[0]).toEqual({ amount_minor: 4_900 });
   });
 });

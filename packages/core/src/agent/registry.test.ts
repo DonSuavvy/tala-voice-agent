@@ -11,9 +11,9 @@ import {
 /** A minimal, always-valid tool definition. Tests corrupt one field at a time. */
 function tool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
   return {
-    name: "get_customer",
+    name: "get_account_overview",
     description:
-      "Look up a Beacon Analytics customer by their external id. Returns plan, status and lifetime value.",
+      "Look up a Kidlat Fiber account by its account number. Returns plan, status and balance.",
     input: z.object({ customer_id: z.string() }),
     safetyClass: "read",
     idempotent: true,
@@ -25,11 +25,11 @@ function tool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
 /** The forced terminal tool. Every run must end by calling it. */
 function terminalTool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
   return tool({
-    name: "resolve_ticket",
+    name: "end_call",
     description:
       "End the run with a structured outcome: action taken, amounts, reply draft and confidence.",
     input: z.object({
-      action: z.enum(["refunded", "replied", "escalated"]),
+      action: z.enum(["credited", "replied", "escalated"]),
       reply: z.string(),
     }),
     safetyClass: "auto_write",
@@ -84,7 +84,7 @@ describe("toStrictJsonSchema", () => {
    */
   it("strips numerical constraints that strict mode rejects", () => {
     const schema = toStrictJsonSchema(
-      z.object({ amount_cents: z.number().int().positive().max(100_000) }),
+      z.object({ amount_minor: z.number().int().positive().max(100_000) }),
     );
 
     const keywords = keywordsIn(schema);
@@ -263,7 +263,7 @@ describe("toStrictJsonSchema", () => {
   });
 
   /**
-   * `assertConsistent` is the safety net FAILURES.md entry 1 added, and its
+   * `assertConsistent` is the safety net OpsPilot's FAILURES.md entry 1 added, and its
    * claim is that "one assertion catches this whole bug class". Nothing proved
    * it: the test that looks like coverage asserts a property the fixed
    * sanitizer already guarantees on its own, so the check could be deleted
@@ -296,7 +296,7 @@ describe("toStrictJsonSchema", () => {
    * requiring `toString` with no such property passed the one assertion whose
    * stated purpose is "catches this whole bug class".
    *
-   * The same family as FAILURES.md entry 1: a JSON Schema key is an *author
+   * The same family as OpsPilot's FAILURES.md entry 1: a JSON Schema key is an *author
    * identifier*, and reasoning about it with a JavaScript operator that knows
    * about inherited members treats attacker- or author-chosen strings as
    * language builtins. `Object.hasOwn` is the operator that means what this
@@ -323,8 +323,8 @@ describe("buildRegistry — boot-time validation", () => {
     const registry = buildRegistry([tool(), terminalTool()]);
 
     expect(registry.list()).toHaveLength(2);
-    expect(registry.get("get_customer")?.safetyClass).toBe("read");
-    expect(registry.terminalToolName).toBe("resolve_ticket");
+    expect(registry.get("get_account_overview")?.safetyClass).toBe("read");
+    expect(registry.terminalToolName).toBe("end_call");
   });
 
   it("rejects duplicate tool names", () => {
@@ -369,7 +369,7 @@ describe("buildRegistry — boot-time validation", () => {
     expect(() =>
       buildRegistry([
         tool({
-          name: "issue_refund",
+          name: "apply_bill_credit",
           safetyClass: "confirm_write",
           idempotent: undefined as never,
         }),
@@ -407,7 +407,7 @@ describe("buildRegistry — boot-time validation", () => {
     expect(() =>
       buildRegistry([
         terminalTool(),
-        terminalTool({ name: "resolve_ticket_v2" }),
+        terminalTool({ name: "end_call_v2" }),
       ]),
     ).toThrow(ToolRegistryError);
   });
@@ -438,12 +438,12 @@ describe("registry.toAnthropicTools", () => {
   it("emits strict:true with a strict-legal schema", () => {
     const specs = buildRegistry([
       tool({
-        name: "issue_refund",
+        name: "apply_bill_credit",
         description:
-          "Refund a paid invoice. Revalidated against the policy engine before any money moves.",
+          "Credit a customer's bill. Revalidated against the policy engine before any money moves.",
         input: z.object({
-          invoice_id: z.string(),
-          amount_cents: z.number().int().positive(),
+          account_number: z.string(),
+          amount_minor: z.number().int().positive(),
         }),
         safetyClass: "confirm_write",
         idempotent: true,
@@ -451,14 +451,14 @@ describe("registry.toAnthropicTools", () => {
       terminalTool(),
     ]).toAnthropicTools();
 
-    const refund = specs.find((s) => s.name === "issue_refund")!;
-    expect(refund.strict).toBe(true);
-    expect(refund.input_schema.additionalProperties).toBe(false);
-    expect(refund.input_schema.required).toEqual([
-      "invoice_id",
-      "amount_cents",
+    const credit = specs.find((s) => s.name === "apply_bill_credit")!;
+    expect(credit.strict).toBe(true);
+    expect(credit.input_schema.additionalProperties).toBe(false);
+    expect(credit.input_schema.required).toEqual([
+      "account_number",
+      "amount_minor",
     ]);
-    expect(keywordsIn(refund.input_schema)).not.toContain("exclusiveMinimum");
+    expect(keywordsIn(credit.input_schema)).not.toContain("exclusiveMinimum");
   });
 
   it("carries no registry-internal fields onto the wire", () => {
@@ -488,9 +488,9 @@ describe("defense in depth", () => {
    * schema strict-legal; it does not make the tool permissive.
    */
   it("still rejects out-of-range input at parse time after stripping", () => {
-    const input = z.object({ amount_cents: z.number().int().positive() });
+    const input = z.object({ amount_minor: z.number().int().positive() });
     const registry = buildRegistry([
-      tool({ name: "issue_refund", input, safetyClass: "auto_write" }),
+      tool({ name: "apply_bill_credit", input, safetyClass: "auto_write" }),
       terminalTool(),
     ]);
 
@@ -498,25 +498,25 @@ describe("defense in depth", () => {
     expect(keywordsIn(spec.input_schema)).not.toContain("exclusiveMinimum");
 
     // The model could still send a negative amount; Zod is the backstop.
-    expect(registry.get("issue_refund")!.input.safeParse({ amount_cents: -5 })
+    expect(registry.get("apply_bill_credit")!.input.safeParse({ amount_minor: -5 })
       .success).toBe(false);
-    expect(registry.get("issue_refund")!.input.safeParse({ amount_cents: 500 })
+    expect(registry.get("apply_bill_credit")!.input.safeParse({ amount_minor: 500 })
       .success).toBe(true);
   });
 
   it("exposes safety class so confirm_write tools can be gated", () => {
     const registry = buildRegistry([
-      tool({ name: "get_invoices" }),
+      tool({ name: "get_billing_history" }),
       tool({
-        name: "issue_refund",
+        name: "apply_bill_credit",
         safetyClass: "confirm_write",
         idempotent: true,
       }),
       terminalTool(),
     ]);
 
-    expect(registry.requiresApproval("issue_refund")).toBe(true);
-    expect(registry.requiresApproval("get_invoices")).toBe(false);
+    expect(registry.requiresApproval("apply_bill_credit")).toBe(true);
+    expect(registry.requiresApproval("get_billing_history")).toBe(false);
   });
 
   /**
@@ -524,7 +524,7 @@ describe("defense in depth", () => {
    * else, so `requiresApproval` could be widened from
    * `safetyClass === "confirm_write"` to `safetyClass !== "read"` and the whole
    * suite stayed green. That mutation is not academic: it routes every
-   * `auto_write` tool — `draft_reply`, `escalate`, `resolve_ticket` — into the
+   * `auto_write` tool — `draft_reply`, `escalate`, `end_call` — into the
    * approval queue, which stalls every run behind a human on the terminal tool
    * and quietly converts the demo into a manual process.
    *
@@ -532,11 +532,11 @@ describe("defense in depth", () => {
    */
   it("does not gate auto_write tools — reversible and logged is not confirm", () => {
     const registry = buildRegistry([
-      tool({ name: "get_invoices" }),
+      tool({ name: "get_billing_history" }),
       tool({ name: "draft_reply", safetyClass: "auto_write", idempotent: true }),
       tool({ name: "escalate", safetyClass: "auto_write", idempotent: true }),
       tool({
-        name: "issue_refund",
+        name: "apply_bill_credit",
         safetyClass: "confirm_write",
         idempotent: true,
       }),
@@ -547,7 +547,7 @@ describe("defense in depth", () => {
     expect(registry.requiresApproval("escalate")).toBe(false);
     // The terminal tool is auto_write too; gating it deadlocks every run.
     expect(registry.requiresApproval(registry.terminalToolName)).toBe(false);
-    expect(registry.requiresApproval("issue_refund")).toBe(true);
+    expect(registry.requiresApproval("apply_bill_credit")).toBe(true);
   });
 
   /**
@@ -556,16 +556,16 @@ describe("defense in depth", () => {
    * *not* needing approval — a security control failing open on exactly the
    * input it cannot vouch for.
    *
-   * Reachable from Day 2: the agent loop reads tool names out of model output,
+   * Reachable in practice: the agent loop reads tool names out of model output,
    * and a hallucinated or renamed name lands here. Throwing rather than
    * returning `true` because an unknown name is a bug in the caller, not a
    * risky-but-real tool call: the loop must reject it as an unknown tool, and
    * silently routing it into the approval queue would put a human in front of a
-   * tool that does not exist. Same reasoning as `parsePolicyConfig` — refusing
-   * to answer beats answering about nothing.
+   * tool that does not exist. Same reasoning as a pack's policy parser —
+   * refusing to answer beats answering about nothing.
    */
   it("throws on an unknown tool rather than reporting it needs no approval", () => {
-    const registry = buildRegistry([tool({ name: "get_invoices" }), terminalTool()]);
+    const registry = buildRegistry([tool({ name: "get_billing_history" }), terminalTool()]);
 
     expect(() => registry.requiresApproval("definitely_not_a_tool")).toThrow(
       ToolRegistryError,
@@ -582,14 +582,14 @@ describe("defense in depth", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Day 2, from the end-to-end gate rather than from a unit test.
+ * Found in OpsPilot by its end-to-end gate rather than by a unit test.
  *
- * The nine-tool registry is rejected by Bedrock with
+ * OpsPilot's nine-tool registry was rejected by Amazon Bedrock with
  * `400 Compiled grammar size (329.9MB) exceeds maximum allowed size (300MB)`
  * — from 3.2KB of JSON Schema. Probed against the live account: every tool
- * alone compiles fine, eight compile fine, nine do not, and all nine compile
- * fine with `strict` removed. So the cost is in the *grammar*, it accumulates
- * across the tool set, and PLAN.md requires all nine.
+ * alone compiled fine, eight compiled fine, nine did not, and all nine
+ * compiled fine with `strict` removed. So the cost is in the *grammar*, and it
+ * accumulates across the tool set.
  *
  * That makes strict decoding a property of the provider, not of the schema.
  * The registry keeps guaranteeing the schemas are strict-*legal* — that is what
@@ -603,7 +603,7 @@ describe("defense in depth", () => {
  * the load-bearing one.
  */
 describe("toAnthropicTools — requesting strict decoding", () => {
-  const registry = buildRegistry([tool({ name: "get_invoices" }), terminalTool()]);
+  const registry = buildRegistry([tool({ name: "get_billing_history" }), terminalTool()]);
 
   it("asks for strict decoding by default, as it always has", () => {
     for (const spec of registry.toAnthropicTools()) {
