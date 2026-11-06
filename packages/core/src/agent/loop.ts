@@ -27,8 +27,10 @@
  * as the sole call in its turn, so nothing runs after the outcome is decided
  * and no result is cut off before the caller hears it. A caller who talks
  * over Tala ends the turn `interrupted` at the next safe point: what can stay
- * in the conversation stays, every tool call not run is answered "Not run",
- * and the call is booked at no less than its estimate. What it does not own:
+ * in the conversation stays, and every tool call not run is answered "Not
+ * run". A model call the abort cut off mid-stream is booked at no less than
+ * its estimate, because its usage undercounts; one that had already returned
+ * when the abort landed is booked exactly. What it does not own:
  * the database, HTTP, the wall clock, or pricing. Those arrive as arguments,
  * which is what keeps this testable without a database and deterministic in
  * the eval suite.
@@ -379,8 +381,13 @@ function isToolUse(block: ContentBlock): block is ToolUseBlock {
   return block.type === "tool_use";
 }
 
-/** Text the caller would actually hear. Whitespace is dead air. */
-function isSpoken(block: ContentBlock): boolean {
+/**
+ * Text the caller would actually hear. Whitespace is dead air.
+ *
+ * The one rule for it: the loop, the streaming creator and the call session
+ * all decide what counts as said with this.
+ */
+export function isSpokenText(block: ContentBlock): block is TextBlock {
   return (
     block.type === "text" &&
     typeof block.text === "string" &&
@@ -697,7 +704,7 @@ export async function runAgentLoop<C extends ToolContext>(
       // in the turn is answered, so the next request is valid.
       if (cutShort) {
         const calls = assistant.content.filter(isToolUse);
-        if (calls.length > 0 || assistant.content.some(isSpoken)) {
+        if (calls.length > 0 || assistant.content.some(isSpokenText)) {
           messages.push({ role: "assistant", content: assistant.content });
         }
         if (calls.length > 0) {
@@ -724,7 +731,7 @@ export async function runAgentLoop<C extends ToolContext>(
       // that stays silent ends at the cap.
       // A caller who has started talking is not asked to wait for another
       // try, so an interrupted silent turn is dropped with no notice.
-      if (!assistant.content.some(isSpoken)) {
+      if (!assistant.content.some(isSpokenText)) {
         messages.pop();
         if (callerInterrupted()) return { ...base(), status: "interrupted" };
         messages.push({ role: "user", content: SILENT_TURN_NOTICE });

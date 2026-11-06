@@ -35,13 +35,13 @@ import type { BudgetConfig } from "../agent/budget";
 import { ESTIMATED_RUN_NANOS } from "../agent/budget";
 import { cachedSystem } from "../agent/cache";
 import {
+  isSpokenText,
   runAgentLoop,
   type AssistantTurn,
   type ContentBlock,
   type MessageCreator,
   type MessageParam,
   type SpanEvent,
-  type TextBlock,
 } from "../agent/loop";
 import type { LogicalModel, Provider } from "../agent/provider";
 import { compilePackSop, type CompanyPack } from "../pack/load-pack";
@@ -80,21 +80,27 @@ export type CallEndReason = "end_call" | "refused" | "failed" | "budget_refused"
 export type CallEvent =
   | { type: "call_started"; callId: string; pin: CallPin; at: Date }
   /**
-   * The record of what Tala said, one utterance at a time and always after
-   * its words went out as `speech_delta`: each text block of a model turn,
-   * whole, once the turn has arrived and before its llm_call span; for a
-   * turn the caller interrupted, only what they heard; never for a refused
-   * turn. The opening and fallback lines each get one too.
+   * The record of what Tala said, one line at a time: each text block of a
+   * model turn, whole, once the turn has arrived and before its llm_call
+   * span; for a turn the caller interrupted, only what they heard; never for
+   * a refused turn. The opening and fallback lines each get one too.
+   *
+   * Each comes after its words went out as `speech_delta`, provided the
+   * `MessageCreator` passes text deltas on, as the streaming creator does.
+   * One that does not, such as a scripted test creator, sends a model turn's
+   * `speech` with no deltas before it.
    */
   | { type: "speech"; text: string }
   /**
    * Tala's words as they go out, in order. A voice speaks these and nothing
-   * else, and hears every line: model turns stream piece by piece as Claude
-   * writes them, and the fixed opening and fallback lines go out as one
-   * delta carrying the whole line. A refusal can only be seen once the turn
-   * is complete, so the deltas of a refused turn were already heard even
-   * though its `speech` never comes. None of a turn's own deltas follow an
-   * `interrupt()`.
+   * else. The fixed opening and fallback lines always go out as one delta
+   * carrying the whole line. A model turn's words go out piece by piece as
+   * Claude writes them, when the `MessageCreator` passes text deltas on (the
+   * streaming creator does); with one that does not, that turn has no
+   * deltas, and a voice speaking only these would not hear it. A refusal can
+   * only be seen once the turn is complete, so the deltas of a refused turn
+   * were already heard even though its `speech` never comes. None of a
+   * turn's own deltas follow an `interrupt()`.
    */
   | { type: "speech_delta"; text: string }
   | { type: "caller_said"; text: string; at: Date }
@@ -190,10 +196,6 @@ export interface CallSession {
  */
 const CALL_CONNECTED = "(The call has connected. The caller has not spoken yet.)";
 
-function isSpokenText(block: ContentBlock): block is TextBlock {
-  return block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0;
-}
-
 /** A caller turn in progress, and how it is being stopped, if it is. */
 interface RunningTurn {
   controller: AbortController;
@@ -209,6 +211,18 @@ interface RunningTurn {
   } | null;
   /** Resolves once the turn is over and the next caller turn can be taken. */
   settled: Promise<void>;
+}
+
+/**
+ * The model call now streaming, or the last one: its number in the call,
+ * whether it is still streaming, and the deltas it has emitted. What
+ * `interrupt()` reads to know what the caller can have heard, and which
+ * model call to cut.
+ */
+interface ModelCall {
+  number: number;
+  streaming: boolean;
+  deltas: string[];
 }
 
 const WHITESPACE = /\s/;
@@ -322,11 +336,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
 
   /** The caller turn now running, if any. */
   let running: RunningTurn | null = null;
-  /** The deltas emitted for the model call now streaming, or the last one. */
-  let streamed: string[] = [];
-  let modelCalls = 0;
-  /** The model call now streaming, by number, or null between calls. */
-  let streaming: number | null = null;
+  let currentModelCall: ModelCall = { number: 0, streaming: false, deltas: [] };
 
   /**
    * Deltas go out as Claude writes them, through the same wrapper as every
@@ -335,7 +345,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
    */
   const onTextDelta = (text: string): void => {
     if (running?.interruption) return;
-    streamed.push(text);
+    currentModelCall.deltas.push(text);
     onEvent({ type: "speech_delta", text });
   };
 
@@ -348,18 +358,21 @@ export function createCallSession(options: CallSessionOptions): CallSession {
    * loop sees it, so the loop never holds a tool call that was dropped.
    */
   const speakingCreator: MessageCreator = async (params, callOptions) => {
-    const thisCall = ++modelCalls;
-    streamed = [];
-    streaming = thisCall;
+    const thisCall: ModelCall = {
+      number: currentModelCall.number + 1,
+      streaming: true,
+      deltas: [],
+    };
+    currentModelCall = thisCall;
     let turn: AssistantTurn;
     try {
       turn = await createMessage(params, callOptions);
     } finally {
-      streaming = null;
+      thisCall.streaming = false;
     }
 
     const interruption = running?.interruption;
-    if (interruption && interruption.modelCall === thisCall) {
+    if (interruption && interruption.modelCall === thisCall.number) {
       turn = { ...turn, content: keepHeard(turn.content, interruption.heard) };
     }
 
@@ -461,13 +474,13 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       if (turn.interruption === null) {
         // Tala always stops. A heard text that does not match what she said
         // is not trusted: the call keeps what had streamed, and says so.
-        const said = streamed.join("");
+        const said = currentModelCall.deltas.join("");
         const reported = heard ?? said;
         const matches = isHeardPrefix(reported, said);
         turn.interruption = {
           heard: matches ? reported : said,
           mismatchedHeard: matches ? null : reported,
-          modelCall: streaming,
+          modelCall: currentModelCall.streaming ? currentModelCall.number : null,
         };
         turn.controller.abort();
       }
@@ -478,7 +491,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
   /** One caller turn through the agent loop, to its end. */
   async function runTurn(words: string, turn: RunningTurn): Promise<TurnEnd> {
     // Nothing of this turn has been said yet, whatever the last one said.
-    streamed = [];
+    currentModelCall = { number: currentModelCall.number, streaming: false, deltas: [] };
     const now = clock();
     onEvent({ type: "caller_said", text: words, at: now });
 

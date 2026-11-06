@@ -37,7 +37,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 
-import type { AssistantTurn, MessageCreator } from "./loop";
+import { isSpokenText, type AssistantTurn, type MessageCreator } from "./loop";
 
 type StreamParams = Parameters<Anthropic["messages"]["stream"]>[0];
 
@@ -64,7 +64,7 @@ function interruptedTurn(
     switch (block.type) {
       case "text":
         // Kept as far as it got: that is what the caller heard.
-        return block.text.trim() !== "";
+        return isSpokenText(block);
       case "thinking":
         // The signature arrives last. Without it the block cannot go back.
         return typeof block.signature === "string" && block.signature.length > 0;

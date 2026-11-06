@@ -672,12 +672,13 @@ describe("a call session — streaming speech", () => {
           ? [`${e.span.type}: ${e.span.name}`]
           : [],
     );
+    const modelId = anthropicProvider.modelId("haiku");
     expect(order).toEqual([
       "speech: Sige po, iche-check ko.",
-      "llm_call: claude-haiku-5-5",
+      `llm_call: ${modelId}`,
       "tool_exec: verify_identity",
       "speech: Verified na po kayo.",
-      "llm_call: claude-haiku-5-5",
+      `llm_call: ${modelId}`,
     ]);
   });
 
@@ -740,7 +741,7 @@ describe("a call session — streaming speech", () => {
   /**
    * One rule for every consumer: a voice that speaks only speech_delta hears
    * every line Tala says, the fixed lines included, and each speech event
-   * records an utterance whose words have already gone out as deltas.
+   * records a line whose words have already gone out as deltas.
    */
   it("lets a consumer that speaks only speech_delta hear every line Tala says", async () => {
     const { session, events, pack } = newStreamedCall([

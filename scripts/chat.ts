@@ -124,7 +124,7 @@ async function main(): Promise<void> {
         midLine = true;
         return;
       case "speech":
-        // The record of the utterance whose words just printed.
+        // The record of the line whose words just printed.
         endLine();
         return;
       case "span":
