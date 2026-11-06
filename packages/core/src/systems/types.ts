@@ -14,11 +14,11 @@
  * real implementation is a network call. Money is integer minor units
  * (centavos for PHP) everywhere, formatted only when spoken.
  *
- * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 adds
+ * #5 added accounts and outages; #10 added billing, tickets and SMS. #11 added
  * diagnosis and remote reboots to the network side, a ticket lookup, and the
- * field-service side, and changes one member: `createTicket` is told when the
- * ticket is opened, so a ticket can be checked as opened on the call. A later
- * ticket adds plans (#16).
+ * field-service side, and changed one member: `createTicket` is told when the
+ * ticket is opened, so a ticket can be checked as opened on the call. #16 adds
+ * the plan-change side: quotes, and the plan changes made with them.
  */
 
 /** Where an account's line is: the unit outages are declared against. */
@@ -40,7 +40,7 @@ export interface AccountRecord {
   /** E.164, e.g. `+639175550101`. Identity is checked against its last 4 digits. */
   registeredMobile: string;
   status: AccountStatus;
-  /** As the caller knows it, e.g. `Kidlat 300`. The plan catalog is #16. */
+  /** As the caller knows it, e.g. `Kidlat 300`: the name of a plan in the pack's catalog. */
   planName: string;
   serviceArea: ServiceArea;
 }
@@ -240,6 +240,55 @@ export interface FieldService {
   ): Promise<{ reference: string } | null>;
 }
 
+/** A plan change priced for an account, as the plan-change side is asked to keep it. */
+export interface NewPlanQuote {
+  /** Normalized. */
+  accountNumber: string;
+  /** The plan the account was on when the change was priced. */
+  currentPlanName: string;
+  /** The plan the change moves the account to. */
+  newPlanName: string;
+  /** The new plan's monthly price, in minor units. */
+  newMonthlyPriceMinor: number;
+  /** Added to the next bill, in minor units. */
+  proratedAmountMinor: number;
+  /** When the new plan starts. */
+  effectiveAt: Date;
+}
+
+/** A quote as the plan-change side holds it. */
+export interface PlanQuoteRecord extends NewPlanQuote {
+  /** e.g. `QTE-2026-00001`. */
+  reference: string;
+  /** When it was made. A quote made before a call started is not that call's. */
+  quotedAt: Date;
+  /** Whether a plan change has been made with it. */
+  used: boolean;
+}
+
+/** The plan-change side: quotes for plan changes, and the changes made with them. */
+export interface PlanChanges {
+  /**
+   * Keeps a quote and returns the reference it goes by, e.g. `QTE-2026-00001`.
+   *
+   * `quotedAt` is when it was made: the in-memory world has no clock of its
+   * own, so it is told, and `findQuote` gives it back.
+   */
+  createQuote(quote: NewPlanQuote, quotedAt: Date): Promise<{ reference: string }>;
+  /**
+   * The quote with exactly this reference, looked for among this account's
+   * quotes only, or null. It may be from an earlier call (`quotedAt` says when
+   * it was made) or used already. Returns a copy.
+   */
+  findQuote(accountNumber: string, reference: string): Promise<PlanQuoteRecord | null>;
+  /**
+   * Moves the account to the quote's new plan and marks the quote used.
+   * Rejects when this account has no quote with this reference, or it is used:
+   * one quote changes a plan once.
+   */
+  applyQuote(accountNumber: string, reference: string): Promise<void>;
+}
+
 export interface SmsMessage {
   /** E.164, e.g. `+639175550102`. */
   to: string;
@@ -262,4 +311,5 @@ export interface BusinessSystems {
   tickets: Ticketing;
   sms: SmsGateway;
   fieldService: FieldService;
+  plans: PlanChanges;
 }

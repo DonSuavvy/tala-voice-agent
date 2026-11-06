@@ -8,8 +8,8 @@
  * - Each call gets a fresh copy of the seed (spec: "each call starts from a
  *   fresh copy of the seed world"). The seed is cloned on creation, so two
  *   calls never share state and nothing a call does can reach the seed. The
- *   tickets a call opens, the texts it sends and the modems it reboots live
- *   in that copy too.
+ *   tickets a call opens, the texts it sends, the modems it reboots, and the
+ *   quotes and plan changes it makes live in that copy too.
  * - It never reads the wall clock. The seed stores times relative to the
  *   call's start (see `./seed-world`); `callStartedAt` turns those offsets
  *   into dates, and a reboot is told when it was asked for. That also makes
@@ -27,10 +27,12 @@ import type {
   BillRecord,
   BusinessSystems,
   Diagnosis,
+  NewPlanQuote,
   NewTicket,
   NewVisit,
   OutageRecord,
   PaymentRecord,
+  PlanQuoteRecord,
   SmsMessage,
   TechnicianSlot,
   TicketRecord,
@@ -74,6 +76,7 @@ export function createInMemorySystems(
   const tickets: OpenedTicket[] = [];
   const outbox: SmsMessage[] = [];
   const visits: BookedVisit[] = [];
+  const quotes: PlanQuoteRecord[] = [];
   const minutesFromStart = (minutes: number) =>
     new Date(callStartedAt.getTime() + minutes * MINUTE_MS);
 
@@ -205,8 +208,9 @@ export function createInMemorySystems(
   };
 
   // Deterministic within a call: the call's first ticket is always 00001, and
-  // its first visit too, in the year the call started in the company's time
-  // zone (a Manila call at 12:30 AM on New Year's Day gets the new year).
+  // its first visit and first quote too, in the year the call started in the
+  // company's time zone (a Manila call at 12:30 AM on New Year's Day gets the
+  // new year).
   const callYear = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(
     callStartedAt,
   );
@@ -263,6 +267,36 @@ export function createInMemorySystems(
     return visit ? { reference: visit.reference } : null;
   };
 
+  const copyOfQuote = (quote: PlanQuoteRecord): PlanQuoteRecord => ({
+    ...quote,
+    effectiveAt: new Date(quote.effectiveAt),
+    quotedAt: new Date(quote.quotedAt),
+  });
+
+  const createQuote = (quote: NewPlanQuote, quotedAt: Date): { reference: string } => {
+    const reference = nextReference("QTE", quotes.length);
+    quotes.push(copyOfQuote({ ...quote, reference, quotedAt, used: false }));
+    return { reference };
+  };
+
+  const quoteOf = (accountNumber: string, reference: string): PlanQuoteRecord | undefined =>
+    quotes.find((q) => q.accountNumber === accountNumber && q.reference === reference);
+
+  const findQuote = (accountNumber: string, reference: string): PlanQuoteRecord | null => {
+    const quote = quoteOf(accountNumber, reference);
+    return quote ? copyOfQuote(quote) : null;
+  };
+
+  const applyQuote = (accountNumber: string, reference: string): void => {
+    const quote = quoteOf(accountNumber, reference);
+    const account = world.accounts.find((a) => a.accountNumber === accountNumber);
+    if (!quote || quote.used || !account) {
+      throw new Error(`quote "${reference}" cannot be applied`);
+    }
+    account.planName = quote.newPlanName;
+    quote.used = true;
+  };
+
   // Every real implementation is a network call, so these are async. Wrapping
   // in a promise (rather than an async body) turns a throw into a rejection.
   const later = <T>(work: () => T): Promise<T> => Promise.resolve().then(work);
@@ -294,6 +328,11 @@ export function createInMemorySystems(
       availableSlots: (id) => later(() => availableSlots(id)),
       bookVisit: (visit) => later(() => bookVisit(visit)),
       visitForTicket: (n, reference) => later(() => visitForTicket(n, reference)),
+    },
+    plans: {
+      createQuote: (quote, quotedAt) => later(() => createQuote(quote, quotedAt)),
+      findQuote: (n, reference) => later(() => findQuote(n, reference)),
+      applyQuote: (n, reference) => later(() => applyQuote(n, reference)),
     },
     openedTickets: () => tickets.map((t) => ({ ...t, openedAt: new Date(t.openedAt) })),
     outbox: () => outbox.map((m) => ({ ...m })),
