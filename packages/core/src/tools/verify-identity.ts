@@ -31,9 +31,9 @@ export const verifyIdentity = defineTalaTool({
     "service area and account status. On failure it returns attempts_remaining; the result " +
     "is the same whether the account number or the digits were wrong, so never tell the " +
     "caller which. When locked is true, verification is locked for the rest of the call: do " +
-    "not call it again. Calling it again for the account already verified spends no attempt " +
-    "and returns already_verified true. If the caller gives other than 4 digits, ask again " +
-    "before calling.",
+    "not call it again. Calling it again for the account already verified spends no attempt, " +
+    "does not recheck the digits, and returns already_verified true. If the caller gives " +
+    "other than 4 digits, ask again before calling.",
   input: z
     .object({
       account_number: z
@@ -54,7 +54,13 @@ export const verifyIdentity = defineTalaTool({
     const gate = checkVerificationAttempt(ctx.data.identity, requested, ctx.policyConfig);
     if (!gate.allowed) throw new Error(refusal(gate.reason, ctx.policyConfig));
     const account = await ctx.data.systems.accounts.findAccount(requested);
-    if (gate.alreadyVerified) {
+    // Another call may have changed the identity state during the lookup, so
+    // ask the gate again about the state as it is now. There is no await
+    // between this check and `recordVerification` below, so in JavaScript
+    // nothing can run in between: the check and the record are atomic.
+    const gateNow = checkVerificationAttempt(ctx.data.identity, requested, ctx.policyConfig);
+    if (!gateNow.allowed) throw new Error(refusal(gateNow.reason, ctx.policyConfig));
+    if (gateNow.alreadyVerified) {
       if (account === null) {
         throw new Error("the account verified on this call could not be found");
       }
