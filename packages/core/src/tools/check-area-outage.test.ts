@@ -26,7 +26,7 @@ function newContext(world: SeedWorld = testWorld()): TalaToolContext {
     data: {
       systems: createInMemorySystems(world, CALL_STARTED_AT),
       identity: initialIdentityState(),
-      company: { timeZone: "Asia/Manila", locale: "en-PH" },
+      company: { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" },
     },
     policyConfig: { identity: { maxFailedAttempts: 3 } },
   };

@@ -9,11 +9,27 @@
  */
 import { z } from "zod";
 
+import { maskNumbers, type CallEvent } from "@tala/core";
+
 import { diffEvalRuns } from "./diff";
 import { REPORT_FORMAT, type CaseReportRow, type CostSplit, type ReportPin } from "./report";
 import type { AssertionFlip, CaseDiff, CaseResultRow } from "./types";
 
 const INDENT = "      ";
+
+/**
+ * One line of the live transcript, or null for an event that is not printed:
+ * what was said, and which tools ran. Account and phone numbers are masked,
+ * because in CI the run's log is public (#10).
+ */
+export function formatEvent(event: CallEvent): string | null {
+  if (event.type === "speech") return `    Tala:   ${maskNumbers(event.text)}`;
+  if (event.type === "caller_said") return `    Caller: ${maskNumbers(event.text)}`;
+  if (event.type === "span" && event.span.type !== "llm_call") {
+    return `            [${event.span.type} ${event.span.name}${event.span.isError ? " (error)" : ""}]`;
+  }
+  return null;
+}
 
 export function formatCaseResult(row: CaseReportRow): string {
   const lines = [`${row.passed ? "PASS" : "FAIL"}  ${row.slug}: ${row.title} ($${row.costUsd})`];

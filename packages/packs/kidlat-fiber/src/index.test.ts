@@ -5,7 +5,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { compilePackSop, createInMemorySystems, loadPack, PackValidationError } from "@tala/core";
+import {
+  compilePackSop,
+  createInMemorySystems,
+  formatMoney,
+  loadPack,
+  PackValidationError,
+} from "@tala/core";
 
 import { KIDLAT_SOP_VERSION, kidlatFiberSource, loadKidlatFiber } from "./index";
 
@@ -63,6 +69,79 @@ describe("the Kidlat Fiber pack", () => {
     expect(outages).toHaveLength(1);
     expect(outages[0].cause).toMatch(/fiber/);
     expect(outages[0].estimatedRestorationAt).not.toBeNull();
+  });
+
+  /** Issue #10's acceptance test: the seed world supports scenario 2. */
+  describe("scenario 2's world: Jose's GCash payment has not posted", () => {
+    // 1:00 PM in Manila.
+    const CALL_STARTED_AT = new Date("2026-11-06T05:00:00Z");
+    const JOSE = "8012345602";
+    const GCASH_REFERENCE = "1234567890123";
+
+    function systems() {
+      return createInMemorySystems(loadKidlatFiber().world, CALL_STARTED_AT);
+    }
+
+    it("has Jose's account, with his registered mobile ending 0102", async () => {
+      const jose = await systems().accounts.findAccount(JOSE);
+
+      expect(jose?.holderName).toBe("Jose Dela Cruz");
+      expect(jose?.registeredMobile).toBe("+639175550102");
+      expect(jose?.status).toBe("active");
+    });
+
+    it("has 1,299 pesos past due, with disconnection scheduled for the day after the call", async () => {
+      const pack = loadKidlatFiber();
+      const balance = await systems().billing.balanceOf(JOSE);
+
+      const currency = { code: pack.company.currency, locale: pack.company.locale };
+      expect(formatMoney(balance!.amountDueMinor, currency)).toBe("₱1,299.00");
+      expect(balance!.dueAt!.getTime()).toBeLessThan(CALL_STARTED_AT.getTime());
+      expect(balance!.disconnectionAt).toEqual(new Date("2026-11-07T05:00:00Z"));
+    });
+
+    it("has his 1,299-peso GCash payment from the day before, found by its reference and not yet posted", async () => {
+      const payment = await systems().billing.findPayment(JOSE, GCASH_REFERENCE);
+
+      expect(payment).toEqual({
+        reference: GCASH_REFERENCE,
+        channel: "gcash",
+        amountMinor: 129_900,
+        paidAt: new Date("2026-11-05T05:00:00Z"),
+        posted: false,
+      });
+    });
+
+    it("gives him a history with a pattern: two monthly bills paid and posted, then the unposted GCash payment", async () => {
+      const world = systems();
+      const bills = await world.billing.billsFor(JOSE);
+      const payments = await world.billing.paymentsFor(JOSE);
+
+      expect(bills.map((b) => b.amountMinor)).toEqual([129_900, 129_900, 129_900]);
+      expect(payments.map((p) => [p.channel, p.amountMinor, p.posted])).toEqual([
+        ["gcash", 129_900, false],
+        ["gcash", 129_900, true],
+        ["gcash", 129_900, true],
+      ]);
+      expect(payments[0].reference).toBe(GCASH_REFERENCE);
+      // Each older bill was paid before the next one was issued.
+      for (const older of [1, 2]) {
+        expect(payments[older].paidAt.getTime()).toBeGreaterThan(bills[older].issuedAt.getTime());
+        expect(payments[older].paidAt.getTime()).toBeLessThan(bills[older - 1].issuedAt.getTime());
+      }
+    });
+
+    it("does not find his payment on anyone else's account", async () => {
+      expect(await systems().billing.findPayment("8012345601", GCASH_REFERENCE)).toBeNull();
+    });
+
+    it("has Maria current and paid: nothing due, no disconnection", async () => {
+      expect(await systems().billing.balanceOf("8012345601")).toEqual({
+        amountDueMinor: 0,
+        dueAt: null,
+        disconnectionAt: null,
+      });
+    });
   });
 });
 

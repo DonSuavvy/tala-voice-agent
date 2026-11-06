@@ -37,6 +37,7 @@ import {
   ESTIMATED_RUN_NANOS,
   compilePackSop,
   createClient,
+  maskNumbers,
   microsToUsdString,
   nanosToMicros,
   providerFromEnv,
@@ -55,6 +56,7 @@ import {
   errorText,
   formatCaseResult,
   formatCost,
+  formatEvent,
   gradeTranscript,
   loadCases,
   reportFileName,
@@ -126,11 +128,8 @@ function parseOptions(): { model: LogicalModel; only: string | null } {
 
 /** The live transcript: what was said, and which tools ran. Other events are not printed. */
 function printEvent(event: CallEvent): void {
-  if (event.type === "speech") console.log(`    Tala:   ${event.text}`);
-  else if (event.type === "caller_said") console.log(`    Caller: ${event.text}`);
-  else if (event.type === "span" && event.span.type !== "llm_call") {
-    console.log(`            [${event.span.type} ${event.span.name}${event.span.isError ? " (error)" : ""}]`);
-  }
+  const line = formatEvent(event);
+  if (line !== null) console.log(line);
 }
 
 function pinOf(events: readonly CallEvent[]): CallPin | null {
@@ -284,7 +283,7 @@ main().then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    console.error(`eval: ${errorText(error)}`);
+    console.error(`eval: ${maskNumbers(errorText(error))}`);
     const spent = finished.reduce((sum, row) => sum + row.cost.total.nanos, 0);
     if (spent > 0) console.error(`eval: the finished cases cost ${usd(spent)}`);
     process.exitCode = 1;

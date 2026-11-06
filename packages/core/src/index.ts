@@ -17,6 +17,7 @@ export * from "./call/pin";
 export * from "./call/session";
 export * from "./pack/load-pack";
 export * from "./policy/identity";
+export * from "./policy/masking";
 export * from "./policy/support-policy";
 export * from "./systems/in-memory";
 export * from "./systems/seed-world";

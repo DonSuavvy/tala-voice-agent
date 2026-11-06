@@ -57,6 +57,14 @@ function isValidLocale(tag: string): boolean {
   }
 }
 
+/**
+ * An ISO 4217 code the runtime knows. `Intl.NumberFormat` alone accepts any
+ * three capital letters ("XYZ"), so the list of supported codes is the check.
+ */
+function isCurrencyCode(code: string): boolean {
+  return Intl.supportedValuesOf("currency").includes(code);
+}
+
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -85,6 +93,10 @@ export const companySchema = z
     }),
     locale: nonEmpty.refine(isValidLocale, {
       error: (issue) => `"${String(issue.input)}" is not a BCP 47 language tag`,
+    }),
+    /** The currency amounts are spoken in, with `formatMoney` and the locale. */
+    currency: z.string().refine(isCurrencyCode, {
+      error: (issue) => `"${String(issue.input)}" is not an ISO 4217 currency code`,
     }),
   })
   .strict();

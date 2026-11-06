@@ -7,6 +7,8 @@
  * guards against surface only on real ticket text, at the edge, long after the
  * loop itself has been declared working.
  */
+import { maskDeep } from "../policy/masking";
+
 import { microsToUsdString, nanosToMicros } from "./cost";
 import type { SpanEvent, SpanType } from "./loop";
 
@@ -80,6 +82,10 @@ export function stripNuls<T>(value: T): T {
 /**
  * Shape one span for OpsPilot's `run_spans`.
  *
+ * Account and phone numbers are masked here (#10): what is stored never holds
+ * one. The span itself stays unmasked, because the loop and the eval scorer
+ * read the real values.
+ *
  * The cost conversion happens exactly once, at this boundary: nano-dollars are
  * the accounting unit because the cache multipliers land off the micro grid,
  * and micro-dollars are the storage unit because that is what `numeric(12,6)`
@@ -115,9 +121,10 @@ export function spanToRow(
     runId: ids.runId,
     seq: span.seq,
     type: span.type,
-    name: span.name,
-    input: stripNuls(span.input),
-    output: stripNuls(span.output),
+    name: maskDeep(span.name),
+    // NULs go first: one between two digits would hide a number from the mask.
+    input: maskDeep(stripNuls(span.input)),
+    output: maskDeep(stripNuls(span.output)),
     isError: span.isError,
     // Zero, not null: a tool span consumed no tokens, and a null would make
     // SUM over the column behave differently for it than for every other row.
@@ -132,6 +139,16 @@ export function spanToRow(
   };
 }
 
+const SPEECH_DELTA = "speech_delta";
+
+function isSpeechDelta(payload: unknown): boolean {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { type?: unknown }).type === SPEECH_DELTA
+  );
+}
+
 /**
  * Frame one Server-Sent Event.
  *
@@ -140,7 +157,15 @@ export function spanToRow(
  * viewer would drop the run without saying so. The single-line guarantee rests
  * entirely on `JSON.stringify` escaping newlines as the two characters `\` and
  * `n`, which is why the tests assert it rather than assume it.
+ *
+ * The payload is masked first (#10): the stream reaches the supervisor's
+ * browser and never carries an account or phone number. A frame is masked on
+ * its own, so a number split across two `speech_delta` frames would get
+ * through. Speech therefore crosses SSE as whole `speech` lines only: a
+ * `speech_delta` is dropped (an empty string, which writes nothing to the
+ * stream) and the voice transport reads deltas in process.
  */
 export function encodeSseEvent(event: string, payload: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  if (event === SPEECH_DELTA || isSpeechDelta(payload)) return "";
+  return `event: ${event}\ndata: ${JSON.stringify(maskDeep(payload))}\n\n`;
 }

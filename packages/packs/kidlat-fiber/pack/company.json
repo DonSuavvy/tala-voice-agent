@@ -1,5 +1,6 @@
 {
   "name": "Kidlat Fiber",
   "timeZone": "Asia/Manila",
-  "locale": "en-PH"
+  "locale": "en-PH",
+  "currency": "PHP"
 }

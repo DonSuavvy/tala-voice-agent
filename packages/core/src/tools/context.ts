@@ -13,7 +13,8 @@ export interface CallData {
   systems: BusinessSystems;
   /** The call's identity state. Owned by the call session; verify_identity replaces it via recordVerification. */
   identity: IdentityState;
-  company: { timeZone: string; locale: string };
+  /** How times and money are spoken: the company's time zone, locale and ISO 4217 currency. */
+  company: { timeZone: string; locale: string; currency: string };
 }
 
 export type TalaToolContext = ToolContext<CallData, SupportPolicy>;

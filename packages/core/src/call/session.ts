@@ -357,7 +357,11 @@ export function createCallSession(options: CallSessionOptions): CallSession {
   const data: CallData = {
     systems: createInMemorySystems(pack.world, startedAt),
     identity: initialIdentityState(),
-    company: { timeZone: pack.company.timeZone, locale: pack.company.locale },
+    company: {
+      timeZone: pack.company.timeZone,
+      locale: pack.company.locale,
+      currency: pack.company.currency,
+    },
   };
 
   let history: MessageParam[] = [];
