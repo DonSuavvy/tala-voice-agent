@@ -153,7 +153,7 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 **Claude integration (Q6, Q15, Q28):**
 - Official `@anthropic-ai/sdk` behind OpsPilot's `MessageCreator` seam.
 - Models are named logically (`haiku` / `sonnet` / `opus`); real model IDs appear only in the provider file.
-- Development defaults to Opus 5.5 at low effort. The public demo uses the model the eval comparison picks.
+- Development defaults to Sonnet 5.5. The public demo uses the model the eval comparison picks. (Changed 2026-11-06 from Opus 5.5 at low effort: in the first live runs of scenario 1, three per model, Sonnet cost half as much as Opus, answered faster, and was the only model that said a line before every tool call in all three runs. Effort arrives with #6.)
 - Thinking blocks round-trip byte-identical, because the loop copies assistant content wholesale.
 - Server-side fallback on refusals, prompt caching, eager tool-input streaming, and zod parsing of every tool call before its handler runs.
 - After-call work uses structured output (zod schema).

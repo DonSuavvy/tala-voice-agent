@@ -1,11 +1,11 @@
 /**
  * Talk to Tala by text in a terminal (#5).
  *
- *   npm run chat                      # Opus 5.5, the development default
- *   npm run chat -- --model sonnet    # or haiku
+ *   npm run chat                      # Sonnet 5.5, the development default
+ *   npm run chat -- --model opus      # or haiku
  *
  * Needs ANTHROPIC_API_KEY in .env.local (first-party API only) and spends real
- * credit: a short call on Opus costs a few cents. Each line you type is one
+ * credit: a short call costs about 2 cents on Sonnet. Each line you type is one
  * final caller turn, exactly what a voice transport hands the call session
  * once speech-to-text decides the caller has finished. Spans print dimmed
  * under each reply so you can see what Tala did. Type /quit to hang up.
@@ -53,7 +53,7 @@ function loadEnv(): void {
 
 function parseModel(): LogicalModel {
   const { values } = parseArgs({
-    options: { model: { type: "string", default: "opus" } },
+    options: { model: { type: "string", default: "sonnet" } },
   });
   const model = values.model as LogicalModel;
   if (!MODELS.includes(model)) {

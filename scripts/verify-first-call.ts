@@ -1,11 +1,11 @@
 /**
  * Live check for #5: scenario 1's outage call against real Claude.
  *
- *   npm run verify:first-call                    # Opus 5.5
- *   npm run verify:first-call -- --model haiku
+ *   npm run verify:first-call                    # Sonnet 5.5
+ *   npm run verify:first-call -- --model opus    # or haiku
  *
  * Not part of `npm test`: it needs ANTHROPIC_API_KEY (.env.local, first-party
- * API only) and spends real credit, a few cents on Opus. It plays a scripted
+ * API only) and spends real credit, about 2 cents on Sonnet. It plays a scripted
  * caller through the same call session the terminal chat and the voice paths
  * use, then checks the trace for what the ticket promises:
  *
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   } catch {
     // Fine when the key is already exported; providerFromEnv says if not.
   }
-  const { values } = parseArgs({ options: { model: { type: "string", default: "opus" } } });
+  const { values } = parseArgs({ options: { model: { type: "string", default: "sonnet" } } });
   const model = values.model as LogicalModel;
   if (!MODELS.includes(model)) {
     throw new Error(`--model must be one of ${MODELS.join(", ")} (got "${values.model}")`);
