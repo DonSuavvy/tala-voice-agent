@@ -21,6 +21,20 @@ describe("maskNumbers", () => {
     expect(maskNumbers("0917.555.0101")).toBe("*******0101");
   });
 
+  /** Tala reads digits in groups, and callers and models use every dash and bracket. */
+  it("masks numbers in comma groups, brackets, dashes, slashes and line breaks", () => {
+    expect(maskNumbers("801, 234, 5602")).toBe("******5602");
+    expect(maskNumbers("(0917) 555 0101")).toBe("*******0101");
+    expect(maskNumbers("0917\u2013555\u20130101")).toBe("*******0101");
+    expect(maskNumbers("0917\u2014555\u20140101")).toBe("*******0101");
+    expect(maskNumbers("0917/555/0101")).toBe("*******0101");
+    expect(maskNumbers("0917\t555\t0101")).toBe("*******0101");
+    expect(maskNumbers("0917\n555\n0101")).toBe("*******0101");
+    expect(maskNumbers("(+63) 917 555 0101")).toBe("********0101");
+    expect(maskNumbers("8 0 1 2 3 4 5 6 0 1")).toBe("******5601");
+    expect(maskNumbers("8012 - 345 - 601")).toBe("******5601");
+  });
+
   it("masks a number inside a sentence and leaves the words alone", () => {
     expect(maskNumbers("Account 8012345601, po, at 0917 555 0101.")).toBe(
       "Account ******5601, po, at *******0101.",
@@ -36,6 +50,8 @@ describe("maskNumbers", () => {
     expect(maskNumbers("PHP 1,299.00 due 2026-11-06")).toBe("PHP 1,299.00 due 2026-11-06");
     expect(maskNumbers("OUT-2026-0412")).toBe("OUT-2026-0412");
     expect(maskNumbers("123456789")).toBe("123456789");
+    expect(maskNumbers("\u20b11,299.00")).toBe("\u20b11,299.00");
+    expect(maskNumbers("Nov 6, 2026, 10:30 PM")).toBe("Nov 6, 2026, 10:30 PM");
   });
 
   it("is a no-op on text it already masked", () => {
