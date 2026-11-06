@@ -323,6 +323,7 @@ describe("kidlatFiberSource on a broken copy of the pack", () => {
     const here = fileURLToPath(new URL("../", import.meta.url));
     cpSync(join(here, "sop"), join(dir, "sop"), { recursive: true });
     cpSync(join(here, "pack"), join(dir, "pack"), { recursive: true });
+    cpSync(join(here, "help"), join(dir, "help"), { recursive: true });
     return { root: pathToFileURL(dir + sep), dir };
   }
 

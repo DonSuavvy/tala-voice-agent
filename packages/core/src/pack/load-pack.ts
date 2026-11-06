@@ -5,7 +5,7 @@
  * A broken pack throws one `PackValidationError` that lists every problem it
  * found, like the tool registry does, so a pack is fixed in one pass rather
  * than one boot at a time. Each section (id, sop, company, persona, policy,
- * plans, world) is checked independently; a failing section never hides
+ * plans, help, world) is checked independently; a failing section never hides
  * another. Once the plans and the world both pass, every account's plan is
  * checked against the catalog, one issue per account.
  * Issue lines read `<section>.<path>: <message>`, numeric path segments in
@@ -43,6 +43,7 @@ import {
 } from "../policy/support-policy";
 import { seedWorldSchema, type SeedWorld } from "../systems/seed-world";
 
+import { helpArticlesSchema, type HelpArticle } from "./help-articles";
 import { PLAN_CATALOG_RENDERERS, planCatalogSchema, type Plan } from "./plan-catalog";
 
 const nonEmpty = z.string().min(1);
@@ -164,6 +165,8 @@ export interface PackSource {
   persona: unknown;
   policy: unknown;
   plans: unknown;
+  /** The help articles: each file's name and its markdown, in catalog order. */
+  help: unknown;
   world: unknown;
 }
 
@@ -174,6 +177,7 @@ export interface CompanyPack {
   persona: Persona;
   policy: SupportPolicy;
   plans: Plan[];
+  help: HelpArticle[];
   world: SeedWorld;
 }
 
@@ -241,6 +245,7 @@ export function loadPack(source: PackSource): CompanyPack {
   const persona = checkSection("persona", personaSchema, source.persona, issues);
   const policy = checkSection("policy", supportPolicySchema, source.policy, issues);
   const plans = checkSection("plans", planCatalogSchema, source.plans, issues);
+  const help = checkSection("help", helpArticlesSchema, source.help, issues);
   const world = checkSection("world", seedWorldSchema, source.world, issues);
 
   if (plans && world) {
@@ -277,6 +282,7 @@ export function loadPack(source: PackSource): CompanyPack {
     !persona ||
     !policy ||
     !plans ||
+    !help ||
     !world
   ) {
     throw new PackValidationError(typeof source.id === "string" ? source.id : "(no id)", issues);
@@ -289,6 +295,7 @@ export function loadPack(source: PackSource): CompanyPack {
     persona,
     policy,
     plans,
+    help,
     world,
   });
   // Rehearse the compile once so a renderer bug fails at boot, not mid-call.
