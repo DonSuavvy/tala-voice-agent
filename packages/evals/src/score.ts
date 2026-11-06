@@ -54,6 +54,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * An outcome field as text. Strings as they are; anything else as JSON, because
+ * `String({...})` is "[object Object]" and the failure sentence is what a
+ * reviewer reads. A missing field is the empty string.
+ */
+function asText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value);
+}
+
 function pass(name: string, expected: unknown, actual: unknown): Assertion {
   return { name, expected, actual, passed: true };
 }
@@ -103,7 +114,7 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
   /* ------------------------------- action -------------------------------- */
 
   if (expect.action !== undefined) {
-    const actual = outcome === null ? null : String(outcome.action ?? "");
+    const actual = outcome === null ? null : asText(outcome.action);
     assertions.push(
       outcome === null
         ? fail(
@@ -222,7 +233,7 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
 
     // Case-insensitive: the assertion is about substance, and a case that
     // failed because the model capitalised differently is noise in the gate.
-    const reply = String(outcome.reply ?? "");
+    const reply = asText(outcome.reply);
     const found = reply.toLowerCase().includes(phrase.toLowerCase());
 
     assertions.push(
