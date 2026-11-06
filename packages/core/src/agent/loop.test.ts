@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { checkBudget, type BudgetConfig } from "./budget";
 import { rateCard, type RateCard } from "./cost";
 import {
+  AGENT_LOOP_STATUSES,
   runAgentLoop,
   SILENT_TURN_NOTICE,
   type AssistantTurn,
@@ -1034,6 +1035,60 @@ describe("runAgentLoop — resuming a decided approval", () => {
     expect(result.status).toBe("failed");
     expect(result.error).toContain("assistant turn");
   });
+
+  /**
+   * The resumed turn was never answered, so it has no tool_result yet. If the
+   * caller has interrupted, nothing in it runs, an approved credit included,
+   * and every call still gets its result, or the next request is rejected.
+   */
+  it("answers every call of a resumed turn with 'Not run' when the caller has interrupted", async () => {
+    const mixed = turn([
+      toolUse("get_account_overview", { q: "KF-1007" }, "toolu_read"),
+      toolUse(
+        "apply_bill_credit",
+        { account_number: "KF-1002", amount_minor: 4900 },
+        "toolu_credit",
+      ),
+    ]);
+    const { messages, pending } = await pausedAt([mixed]);
+    const read = vi.fn(async () => ({ ok: true }));
+    const credited = vi.fn(async () => ({ credited: true }));
+    const controller = new AbortController();
+    controller.abort();
+
+    const { input, client } = loopInput([resolveTurn("credited")], {
+      messages,
+      registry: testRegistry({ handler: read, creditHandler: credited }),
+      resumeDecisions: [
+        { toolUseId: pending.toolUseId, approved: true, reason: null },
+      ],
+      signal: controller.signal,
+    });
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(read).not.toHaveBeenCalled();
+    expect(credited).not.toHaveBeenCalled();
+    expect(client.create).not.toHaveBeenCalled();
+    expect(result.messages.at(-1)).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_read",
+          content: "Not run: the caller interrupted.",
+          is_error: true,
+        },
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_credit",
+          content: "Not run: the caller interrupted.",
+          is_error: true,
+        },
+      ],
+    });
+  });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -1311,5 +1366,383 @@ describe("runAgentLoop — strict decoding", () => {
     for (const spec of client.calls[0].tools as { strict?: unknown }[]) {
       expect(spec).toHaveProperty("strict", true);
     }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* An interruption                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The caller can talk over Tala at any point in her turn. The loop takes an
+ * abort signal for that, and an interruption is not a failure: the loop keeps
+ * what can stay in the conversation, answers every tool call it will not run,
+ * books what was spent, and hands the turn back with status `interrupted`.
+ *
+ * How the streaming creator reports one is pinned in streaming.test.ts: it
+ * resolves with what had streamed, marked `stop_reason: "interrupted"`. Here
+ * the scripted creator returns that shape directly.
+ */
+describe("runAgentLoop — an interruption", () => {
+  const NOT_RUN = "Not run: the caller interrupted.";
+  const FIRST_USER: MessageParam = { role: "user", content: "Caller: where is my credit?" };
+
+  const said = (text: string): ContentBlock => ({ type: "text", text });
+
+  /** What the streaming creator returns when the caller cuts a turn short. */
+  const cutShort = (
+    content: ContentBlock[],
+    over: Partial<AssistantTurn["usage"]> = {},
+  ): AssistantTurn =>
+    turn(content, {
+      stop_reason: "interrupted",
+      usage: usage({ input_tokens: 10, output_tokens: 1, ...over }),
+    });
+
+  const notRun = (toolUseId: string) => ({
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    content: NOT_RUN,
+    is_error: true,
+  });
+
+  /**
+   * A loop whose caller interrupts during its first model call: the signal
+   * aborts before that call returns, as it would mid-stream. A complete turn
+   * returned anyway is the abort landing just after the stream finished.
+   */
+  function interruptedDuringFirstCall(
+    turns: AssistantTurn[],
+    over: Partial<Parameters<typeof runAgentLoop>[0]> = {},
+  ) {
+    const controller = new AbortController();
+    const built = loopInput(turns, { signal: controller.signal, ...over });
+    const inner = built.input.createMessage;
+    built.input.createMessage = async (params, options) => {
+      if (built.client.calls.length === 0) controller.abort();
+      return inner(params, options);
+    };
+    return built;
+  }
+
+  /** Read tools a, b and c, whose handlers a test can watch, and end_call. */
+  function watchedRegistry(
+    handlers: Partial<Record<"a" | "b" | "c", ToolDefinition["handler"]>>,
+  ) {
+    return buildRegistry([
+      tool("a", handlers.a ? { handler: handlers.a } : {}),
+      tool("b", handlers.b ? { handler: handlers.b } : {}),
+      tool("c", handlers.c ? { handler: handlers.c } : {}),
+      endCallTool(),
+    ]);
+  }
+
+  it("is one of the statuses the loop can end with", () => {
+    expect(AGENT_LOOP_STATUSES).toContain("interrupted");
+  });
+
+  it("hands its signal and every text delta through to the model call", async () => {
+    const controller = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    const heard: string[] = [];
+    const createMessage: MessageCreator = async (_params, options) => {
+      signals.push(options?.signal);
+      options?.onTextDelta?.("Opo, ");
+      options?.onTextDelta?.("sandali lang po.");
+      return turn([said("Opo, sandali lang po.")]);
+    };
+    const { input } = loopInput([], {
+      createMessage,
+      signal: controller.signal,
+      onTextDelta: (text) => heard.push(text),
+    });
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("awaiting_caller");
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toBe(controller.signal);
+    expect(heard).toEqual(["Opo, ", "sandali lang po."]);
+  });
+
+  it("keeps what Tala had said of an interrupted turn, and asks the model nothing more", async () => {
+    const { input, client } = interruptedDuringFirstCall([
+      cutShort([said("Opo, sandali")]),
+      resolveTurn(),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(result.outcome).toBeNull();
+    expect(result.messages).toEqual([
+      FIRST_USER,
+      { role: "assistant", content: [said("Opo, sandali")] },
+    ]);
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["no content", []],
+    [
+      "only a signed thinking block",
+      [{ type: "thinking", thinking: "Check first.", signature: "sig_abc" }],
+    ],
+    ["only blank text", [{ type: "text", text: "  " }]],
+  ])(
+    "appends nothing when the interrupted turn has %s",
+    async (_label, content: ContentBlock[]) => {
+      const { input, client } = interruptedDuringFirstCall([cutShort(content), resolveTurn()]);
+
+      const result = await runAgentLoop(input);
+
+      expect(result.status).toBe("interrupted");
+      expect(result.messages).toEqual([FIRST_USER]);
+      expect(client.create).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("answers every tool call of an interrupted turn with 'Not run', and runs none", async () => {
+    const a = vi.fn(async () => ({ ok: "a" }));
+    const b = vi.fn(async () => ({ ok: "b" }));
+    const content = [
+      said("Sige po, iche-check ko."),
+      toolUse("a", { q: "outage" }, "toolu_a"),
+      toolUse("b", { q: "account" }, "toolu_b"),
+    ];
+    const { input, client, spans } = interruptedDuringFirstCall(
+      [cutShort(content), resolveTurn()],
+      { registry: watchedRegistry({ a, b }) },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(a).not.toHaveBeenCalled();
+    expect(b).not.toHaveBeenCalled();
+    expect(result.messages).toEqual([
+      FIRST_USER,
+      { role: "assistant", content },
+      { role: "user", content: [notRun("toolu_a"), notRun("toolu_b")] },
+    ]);
+    expect(client.create).toHaveBeenCalledTimes(1);
+    // The trace shows each answer, as it does for any other refused call.
+    expect(
+      spans
+        .filter((s) => s.type === "tool_exec")
+        .map((s) => [s.name, s.isError, s.output]),
+    ).toEqual([
+      ["a", true, { error: NOT_RUN }],
+      ["b", true, { error: NOT_RUN }],
+    ]);
+  });
+
+  it("does not end the run on an end_call the interruption cut into", async () => {
+    const endCall = toolUse(
+      "end_call",
+      { action: "answered", credit_minor: 0, reply: "Salamat po.", confidence: "high" },
+      "toolu_end",
+    );
+    const { input } = interruptedDuringFirstCall([cutShort([endCall])]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(result.outcome).toBeNull();
+    expect(result.messages).toEqual([
+      FIRST_USER,
+      { role: "assistant", content: [endCall] },
+      { role: "user", content: [notRun("toolu_end")] },
+    ]);
+  });
+
+  /**
+   * The usage of a cut-short turn is what had streamed when it stopped, so
+   * it undercounts output. The pre-flight estimate is the floor, and the
+   * figure is marked estimated either way. Rates: 1000 nanos per input
+   * token, 5000 per output token; the estimate is 60_000.
+   */
+  it.each([
+    ["below the estimate", { input_tokens: 10, output_tokens: 1 }, 60_000],
+    ["above the estimate", { input_tokens: 100, output_tokens: 10 }, 150_000],
+  ])(
+    "books an interrupted call whose usage prices %s at no less than the estimate",
+    async (_label, counts, bookedNanos) => {
+      const { input, spans } = interruptedDuringFirstCall([cutShort([said("Opo")], counts)]);
+
+      const result = await runAgentLoop(input);
+
+      expect(result.costNanos).toBe(bookedNanos);
+      expect(result.estimated).toBe(true);
+      expect(result.usage).toEqual({
+        inputTokens: counts.input_tokens,
+        outputTokens: counts.output_tokens,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      });
+      const llm = spans.filter((s) => s.type === "llm_call");
+      expect(llm).toHaveLength(1);
+      expect(llm[0]).toMatchObject({
+        isError: false,
+        costNanos: bookedNanos,
+        estimated: true,
+        output: { stop_reason: "interrupted" },
+      });
+    },
+  );
+
+  it("lets the running tool finish, and answers the calls after it with 'Not run'", async () => {
+    const controller = new AbortController();
+    const a = vi.fn(async () => {
+      controller.abort();
+      return { ok: "a" };
+    });
+    const b = vi.fn(async () => ({ ok: "b" }));
+    const c = vi.fn(async () => ({ ok: "c" }));
+    const { input, client } = loopInput(
+      [
+        turn([
+          toolUse("a", { q: "1" }, "toolu_a"),
+          toolUse("b", { q: "2" }, "toolu_b"),
+          toolUse("c", { q: "3" }, "toolu_c"),
+        ]),
+        resolveTurn(),
+      ],
+      { signal: controller.signal, registry: watchedRegistry({ a, b, c }) },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).not.toHaveBeenCalled();
+    expect(c).not.toHaveBeenCalled();
+    expect(result.messages.at(-1)).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "toolu_a", content: '{"ok":"a"}' },
+        notRun("toolu_b"),
+        notRun("toolu_c"),
+      ],
+    });
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes no further model call when the caller interrupts during the last tool of a turn", async () => {
+    const controller = new AbortController();
+    const a = vi.fn(async () => {
+      controller.abort();
+      return { ok: "a" };
+    });
+    const { input, client } = loopInput(
+      [turn([toolUse("a", { q: "1" }, "toolu_a")]), resolveTurn()],
+      { signal: controller.signal, registry: watchedRegistry({ a }) },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(result.messages.at(-1)).toEqual({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu_a", content: '{"ok":"a"}' }],
+    });
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The abort can land after the stream finished but before the loop looked
+   * at the turn. Nothing in it runs, and nothing waits for a human: the
+   * caller is already talking.
+   */
+  it("runs nothing and pauses for nothing when the abort lands just after the model call returned", async () => {
+    const read = vi.fn(async () => ({ ok: true }));
+    const content = [
+      said("Sige po."),
+      toolUse("get_account_overview", { q: "KF-1007" }, "toolu_read"),
+      toolUse(
+        "apply_bill_credit",
+        { account_number: "KF-1002", amount_minor: 4900 },
+        "toolu_credit",
+      ),
+    ];
+    const { input } = interruptedDuringFirstCall(
+      [turn(content, { usage: usage({ input_tokens: 10, output_tokens: 1 }) }), resolveTurn()],
+      { registry: testRegistry({ handler: read }) },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(read).not.toHaveBeenCalled();
+    expect(result.messages).toEqual([
+      FIRST_USER,
+      { role: "assistant", content },
+      { role: "user", content: [notRun("toolu_read"), notRun("toolu_credit")] },
+    ]);
+    // The turn completed, so its usage is the bill: 10*1000 + 1*5000.
+    expect(result.costNanos).toBe(15_000);
+    expect(result.estimated).toBe(false);
+  });
+
+  it("ends as interrupted, not awaiting the caller, when the caller cut into a reply that had arrived", async () => {
+    const { input } = interruptedDuringFirstCall([turn([said("Ano po ang account number ninyo?")])]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(result.messages).toEqual([
+      FIRST_USER,
+      { role: "assistant", content: [said("Ano po ang account number ninyo?")] },
+    ]);
+  });
+
+  it("drops a silent turn the caller interrupted, without asking the model again", async () => {
+    const { input, client } = interruptedDuringFirstCall([turn([]), resolveTurn()]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(result.messages).toEqual([FIRST_USER]);
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("never calls the model when the caller interrupted before the turn began", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { input, client, spans } = loopInput([resolveTurn()], { signal: controller.signal });
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("interrupted");
+    expect(client.create).not.toHaveBeenCalled();
+    expect(result.messages).toEqual([FIRST_USER]);
+    expect(result.costNanos).toBe(0);
+    expect(spans).toEqual([]);
+  });
+
+  /**
+   * end_call stands alone in its turn, so once it is running there is nothing
+   * left to skip. The disposition is decided: an interruption arriving while
+   * it ran does not reopen the call.
+   */
+  it("still completes when the caller interrupts while end_call itself is running", async () => {
+    const controller = new AbortController();
+    const { input } = loopInput([resolveTurn("answered")], {
+      signal: controller.signal,
+      registry: buildRegistry([
+        {
+          ...endCallTool(),
+          handler: async (callInput: unknown) => {
+            controller.abort();
+            return callInput;
+          },
+        },
+      ]),
+    });
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("completed");
+    expect(result.outcome).toMatchObject({ action: "answered" });
   });
 });

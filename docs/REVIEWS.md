@@ -135,7 +135,6 @@ decided with audio.
   the model that actually served a turn, since a fallback turn is billed at
   another model's rates; no ticket owns it yet.
 
-
 ## Round 2 — 2026-11-06 — ticket #9, the eval harness and CI gate
 
 **Question asked:** does the branch follow the repo's documented standards,
@@ -207,3 +206,64 @@ changed, and committed after a fresh gate.
 - **The commit a CI report pins:** on `pull_request` runs, `GITHUB_SHA` is
   GitHub's temporary merge commit, not the PR's head.
 - **The deliberately broken SOP PR.**
+
+## Round 3 — 2026-11-06 — ticket #6, streaming and interruption
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #6 asks, criterion by criterion?
+
+**Headline:** no hard violations and no missing requirements. One medium
+finding: an interruption whose heard text differed in whitespace from what
+streamed would have thrown and left Tala talking (R3-01, FAILURES 13). 11
+findings fixed or recorded, 4 left as they are.
+
+**Method:** the mattpocock `code-review` skill. Two independent Opus agents
+that had not written the code, in parallel on `main...feat/streaming-interruption`
+at `6b12403`:
+
+- **Standards:** CLAUDE.md, DESIGN §11, GLOSSARY, the ADRs, and a fixed list
+  of Fowler smells, each a judgement call.
+- **Spec:** issue #6 line by line, re-running each RED commit's tests in
+  scratch copies to confirm they fail.
+
+Fixes were built test-first by the branch's builder and committed after a
+fresh gate.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R3-01 | Spec | `interrupt(heard)` needed exact whitespace; a mismatch threw and Tala kept talking | Fixed `e9dfd2d` `5bd1879` (FAILURES 13) |
+| R3-02 | Spec | The exact-usage test could not tell final cache counts from early ones | Fixed `fcad0de`; two mutations show it bites |
+| R3-03 | Spec | A shorter heard text once tools ran cuts nothing, against "the history keeps only the text Tala actually spoke" | Recorded as deliberate: ADR 4 (`f492215`) |
+| R3-04 | Spec | The chat commit has no RED | Recorded: scripts are not on the test-first list; checked live |
+| R3-05 | Standards | `claude-haiku-5-5` hard-coded in two session tests | Fixed `9195bec` |
+| R3-06 | Standards | A new fake below the seam (the real SDK client over a fake `fetch`) not in DESIGN §11 | Fixed `f492215` |
+| R3-07 | Standards | Comments promising more than the code: speech always after its deltas; every interrupted call booked at least the estimate | Fixed `9195bec` |
+| R3-08 | Standards | "utterance", which the glossary avoids | Fixed `9195bec`; GLOSSARY gains Line |
+| R3-09 | Standards | Stale "#6" notes in ADR 1 and DESIGN | Fixed `f492215` |
+| R3-10 | Standards | Possible Duplicated Code: three copies of the spoken-text rule | Fixed `9195bec` |
+| R3-11 | Standards | Possible Mysterious Name: `streaming`, `streamed`, `modelCalls` side by side | Fixed `9195bec` (one `currentModelCall` record) |
+
+### Left as they are
+
+- **Possible Shotgun Surgery:** what an interrupted turn keeps is decided in
+  three places. The creator drops unfinished blocks, the session cuts at the
+  heard text, and the loop keeps a turn only with spoken text or a finished
+  tool call. Each layer knows only its own part (the SDK's stream, the
+  caller, the conversation), and ADR 4 lists the rules in one place.
+- **Possible Data Clumps:** `AgentLoopInput` takes `signal` and `onTextDelta`
+  as two fields.
+- **Possible Middle Man and Duplicated Code in `chat.ts`:** `untilTalaIsDone`,
+  and two identical error prints. A script; not worth a type.
+- **Round 1's three preferences** were left to streaming (#6), which did not
+  decide them. The English-led change (`aaf4eed`) made the fallback line
+  English and the opening three sentences. A `max_tokens` cap for spoken
+  replies goes to the voice audition (#3) and cached phrases (#8).
+
+### Not verified
+
+- What a real voice transport reports as heard (#7).
+- An interrupted turn with citations or server tools: Tala has neither.
+- Interrupted calls are over-booked: the $0.02 estimate against about
+  $0.0004 spent on Haiku 5.5. #22 re-measures the estimate.

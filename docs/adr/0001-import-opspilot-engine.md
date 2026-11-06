@@ -88,7 +88,8 @@ Logical model names stay `haiku`, `sonnet`, `opus`. Only `provider.ts` knows
 they are `claude-haiku-5-5`, `claude-sonnet-5-5` and `claude-opus-5-5`.
 `streaming.ts` sends no `thinking` or `effort` yet. On the 5.5 models,
 omitting `thinking` runs adaptive thinking, the only setting Opus 5.5 accepts.
-Effort and streamed text deltas are #6.
+Streamed text deltas came with #6 (ADR 4); effort moved to #20, where the
+model comparison can measure it.
 
 ## Consequences
 

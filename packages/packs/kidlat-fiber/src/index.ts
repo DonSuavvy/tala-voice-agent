@@ -9,7 +9,9 @@
  *   placeholders filled from the policy at compile time, so what Tala says
  *   and what the tool handlers enforce cannot drift apart.
  * - `pack/policy.json`: the limits the tool handlers enforce.
- * - `pack/persona.json`: the opening disclosure and the fallback line.
+ * - `pack/persona.json`: the lines Tala says that no model writes: the
+ *   opening disclosure, the fallback line, and the filler and closing lines
+ *   said for a model turn that calls a tool with nothing said.
  * - `pack/company.json`: the time zone and locale times are spoken in.
  * - `pack/world.json`: the seed world every call starts from a fresh copy of,
  *   including scenario 1's Batasan Hills fiber cut.
