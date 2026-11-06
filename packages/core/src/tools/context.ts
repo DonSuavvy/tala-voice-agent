@@ -15,6 +15,13 @@ export interface CallData {
   identity: IdentityState;
   /** How times and money are spoken: the company's time zone, locale and ISO 4217 currency. */
   company: { timeZone: string; locale: string; currency: string };
+  /**
+   * Resolves after this many milliseconds, for a tool that has to wait, such
+   * as a remote reboot waiting out the restart. The call session supplies it:
+   * a real timer unless it is given another. Tests pass one that resolves at
+   * once. Handlers wait only through this, never on a timer of their own.
+   */
+  wait: (ms: number) => Promise<void>;
 }
 
 export type TalaToolContext = ToolContext<CallData, SupportPolicy>;

@@ -15,8 +15,11 @@ import { accountNumberInput, requireVerifiedAccount } from "./account-gate";
 import { defineTalaTool, type CallData } from "./context";
 import { formatLocalTime } from "./format-time";
 
-/** A diagnosis as the model reads it, with its time in the company's own words. */
-function spokenDiagnosis(diagnosis: Diagnosis, company: CallData["company"]) {
+/**
+ * A diagnosis as the model reads it, with its time in the company's own words.
+ * `remote_reboot_modem` gives its re-check in the same form.
+ */
+export function spokenDiagnosis(diagnosis: Diagnosis, company: CallData["company"]) {
   return {
     modem_status: diagnosis.modemStatus,
     received_power_dbm: diagnosis.receivedPowerDbm,
