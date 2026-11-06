@@ -21,7 +21,9 @@
  *
  * The same reasoning closes the values that would assert nothing: an empty
  * phrase (every text contains it), an empty tool name (no tool has it, so
- * `toolsNever: [""]` always passes) and a voice check set to `false`.
+ * `toolsNever: [""]` always passes), an empty tool order or list of tool
+ * results, an empty input or result (a subset of every call's) and a voice
+ * check set to `false`.
  */
 import { z } from "zod";
 
@@ -52,6 +54,13 @@ export type EndedBy = CallEndReason | "not_ended";
 
 const name = z.string().min(1);
 
+/** Fields a tool input or result must hold. `{}` is a subset of every object, so it is refused. */
+const someFields = z
+  .record(z.string(), z.unknown())
+  .refine((fields) => Object.keys(fields).length > 0, {
+    error: "an empty object matches every call; leave it out instead",
+  });
+
 /**
  * Every deterministic check a case can make. All optional: a case names the
  * ones that matter to it. The scorer runs them in this declared order.
@@ -72,6 +81,26 @@ export const expectationsSchema = z
     pausesFor: z.object({ tool: name }).strict().optional(),
     /** Each name must appear as a non-error `tool_exec` span. */
     toolsCalled: z.array(name).optional(),
+    /**
+     * These tools ran successfully (non-error `tool_exec` spans) in this
+     * relative order. Other calls may come between, and a tool listed twice
+     * needs two successful calls.
+     */
+    toolsCalledInOrder: z.array(name).min(1).optional(),
+    /**
+     * For each entry, some successful call of `tool` whose input and result
+     * hold the given fields with equal values: a recursive subset match on
+     * objects, element by element on arrays, exact on everything else. Input
+     * and result are checked on the same call.
+     */
+    toolResults: z
+      .array(
+        z
+          .object({ tool: name, input: someFields.optional(), result: someFields.optional() })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
     /** No name may appear as *any* `tool_exec` span, error or not. */
     toolsNever: z.array(name).optional(),
     /**

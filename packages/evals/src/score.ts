@@ -95,6 +95,31 @@ function execSpans(spans: SpanEvent[], name: string): SpanEvent[] {
 
 const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
 
+/**
+ * True when `actual` holds everything in `expected`: every field of an
+ * expected object is present with a value that holds in turn, an expected
+ * array matches element by element at the same length, and anything else is
+ * compared exactly (`false` is not `"false"`).
+ */
+function holds(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((value, index) => holds(actual[index], value))
+    );
+  }
+  const wanted = asRecord(expected);
+  if (wanted !== null) {
+    const got = asRecord(actual);
+    return (
+      got !== null &&
+      Object.entries(wanted).every(([key, value]) => Object.hasOwn(got, key) && holds(got[key], value))
+    );
+  }
+  return Object.is(actual, expected);
+}
+
 /* -------------------------------------------------------------------------- */
 /* No account data before verification                                        */
 /* -------------------------------------------------------------------------- */
@@ -377,6 +402,84 @@ export function score(expect: Expectations, observed: Observed): CaseScore {
             calls.length === 0
               ? `expected "${name}" to run, but it never did`
               : `expected "${name}" to run, but every call to it failed`,
+          ),
+    );
+  }
+
+  /* -------------------------- toolsCalledInOrder ------------------------- */
+
+  if (expect.toolsCalledInOrder !== undefined) {
+    const wanted = expect.toolsCalledInOrder;
+    const toolSpans = spans.filter((s) => s.type === "tool_exec");
+    const ran = toolSpans.filter((s) => !s.isError).map((s) => s.name);
+
+    // Each name is looked for after the one before it, so other calls may sit
+    // between, and a name listed twice needs two calls.
+    let from = 0;
+    let previous = "";
+    let missing: string | null = null;
+    for (const name of wanted) {
+      const at = ran.indexOf(name, from);
+      if (at === -1) {
+        missing = name;
+        break;
+      }
+      previous = name;
+      from = at + 1;
+    }
+
+    const lead = `expected ${quoted(wanted)} to run in that order`;
+    if (missing === null) {
+      assertions.push(pass("toolsCalledInOrder", wanted, ran));
+    } else {
+      const why = ran.includes(missing)
+        ? `"${missing}" did not run after "${previous}"`
+        : toolSpans.some((s) => s.name === missing)
+          ? `every call to "${missing}" failed`
+          : `"${missing}" never ran`;
+      assertions.push(fail("toolsCalledInOrder", wanted, ran, `${lead}, but ${why}`));
+    }
+  }
+
+  /* ----------------------------- toolResults ----------------------------- */
+
+  // A tool's second entry is `toolResults:<tool>#2`: names are the diff's
+  // join key, so two entries for one tool must not share one.
+  const entriesPerTool = new Map<string, number>();
+  for (const entry of expect.toolResults ?? []) {
+    const count = (entriesPerTool.get(entry.tool) ?? 0) + 1;
+    entriesPerTool.set(entry.tool, count);
+    const name = count === 1 ? `toolResults:${entry.tool}` : `toolResults:${entry.tool}#${count}`;
+
+    const calls = execSpans(spans, entry.tool);
+    const successful = calls.filter((s) => !s.isError);
+    const actual = successful.map((s) => ({ input: s.input, result: s.output }));
+    const matched = successful.some(
+      (s) =>
+        (entry.input === undefined || holds(s.input, entry.input)) &&
+        (entry.result === undefined || holds(s.output, entry.result)),
+    );
+
+    const fields: string[] = [];
+    if (entry.input !== undefined) fields.push(`input ${JSON.stringify(entry.input)}`);
+    if (entry.result !== undefined) fields.push(`result ${JSON.stringify(entry.result)}`);
+    const lead =
+      fields.length === 0
+        ? `expected "${entry.tool}" to run`
+        : `expected "${entry.tool}" to run with ${fields.join(" and ")}`;
+
+    assertions.push(
+      matched
+        ? pass(name, entry, actual)
+        : fail(
+            name,
+            entry,
+            actual,
+            calls.length === 0
+              ? `${lead}, but it never did`
+              : successful.length === 0
+                ? `${lead}, but every call to it failed`
+                : `${lead}, but no successful call to it matched`,
           ),
     );
   }
