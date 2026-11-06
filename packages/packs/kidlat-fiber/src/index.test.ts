@@ -32,7 +32,7 @@ describe("the Kidlat Fiber pack", () => {
     const source = kidlatFiberSource();
     const shipped = compilePackSop(loadPack(source));
     const stricter = compilePackSop(
-      loadPack({ ...source, policy: { identity: { maxFailedAttempts: 2 } } }),
+      loadPack({ ...source, policy: { identity: { maxFailedAttempts: 2 }, planChanges: { upgrade: "now", downgrade: "next_cycle" } } }),
     );
 
     expect(shipped).toContain("After 3 failed attempts");
@@ -124,15 +124,19 @@ describe("the Kidlat Fiber pack", () => {
   /** Kidlat starts an upgrade at once and a downgrade with the next billing cycle. */
   it("states when plan changes take effect from its policy, not from typed text", () => {
     const source = kidlatFiberSource();
-    const shipped = compilePackSop(loadPack(source));
-    const flipped = compilePackSop(
-      loadPack({
-        ...source,
-        policy: {
-          identity: { maxFailedAttempts: 3 },
-          planChanges: { upgrade: "next_cycle", downgrade: "now" },
-        },
-      }),
+    // The SOP wraps its lines, so a sentence is looked for with its spaces joined.
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    const shipped = flat(compilePackSop(loadPack(source)));
+    const flipped = flat(
+      compilePackSop(
+        loadPack({
+          ...source,
+          policy: {
+            identity: { maxFailedAttempts: 3 },
+            planChanges: { upgrade: "next_cycle", downgrade: "now" },
+          },
+        }),
+      ),
     );
 
     expect(shipped).toContain("A move to a faster plan takes effect at once.");

@@ -75,7 +75,7 @@ const SOURCE: PackSource = {
     fillerLine: FILLER,
     closingLine: "Salamat po sa pagtawag!",
   },
-  policy: { identity: { maxFailedAttempts: 3 } },
+  policy: { identity: { maxFailedAttempts: 3 }, planChanges: { upgrade: "now", downgrade: "next_cycle" } },
   plans: PLANS,
   help: [],
   world: WORLD,

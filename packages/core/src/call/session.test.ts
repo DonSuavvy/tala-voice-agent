@@ -17,6 +17,7 @@ import {
   JOSE,
   MARIA,
   testPackSource,
+  testPolicy,
 } from "../testing/fixtures";
 
 import { promptVersion } from "./pin";
@@ -410,7 +411,7 @@ describe("a call session — the opening", () => {
    */
   it("tells apart two calls whose policies differ under the same SOP version", () => {
     const strict = testPackSource();
-    strict.policy = { identity: { maxFailedAttempts: 2 } };
+    strict.policy = { ...testPolicy(), identity: { maxFailedAttempts: 2 } };
 
     const a = newCall([]).session.pin;
     const b = newCall([], { source: strict }).session.pin;

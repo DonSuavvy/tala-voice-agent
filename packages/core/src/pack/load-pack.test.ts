@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeedWorld } from "../systems/seed-world";
-import { TEST_COMPANY, testHelpFiles, testPackSource, testPlans, testSystems } from "../testing/fixtures";
+import {
+  TEST_COMPANY,
+  testHelpFiles,
+  testPackSource,
+  testPlans,
+  testPolicy,
+  testSystems,
+} from "../testing/fixtures";
 import { compilePackSop, loadPack, PackValidationError, type PackSource } from "./load-pack";
 
 /** The one error a broken source throws, so a test can read its issues. */
@@ -58,7 +65,7 @@ describe("loadPack on a broken pack", () => {
   /** The ticket's acceptance test: four sections broken, one throw, four lines. */
   it("lists a problem from every broken section at once", () => {
     const source = testPackSource();
-    source.policy = { identity: { maxFailedAttempts: 9 } };
+    source.policy = { ...testPolicy(), identity: { maxFailedAttempts: 9 } };
     source.sop.body += "Credit up to {{creditLimit}}.\n";
     source.company = { name: "Test ISP", timeZone: "Asia/Manilla", locale: "en-PH", currency: "PHP" };
     const world = source.world as SeedWorld;
@@ -78,7 +85,7 @@ describe("loadPack on a broken pack", () => {
 
   it("puts the pack id and the count in the message, one line per problem", () => {
     const source = testPackSource();
-    source.policy = { identity: { maxFailedAttempts: 9 } };
+    source.policy = { ...testPolicy(), identity: { maxFailedAttempts: 9 } };
     source.company = { name: "Test ISP", timeZone: "Asia/Manilla", locale: "en-PH", currency: "PHP" };
 
     expect(() => loadPack(source)).toThrow(
@@ -427,9 +434,9 @@ describe("loadPack's help articles", () => {
 describe("compilePackSop", () => {
   it("renders the SOP's figure from the policy, so changing the policy changes the prompt", () => {
     const three = testPackSource();
-    three.policy = { identity: { maxFailedAttempts: 3 } };
+    three.policy = { ...testPolicy(), identity: { maxFailedAttempts: 3 } };
     const five = testPackSource();
-    five.policy = { identity: { maxFailedAttempts: 5 } };
+    five.policy = { ...testPolicy(), identity: { maxFailedAttempts: 5 } };
 
     expect(compilePackSop(loadPack(three))).toContain("locked after 3 failed attempts");
     expect(compilePackSop(loadPack(five))).toContain("locked after 5 failed attempts");

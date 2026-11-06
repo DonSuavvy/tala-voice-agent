@@ -22,10 +22,11 @@ export const changePlanQuote = defineTalaTool({
   name: "change_plan_quote",
   description:
     "Prices a change of the caller's plan: the new plan's monthly price, the prorated amount " +
-    "added to the next bill, and the date the change takes effect. An upgrade, to a plan that " +
-    "costs more, takes effect today, with the difference for the rest of the billing cycle " +
-    "prorated; a downgrade takes effect when the next billing cycle starts, with nothing " +
-    "prorated. Use it when a verified caller asks to change plans or what a change would cost. " +
+    "added to the next bill (negative when it is a credit), the date the change takes effect, " +
+    "and its kind: an upgrade, to a plan that costs more, or a downgrade. When each kind takes " +
+    "effect is the company's policy; a change that takes effect at once is prorated for the " +
+    "rest of the billing cycle. Use it when a verified caller asks to change plans or what a " +
+    "change would cost. " +
     "It works only for the account verified on this call with verify_identity, and refuses any " +
     "other. It changes nothing: read the price back to the caller, and only if they say yes, " +
     "make the change with change_plan and the quote_id this returns. Amounts and dates are " +
@@ -68,6 +69,7 @@ export const changePlanQuote = defineTalaTool({
       latestBillIssuedAt: latestBill?.issuedAt ?? null,
       now: ctx.now,
       timeZone: company.timeZone,
+      policy: ctx.policyConfig,
     });
     if (!price.allowed) throw new Error(refusal(price.reason));
 

@@ -70,7 +70,7 @@ const SOURCE: PackSource = {
     fillerLine: "Sandali lang po.",
     closingLine: "Salamat po sa pagtawag!",
   },
-  policy: { identity: { maxFailedAttempts: 3 } },
+  policy: { identity: { maxFailedAttempts: 3 }, planChanges: { upgrade: "now", downgrade: "next_cycle" } },
   plans: [{ id: "kidlat-300", name: "Kidlat 300", downloadMbps: 300, monthlyPriceMinor: 169_900 }],
   help: [],
   world: WORLD,

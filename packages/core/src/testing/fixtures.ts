@@ -14,6 +14,7 @@
 import { helpArticlesSchema } from "../pack/help-articles";
 import type { PackSource } from "../pack/load-pack";
 import { initialIdentityState } from "../policy/identity";
+import type { SupportPolicy } from "../policy/support-policy";
 import { createInMemorySystems, type InMemorySystems } from "../systems/in-memory";
 import type { SeedWorld } from "../systems/seed-world";
 import type { BusinessSystems } from "../systems/types";
@@ -24,6 +25,17 @@ export const CALL_STARTED_AT = new Date("2026-11-06T05:00:00Z");
 
 /** How the test company speaks times and money: its time zone, locale and currency. */
 export const TEST_COMPANY = { timeZone: "Asia/Manila", locale: "en-PH", currency: "PHP" } as const;
+
+/**
+ * The test company's support policy: three verification attempts, an upgrade
+ * at once and a downgrade with the next billing cycle. A fresh copy each call.
+ */
+export function testPolicy() {
+  return {
+    identity: { maxFailedAttempts: 3 },
+    planChanges: { upgrade: "now", downgrade: "next_cycle" },
+  } as const satisfies SupportPolicy;
+}
 
 /** A wait that resolves at once, so no test sits through a modem's restart. */
 export const noWait = (): Promise<void> => Promise.resolve();
@@ -60,7 +72,7 @@ export function testToolContext(
       startedAt: CALL_STARTED_AT,
       wait: options.wait ?? noWait,
     },
-    policyConfig: { identity: { maxFailedAttempts: 3 } },
+    policyConfig: testPolicy(),
   };
 }
 
@@ -287,7 +299,7 @@ export function testPackSource(): PackSource {
       fillerLine: "Sandali lang po, iche-check ko.",
       closingLine: "Salamat po sa pagtawag sa Test ISP. Ingat po!",
     },
-    policy: { identity: { maxFailedAttempts: 3 } },
+    policy: testPolicy(),
     plans: testPlans(),
     help: testHelpFiles(),
     world: testWorld(),
