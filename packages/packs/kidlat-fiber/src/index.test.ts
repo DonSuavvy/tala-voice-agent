@@ -143,6 +143,86 @@ describe("the Kidlat Fiber pack", () => {
       });
     });
   });
+
+  /** Issue #11's acceptance test: the seed world supports scenario 3. */
+  describe("scenario 3's world: Ana's line is slow, and a reboot does not fix it", () => {
+    // 1:00 PM, Fri, Nov 6 in Manila.
+    const CALL_STARTED_AT = new Date("2026-11-06T05:00:00Z");
+    const ANA = "8012345603";
+    const JOSE = "8012345602";
+    const DAY_MS = 86_400_000;
+
+    function systems() {
+      return createInMemorySystems(loadKidlatFiber().world, CALL_STARTED_AT, "Asia/Manila");
+    }
+
+    it("has Ana's account in San Antonio, Pasig, with her registered mobile ending 0103", async () => {
+      const ana = await systems().accounts.findAccount(ANA);
+
+      expect(ana?.holderName).toBe("Ana Reyes");
+      expect(ana?.registeredMobile).toBe("+639175550103");
+      expect(ana?.serviceArea).toEqual({
+        barangayId: "san-antonio",
+        barangayName: "San Antonio",
+        city: "Pasig",
+      });
+    });
+
+    it("has no outage in San Antonio, so the slowness is on her line", async () => {
+      expect(await systems().network.outagesAffecting("san-antonio")).toEqual([]);
+    });
+
+    it("diagnoses her line as degraded at about -28 dBm, with high signal loss a reboot may clear", async () => {
+      const diagnosis = await systems().network.diagnose(ANA);
+
+      expect(diagnosis?.modemStatus).toBe("degraded");
+      expect(diagnosis?.receivedPowerDbm).toBeCloseTo(-28, 0);
+      expect(diagnosis?.fault).toBe("high signal loss on the fiber line");
+      expect(diagnosis?.rebootMayClear).toBe(true);
+    });
+
+    it("still finds the signal loss once a remote reboot of at most three minutes is over", async () => {
+      const world = systems();
+      const reboot = await world.network.rebootModem(ANA, CALL_STARTED_AT);
+
+      expect(reboot?.restartSeconds).toBeGreaterThan(0);
+      expect(reboot?.restartSeconds).toBeLessThanOrEqual(180);
+      expect(await world.network.diagnose(ANA)).toMatchObject({
+        modemStatus: "degraded",
+        fault: "high signal loss on the fiber line",
+        rebootMayClear: false,
+      });
+    });
+
+    it("clears Jose's hung modem with a reboot, so both outcomes are seeded", async () => {
+      const world = systems();
+      expect(await world.network.diagnose(JOSE)).toMatchObject({
+        fault: expect.stringMatching(/hung/) as unknown,
+        rebootMayClear: true,
+      });
+
+      await world.network.rebootModem(JOSE, CALL_STARTED_AT);
+
+      expect(await world.network.diagnose(JOSE)).toMatchObject({ modemStatus: "online", fault: null });
+    });
+
+    it("has at least four open technician windows in San Antonio over the next few days", async () => {
+      const slots = await systems().fieldService.availableSlots("san-antonio");
+
+      expect(slots.length).toBeGreaterThanOrEqual(4);
+      for (const slot of slots) {
+        expect(slot.startsAt.getTime()).toBeGreaterThan(CALL_STARTED_AT.getTime());
+        expect(slot.startsAt.getTime()).toBeLessThan(CALL_STARTED_AT.getTime() + 5 * DAY_MS);
+      }
+    });
+
+    it("has a couple of open windows in each of the other barangays", async () => {
+      const world = systems();
+
+      expect(await world.fieldService.availableSlots("batasan-hills")).toHaveLength(2);
+      expect(await world.fieldService.availableSlots("commonwealth")).toHaveLength(2);
+    });
+  });
 });
 
 /**
