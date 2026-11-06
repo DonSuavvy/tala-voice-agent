@@ -13,17 +13,17 @@
  * event types, and reassembling them by hand is precisely how a run comes to
  * book zero cache cost without anyone noticing. Let the SDK do it.
  *
- * **No `thinking`, no `effort`.** The demo runs Haiku 4.5, which has neither —
- * sending either is an error rather than a no-op. When quality mode routes to
- * Sonnet/Opus (4.6 on covara), those parameters belong here, chosen from the
- * logical model, and nowhere else.
+ * **No `thinking`, no `effort` yet.** On the 5.5 models, omitting `thinking`
+ * runs adaptive thinking, which is the only setting Opus 5.5 accepts. Effort
+ * per logical model, and streaming text deltas to the voice path as they
+ * arrive, are #6. Whatever thinking blocks come back round-trip untouched,
+ * because the loop copies assistant content wholesale.
  */
-import type { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { AssistantTurn, MessageCreator } from "./loop";
 
-type AnthropicLike = Anthropic | AnthropicBedrock;
+type StreamParams = Parameters<Anthropic["messages"]["stream"]>[0];
 
 /**
  * The casts are contained here on purpose.
@@ -33,22 +33,16 @@ type AnthropicLike = Anthropic | AnthropicBedrock;
  * discriminated union. They describe the same JSON, and this is the boundary
  * that says so once rather than at every call site.
  */
-export function streamingMessageCreator(client: AnthropicLike): MessageCreator {
+export function streamingMessageCreator(client: Anthropic): MessageCreator {
   return async (params) => {
     const stream = client.messages.stream({
       model: params.model,
       max_tokens: params.max_tokens,
       // Blocks when the prefix is marked cacheable, a bare string otherwise.
       // Passed through untouched: caching is a byte-level prefix match.
-      system: params.system as Parameters<
-        AnthropicLike["messages"]["stream"]
-      >[0]["system"],
-      messages: params.messages as Parameters<
-        AnthropicLike["messages"]["stream"]
-      >[0]["messages"],
-      tools: params.tools as Parameters<
-        AnthropicLike["messages"]["stream"]
-      >[0]["tools"],
+      system: params.system,
+      messages: params.messages as StreamParams["messages"],
+      tools: params.tools as StreamParams["tools"],
     });
 
     const message = await stream.finalMessage();

@@ -106,7 +106,7 @@ function resolveTurn(action = "answered") {
 function scriptedClient(turns: AssistantTurn[]) {
   const calls: Parameters<MessageCreator>[0][] = [];
   const create: MessageCreator = vi.fn(async (params) => {
-    calls.push(structuredClone(params));
+    calls.push(structuredClone(params) as Parameters<MessageCreator>[0]);
     const next = turns.shift();
     if (!next) throw new Error("scripted client ran out of turns");
     return next;
@@ -340,8 +340,7 @@ describe("runAgentLoop — refusal", () => {
 
 describe("runAgentLoop — budget", () => {
   /**
-   * covara serves a working law firm's live Claude generation. A loop that can
-   * call the API before consulting the guard is a loop that can spend money it
+   * A loop that can call the API before consulting the guard is a loop that can spend money it
    * was refused, so the check has to be a pre-flight, not a report.
    */
   it("refuses before the first call when the cap is already spent", async () => {
@@ -448,7 +447,7 @@ describe("runAgentLoop — confirm-write pause", () => {
   /**
    * The pause is the pause/resume story and the Vercel-timeout answer at once:
    * the run serializes its message array, ends the invocation, and a later
-   * /api/agent/resume reconstructs it. The handler must not run — approval
+   * OpsPilot's `/api/agent/resume` reconstructs it. The handler must not run — approval
    * happens *before* the side effect, not after.
    */
   it("pauses on a confirm-write tool without running its handler", async () => {
@@ -473,7 +472,7 @@ describe("runAgentLoop — confirm-write pause", () => {
   /**
    * The serialized array is what resume rebuilds the conversation from. If it
    * does not round-trip, the resumed turn is invalid and the API rejects it —
-   * which is why `agent_runs.serialized_messages` is `text` rather than
+   * which is why OpsPilot's `agent_runs.serialized_messages` is `text` rather than
    * `jsonb` in the first place.
    */
   it("serializes a message array that round-trips through JSON", async () => {
@@ -486,7 +485,7 @@ describe("runAgentLoop — confirm-write pause", () => {
     const result = await runAgentLoop(input);
 
     expect(result.serializedMessages).toBeTypeOf("string");
-    const restored = JSON.parse(result.serializedMessages!);
+    const restored = JSON.parse(result.serializedMessages!) as { role: string }[];
     expect(Array.isArray(restored)).toBe(true);
     // user turn + the assistant turn carrying the pending tool_use
     expect(restored).toHaveLength(2);
@@ -558,7 +557,7 @@ describe("runAgentLoop — confirm-write pause", () => {
     ]);
 
     const result = await runAgentLoop(input);
-    const restored = JSON.parse(result.serializedMessages!);
+    const restored = JSON.parse(result.serializedMessages!) as { role: string }[];
 
     expect(restored).toHaveLength(2);
     expect(restored[1].role).toBe("assistant");
@@ -571,7 +570,7 @@ describe("runAgentLoop — confirm-write pause", () => {
 
 describe("runAgentLoop — startSeq", () => {
   /**
-   * `run_spans` has a unique index on `(run_id, seq)`, and a resumed run keeps
+   * OpsPilot's `run_spans` has a unique index on `(run_id, seq)`, and a resumed run keeps
    * its original run row so the trace viewer renders one continuous waterfall.
    * A second `runAgentLoop` numbering from zero collides with the spans the
    * paused invocation already wrote — the insert fails and the resumed run
@@ -591,7 +590,7 @@ describe("runAgentLoop — startSeq", () => {
 
     await runAgentLoop(input);
 
-    expect(spans[0]!.seq).toBe(0);
+    expect(spans[0].seq).toBe(0);
   });
 });
 
@@ -602,7 +601,7 @@ describe("runAgentLoop — startSeq", () => {
 describe("runAgentLoop — resuming a decided approval", () => {
   /**
    * Drive a real loop to its pause and hand back exactly what
-   * `/api/agent/resume` would read out of the database. Building the paused
+   * OpsPilot's `/api/agent/resume` would read out of the database. Building the paused
    * state by hand would let these tests agree with a fiction — the pause is
    * the thing whose output resume has to consume.
    */
@@ -672,7 +671,7 @@ describe("runAgentLoop — resuming a decided approval", () => {
     expect(credited).not.toHaveBeenCalled();
     expect(result.status).toBe("completed");
 
-    const blocks = client.calls[0]!.messages.at(-1)!.content as ContentBlock[];
+    const blocks = client.calls[0].messages.at(-1)!.content as ContentBlock[];
     const denial = blocks[0] as {
       is_error?: boolean;
       content: string;
@@ -728,7 +727,7 @@ describe("runAgentLoop — resuming a decided approval", () => {
 
     await runAgentLoop(input);
 
-    const blocks = client.calls[0]!.messages.at(-1)!.content as ContentBlock[];
+    const blocks = client.calls[0].messages.at(-1)!.content as ContentBlock[];
     const ids = blocks.map((b) => (b as { tool_use_id: string }).tool_use_id);
     expect(ids).toEqual(["toolu_read", "toolu_credit"]);
   });
@@ -775,12 +774,12 @@ describe("runAgentLoop — tool execution", () => {
 
     await runAgentLoop(input);
 
-    const second = client.calls[1]!;
+    const second = client.calls[1];
     const appended = second.messages.slice(1);
     const userTurns = appended.filter((m) => m.role === "user");
     expect(userTurns).toHaveLength(1);
 
-    const blocks = userTurns[0]!.content as ContentBlock[];
+    const blocks = userTurns[0].content as ContentBlock[];
     expect(blocks).toHaveLength(2);
     expect(blocks.map((b) => (b as { tool_use_id: string }).tool_use_id)).toEqual([
       "toolu_a",
@@ -803,7 +802,7 @@ describe("runAgentLoop — tool execution", () => {
     const result = await runAgentLoop(input);
 
     expect(result.status).toBe("completed");
-    const blocks = client.calls[1]!.messages.at(-1)!.content as ContentBlock[];
+    const blocks = client.calls[1].messages.at(-1)!.content as ContentBlock[];
     expect(blocks[0]).toMatchObject({ tool_use_id: "toolu_x", is_error: true });
   });
 
@@ -828,7 +827,7 @@ describe("runAgentLoop — tool execution", () => {
     const result = await runAgentLoop(input);
 
     expect(result.status).toBe("completed");
-    const blocks = client.calls[1]!.messages.at(-1)!.content as ContentBlock[];
+    const blocks = client.calls[1].messages.at(-1)!.content as ContentBlock[];
     expect(blocks[0]).toMatchObject({ is_error: true });
     expect(JSON.stringify(blocks[0])).toMatch(/policy limit/);
   });
@@ -878,7 +877,7 @@ describe("runAgentLoop — trace and cost", () => {
   });
 
   /**
-   * `run_spans` has a unique index on (run_id, seq). A repeated or missing seq
+   * OpsPilot's `run_spans` has a unique index on (run_id, seq). A repeated or missing seq
    * is a constraint violation at persist time, so the counter is part of the
    * loop's contract rather than an implementation detail.
    */
@@ -949,8 +948,8 @@ describe("runAgentLoop — trace and cost", () => {
 
     await runAgentLoop(input);
 
-    expect(spans[0]!.latencyMs).toBe(7);
-    expect(spans[0]!.startedAt.getTime()).toBe(1_000_007);
+    expect(spans[0].latencyMs).toBe(7);
+    expect(spans[0].startedAt.getTime()).toBe(1_000_007);
   });
 });
 
@@ -977,7 +976,7 @@ describe("runAgentLoop — strict decoding", () => {
 
     await runAgentLoop(input);
 
-    for (const spec of client.calls[0]!.tools as { strict?: unknown }[]) {
+    for (const spec of client.calls[0].tools as { strict?: unknown }[]) {
       expect(spec).not.toHaveProperty("strict");
     }
   });
@@ -987,7 +986,7 @@ describe("runAgentLoop — strict decoding", () => {
 
     await runAgentLoop(input);
 
-    for (const spec of client.calls[0]!.tools as { strict?: unknown }[]) {
+    for (const spec of client.calls[0].tools as { strict?: unknown }[]) {
       expect(spec).toHaveProperty("strict", true);
     }
   });

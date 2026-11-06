@@ -10,15 +10,9 @@ import {
 } from "./budget";
 
 /**
- * The spend guard, pulled forward from Day 7 to Day 2.
- *
- * PLAN.md schedules budget guardrails for Day 7, and that was the right order
- * when the agent was going to run against a dedicated API key. It stopped
- * being right the moment OpsPilot pointed at the **covara** Bedrock account:
- * that account is what currently serves Causa's live Claude generation for a
- * working law firm, and the vault's own note flags its Claude TPD/TPM ceiling
- * as unvalidated at sustained volume, with the failure mode "answers stall
- * mid-day".
+ * The spend guard, imported from OpsPilot with its tests. There it guarded an
+ * AWS account shared with a live production workload; in Tala it guards
+ * prepaid credit and the public demo's daily and monthly caps.
  *
  * So this is not a cost feature. It is the thing that makes it structurally
  * impossible for a demo loop — or a runaway eval, or a stranger clicking the
@@ -123,14 +117,13 @@ describe("checkBudget", () => {
   });
 
   /**
-   * The covara-specific safeguard, and the reason this module knows about rate
-   * verification at all.
+   * The reason this module knows about rate verification at all.
    *
-   * Bedrock's Claude rates are unconfirmed, and the single data point that
-   * could be retrieved from AWS showed a retired model priced at **2x** the
-   * first-party rate. A budget enforced with rates that might be half the real
-   * ones is not a budget — it is a cap that silently permits double the spend
-   * against an account a law firm depends on.
+   * A rate card with no `verifiedOn` date might be wrong by any amount. In
+   * OpsPilot that was Amazon Bedrock, whose one comparable published figure
+   * showed a retired model at **2x** the first-party rate. A budget enforced
+   * with rates that might be half the real ones is not a budget — it is a cap
+   * that silently permits double the spend.
    *
    * So an unverified rate card is charged at the pessimistic multiple for
    * gating purposes. The guard errs toward refusing a run that would have been
@@ -206,9 +199,8 @@ describe("checkBudget", () => {
  *
  * `checkBudget` answers "can this call be afforded". It cannot answer "should
  * this run start at all", because the thing that makes a burst dangerous is
- * not its price: ten cheap runs fired at once against a shared Bedrock account
- * trip a 429 that stalls someone else's production traffic long before they
- * trouble the daily cap. So the per-minute count is a second, independent
+ * not its price: ten cheap runs fired at once trip a provider's 429 long
+ * before they trouble the daily cap (OpsPilot's eval suite did exactly that). So the per-minute count is a second, independent
  * axis, and it is checked here rather than inside the loop — a run refused for
  * arriving too fast should never have opened a row.
  */
@@ -328,7 +320,7 @@ describe("ESTIMATED_RUN_NANOS", () => {
 
 /**
  * `OPSPILOT_DAILY_BUDGET_USD` and `OPSPILOT_KILL_SWITCH` have existed in
- * `.env.local` since Day 1 with no code reading them. Parsing them rather than
+ * `.env.local` in OpsPilot since its first day with no code reading them. Parsing them rather than
  * trusting them is the same call the policy engine made about
  * `sop_versions.policy_config`: a limit that cannot be parsed is a limit that
  * cannot be enforced, and enforcing nothing must never be the quiet default.
@@ -403,7 +395,7 @@ describe("budgetConfigSchema", () => {
   /**
    * The refusal must not quote what it read.
    *
-   * `/api/agent/run` returns `error.message` in a 500 body, so a message that
+   * OpsPilot's `/api/agent/run` returns `error.message` in a 500 body, so a message that
    * echoes the environment value publishes it — and the operator who has to
    * fix it is looking at their own `.env` anyway. Saying what the variable
    * must be is the whole job.

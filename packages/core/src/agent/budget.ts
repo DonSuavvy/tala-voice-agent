@@ -1,18 +1,13 @@
 /**
  * The spend guard.
  *
- * PLAN.md schedules budget guardrails for Day 7. That ordering was right while
- * the agent was going to run against a dedicated API key, and wrong the moment
- * it pointed at the **covara** Bedrock account — which currently serves a
- * working law firm's live Claude generation, and whose Claude TPD/TPM ceiling
- * the vault records as *unvalidated at sustained volume*, failure mode
- * "answers stall mid-day".
+ * Imported from OpsPilot, where it guarded an AWS account shared with a live
+ * production workload. In Tala it guards $100 of prepaid Anthropic credit
+ * with auto-reload off, and a public demo capped at $2 a day and $20 a month.
  *
  * So this is not a cost feature. It is what makes it structurally impossible
- * for a demo loop, a runaway eval, or a stranger clicking the scenario
- * injector to spend an unbounded amount against an account someone else's
- * business depends on. It lands before the agent loop for exactly that reason:
- * the loop should never have been able to run without it.
+ * for a runaway loop, a runaway eval, or a stranger on the public demo to
+ * spend an unbounded amount. The loop cannot run without it.
  *
  * Pure, on the same terms as the policy engine — state is injected, nothing is
  * read from a clock or a database, and the decision is a returned value rather
@@ -27,14 +22,15 @@ const NANOS_PER_USD = 1_000_000_000;
  * How much a run priced with an **unverified** rate card is charged for gating
  * purposes.
  *
- * Bedrock's Claude rates are unconfirmed, and the single comparable figure
- * retrievable from AWS showed a retired model at 2x the first-party rate.
- * Enforcing a cap using rates that might be half the real ones is not a cap —
- * it silently permits double the spend. Charging the pessimistic multiple errs
- * toward refusing a run that would have been affordable, which is the cheap
- * direction to be wrong in when the account is shared with production.
+ * A rate card with no `verifiedOn` date might be wrong by any amount. OpsPilot
+ * met this with Amazon Bedrock, whose one comparable published figure showed a
+ * retired model at 2x the first-party rate. Enforcing a cap using rates that
+ * might be half the real ones is not a cap — it silently permits double the
+ * spend. Charging the pessimistic multiple errs toward refusing a run that
+ * would have been affordable, which is the cheap direction to be wrong in.
  *
- * Drop this to 1 once a provider's rates carry a `verifiedOn` date.
+ * Tala's first-party cards are all verified, so this applies only if an
+ * unverified card is ever added.
  */
 export const UNVERIFIED_RATE_SAFETY_FACTOR = 2;
 
@@ -42,17 +38,18 @@ export const UNVERIFIED_RATE_SAFETY_FACTOR = 2;
  * What one run is charged for, up front, before it is allowed to start — and
  * the same figure the loop uses as its per-call estimate.
  *
- * ~15k input + ~500 output on Haiku's $1/$5 card, rounded up. Measured runs
- * land between **$0.004 and $0.018**, so one call's estimate comfortably
- * covers a whole run. That is deliberate: the reservation is written to
- * `agent_runs.cost_usd` the moment a run starts, so it is what every
- * *concurrent* run sees as spend-in-flight, and a figure that under-states a
- * run would let a burst through. Over-stating it refuses a run that would have
- * been affordable, which is the cheap direction to be wrong in against an
- * account someone else's business depends on.
+ * OpsPilot's figure: ~15k input + ~500 output on Haiku 4.5's $1/$5 card,
+ * rounded up, against measured ticket runs of $0.004 to $0.018. A Tala call
+ * is a different shape (many short turns), so this is re-measured for calls
+ * when the demo limits land (#22).
  *
- * Named here rather than in each of the three routes that need it, so the
- * reservation and the pre-flight can never drift apart.
+ * Over-stating is deliberate: the reservation is recorded the moment a run
+ * starts, so it is what every *concurrent* run sees as spend-in-flight, and a
+ * figure that under-states a run would let a burst through. Over-stating it
+ * refuses a run that would have been affordable, the cheap direction to be
+ * wrong in.
+ *
+ * Named once, so the reservation and the pre-flight can never drift apart.
  */
 export const ESTIMATED_RUN_NANOS = 20_000_000; // $0.02
 
@@ -70,7 +67,7 @@ const TRUTHY = new Set(["true", "1", "yes", "on"]);
 
 /**
  * `OPSPILOT_DAILY_BUDGET_USD` and `OPSPILOT_KILL_SWITCH` have sat in
- * `.env.local` since Day 1 with no code reading them. Parsing rather than
+ * `.env.local` in OpsPilot since its first day with no code reading them. Parsing rather than
  * trusting is the same call the policy engine made about `policy_config`: a
  * limit that cannot be parsed is a limit that cannot be enforced.
  *
@@ -89,7 +86,7 @@ export const budgetConfigSchema = z
         if (!Number.isFinite(usd) || usd <= 0) {
           ctx.addIssue({
             code: "custom",
-            // The offending value is deliberately not echoed. `/api/agent/run`
+            // The offending value is deliberately not echoed. OpsPilot's `/api/agent/run`
             // returns `error.message` in a 500 body, so anything quoted here
             // is quoted to the internet — and the operator reading the log
             // can see their own `.env` without being told what is in it.
@@ -220,14 +217,13 @@ export interface ReservationDecision extends BudgetDecision {
  * `checkBudget` prices one call. It cannot see the shape of the danger here:
  * what makes a burst harmful is not its price but its concurrency. Ten runs
  * costing two cents each are eight cents inside a five-dollar cap and still
- * enough to trip Bedrock's 429 on an account shared with a law firm's live
- * generation — the exact failure the eval suite hit and CLAUDE.md logs. So the
- * arrival rate is a second axis, checked once when a run asks to start rather
+ * enough to trip a provider's 429 — the failure OpsPilot's eval suite hit.
+ * So the arrival rate is a second axis, checked once when a run asks to start rather
  * than on every call: a run refused for arriving too fast should never have
  * opened a row, spent a token, or reserved a cent.
  *
  * Ordered below money on purpose. The cap and the kill switch are about an
- * account balance someone else depends on and are not retryable; a rate limit
+ * account balance and are not retryable; a rate limit
  * is a "come back in a minute". Telling a caller to retry into an exhausted
  * budget would be worse than useless.
  */

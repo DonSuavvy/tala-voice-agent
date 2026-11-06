@@ -76,9 +76,9 @@ export interface SystemBlock {
  * Wrap the compiled SOP as a cacheable system prefix.
  *
  * Explicit `cache_control` rather than the top-level auto-placement
- * convenience: that one is unsupported on Bedrock, which is where OpsPilot
- * runs. It would not error there — it would simply not cache, which is the
- * exact silent failure this module exists to surface.
+ * convenience. OpsPilot chose this because auto-placement was unsupported on
+ * Amazon Bedrock, where it would not error but simply not cache. Tala keeps
+ * it because the breakpoint is then stated where a reader can see it.
  *
  * The text is passed through untouched. Caching is a prefix match on bytes, so
  * trimming or re-wrapping here would change the cache key and drop the hit rate

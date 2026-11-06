@@ -10,7 +10,7 @@ import {
 
 /**
  * The boundary between a run in flight and the two things that consume it: the
- * `run_spans` table and the SSE trace stream.
+ * OpsPilot's `run_spans` table and the SSE trace stream.
  *
  * Both consumers are unforgiving in ways that are invisible until production.
  * `cost_usd` is `numeric(12,6)` behind a CHECK, `input`/`output` are `jsonb`
@@ -145,10 +145,10 @@ describe("spanToRow — columns", () => {
   });
 
   /**
-   * `run_spans.input`/`output` are `jsonb`, and Postgres rejects NUL
+   * OpsPilot's `run_spans.input`/`output` are `jsonb`, and Postgres rejects NUL
    * outright — the error is `unsupported Unicode escape sequence`, raised on
    * insert. A ticket body pasted out of a binary file is enough to produce
-   * one, so it is stripped here. (`agent_runs.serialized_messages` is the
+   * one, so it is stripped here. (OpsPilot's `agent_runs.serialized_messages` is the
    * opposite case and stays `text`: replaying a paused turn needs the payload
    * byte-identical, so it must not be edited.)
    */
@@ -214,7 +214,7 @@ describe("encodeSseEvent", () => {
   it("round-trips the payload a client would parse back out", () => {
     const payload = { seq: 3, name: "get_customer", note: "multi\nline" };
     const frame = encodeSseEvent("span", payload);
-    const data = frame.split("\n")[1]!.slice("data: ".length);
+    const data = frame.split("\n")[1].slice("data: ".length);
     expect(JSON.parse(data)).toEqual(payload);
   });
 

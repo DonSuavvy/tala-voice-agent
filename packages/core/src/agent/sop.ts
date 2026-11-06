@@ -108,7 +108,7 @@ export function compileSop<P>({
     if (!Object.hasOwn(renderers, name)) {
       throw new UnknownPlaceholderError(name, sopPlaceholders(renderers));
     }
-    return renderers[name]!(policyConfig);
+    return renderers[name](policyConfig);
   });
 }
 

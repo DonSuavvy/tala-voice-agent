@@ -234,7 +234,7 @@ export type AgentLoopStatus =
 export interface AgentLoopResult {
   status: AgentLoopStatus;
   /** The terminal tool's structured input. Null unless status is completed. */
-  outcome: unknown | null;
+  outcome: unknown;
   iterations: number;
   usage: TokenUsage;
   costNanos: number;
@@ -443,7 +443,7 @@ export async function runAgentLoop<C extends ToolContext>(
           "nothing to apply the approval decision to",
       };
     }
-    pendingContent = last.content as ContentBlock[];
+    pendingContent = last.content;
   }
 
   while (iterations < maxIterations) {
@@ -626,7 +626,7 @@ export async function runAgentLoop<C extends ToolContext>(
     }
 
     const results: ToolResultBlock[] = [];
-    let terminalOutcome: unknown | null = null;
+    let terminalOutcome: unknown = null;
     let sawTerminal = false;
 
     for (const call of toolUses) {

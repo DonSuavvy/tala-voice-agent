@@ -100,7 +100,7 @@ describe("ANTHROPIC_RATES", () => {
 
   /**
    * The complement, and the reason `estimated` exists: a card with no
-   * `verifiedOn` — Bedrock's, today — taints every figure derived from it.
+   * `verifiedOn` (OpsPilot's Bedrock card was one) taints every figure derived from it.
    */
   it("flags a run priced with an unverified card as an estimate", () => {
     const unverified: RateCard = {

@@ -141,8 +141,8 @@ function tokenCount(value: number, field: string): number {
 
 /**
  * Takes the rate card rather than a model name, so the provider owns pricing
- * and this module owns only arithmetic. That split is what lets Bedrock and
- * the first-party API be priced differently without a branch in here.
+ * and this module owns only arithmetic. That split is what would let two providers be
+ * priced differently without a branch in here.
  */
 export function costOf(
   rates: RateCard,

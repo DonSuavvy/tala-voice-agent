@@ -35,7 +35,7 @@ function ctx(): ToolContext {
     runId: "run_1",
     callId: "call_1",
     now: NOW,
-    data: {} as ToolContext["data"],
+    data: {},
     policyConfig: POLICY,
   };
 }
@@ -106,7 +106,7 @@ async function run(
   let i = 0;
   const result = await runAgentLoop({
     registry: registry(preflight),
-    createMessage: async () => turns[i++]!,
+    createMessage: async () => turns[i++],
     model: "test-model",
     rates: rateCard(1, 5, { verifiedOn: "2026-08-15", source: "test fixture" }),
     system: "You are Tala.",

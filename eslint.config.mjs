@@ -19,4 +19,10 @@ export default defineConfig([
     files: ["**/*.mjs"],
     extends: [tseslint.configs.disableTypeChecked],
   },
+  {
+    // Test fakes stand in for async handlers and clients, so `async () => x`
+    // is the idiomatic shape and has nothing to await.
+    files: ["**/*.test.ts"],
+    rules: { "@typescript-eslint/require-await": "off" },
+  },
 ]);

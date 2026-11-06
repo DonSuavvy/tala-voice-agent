@@ -62,10 +62,9 @@ describe("cacheEligibility", () => {
 
 describe("cachedSystem", () => {
   /**
-   * Explicit blocks, not the top-level `cache_control` auto-placement: that
-   * convenience is unsupported on Bedrock, which is where OpsPilot runs. It
-   * would not error there — it would simply not cache, which is the same silent
-   * failure this module exists to make visible.
+   * Explicit blocks, not the top-level `cache_control` auto-placement, so the
+   * breakpoint is stated where a reader can see it. (OpsPilot chose this
+   * because auto-placement silently did not cache on Amazon Bedrock.)
    */
   it("marks the prompt as a cacheable prefix", () => {
     const blocks = cachedSystem("the compiled SOP");
@@ -84,15 +83,15 @@ describe("cachedSystem", () => {
     // trim, normalise, or re-wrap what the compiler produced.
     const prompt = "  leading and trailing whitespace matters  \n\n";
 
-    expect(cachedSystem(prompt)[0]!.text).toBe(prompt);
+    expect(cachedSystem(prompt)[0].text).toBe(prompt);
   });
 });
 
 /**
  * `describeCache` reads what actually happened rather than predicting what
  * should have. The distinction is the whole point: an estimate next to the cost
- * badge would be a guessed number in a project that already flags Bedrock costs
- * as `estimated: true`.
+ * badge would be a guessed number in a project that already flags unverified
+ * costs as `estimated: true`.
  *
  * The measurement is available because the three token classes are disjoint —
  * the API does not double-count a cached token as input. So when nothing

@@ -1,6 +1,6 @@
 /**
  * The boundary between a run in flight and the two things that consume it: the
- * `run_spans` table and the SSE trace stream.
+ * OpsPilot's `run_spans` table and the SSE trace stream.
  *
  * Everything here is a pure function of a `SpanEvent`, so it is testable
  * without a database or a socket — which matters, because all three hazards it
@@ -56,7 +56,7 @@ export interface SpanRow {
  * is enough to produce one.
  *
  * Safe *here* precisely because these columns are display and audit data.
- * `agent_runs.serialized_messages` is the opposite case and stays `text`:
+ * OpsPilot's `agent_runs.serialized_messages` is the opposite case and stays `text`:
  * replaying a paused turn requires passing thinking blocks back byte-identical,
  * so editing that payload is what the resume contract forbids.
  */
@@ -65,7 +65,7 @@ export function stripNuls<T>(value: T): T {
     return (value.includes(NUL) ? value.replaceAll(NUL, "") : value) as T;
   }
   if (Array.isArray(value)) {
-    return value.map((v) => stripNuls(v)) as T;
+    return (value as unknown[]).map((v) => stripNuls(v)) as T;
   }
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
@@ -78,7 +78,7 @@ export function stripNuls<T>(value: T): T {
 }
 
 /**
- * Shape one span for `run_spans`.
+ * Shape one span for OpsPilot's `run_spans`.
  *
  * The cost conversion happens exactly once, at this boundary: nano-dollars are
  * the accounting unit because the cache multipliers land off the micro grid,
