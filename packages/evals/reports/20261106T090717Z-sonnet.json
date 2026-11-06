@@ -1,0 +1,176 @@
+{
+  "format": 1,
+  "masking": "none (#10)",
+  "ranAt": "2026-11-06T09:07:17.478Z",
+  "pin": {
+    "packId": "kidlat-fiber",
+    "sopVersion": "v1",
+    "promptVersion": "eece52e036ea",
+    "policyVersion": "1b691b76de0e",
+    "model": "sonnet",
+    "modelId": "claude-sonnet-5-5",
+    "gitSha": "3c80c9cd103d8c13775c6ff97ea14e87b0163c9d"
+  },
+  "models": {
+    "caller": "sonnet",
+    "grader": "sonnet"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "slug": "scenario-1-outage",
+      "title": "Scenario 1: Batasan Hills outage, cause and restoration time",
+      "passed": true,
+      "assertions": [
+        {
+          "name": "endedBy",
+          "expected": "end_call",
+          "actual": "end_call",
+          "passed": true
+        },
+        {
+          "name": "disposition.outcome",
+          "expected": "resolved",
+          "actual": "resolved",
+          "passed": true
+        },
+        {
+          "name": "disposition.topic",
+          "expected": "outage",
+          "actual": "outage",
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:verify_identity",
+          "expected": "verify_identity",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:check_area_outage",
+          "expected": "check_area_outage",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "toolsCalled:end_call",
+          "expected": "end_call",
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "noAccountDataBeforeVerification",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "speaksBeforeEveryToolCall",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        }
+      ],
+      "failureReason": null,
+      "costUsd": "0.028859",
+      "latencyMs": 22041,
+      "agentRunId": "da839352-ec39-4fd5-bccb-094e45bf5e90",
+      "cost": {
+        "tala": {
+          "nanos": 18935000,
+          "usd": "0.018935",
+          "estimated": false
+        },
+        "caller": {
+          "nanos": 5858000,
+          "usd": "0.005858",
+          "estimated": false
+        },
+        "grader": {
+          "nanos": 4066000,
+          "usd": "0.004066",
+          "estimated": false
+        },
+        "total": {
+          "nanos": 28859000,
+          "usd": "0.028859",
+          "estimated": false
+        }
+      },
+      "caller": {
+        "stoppedBy": "call_ended",
+        "turns": 3,
+        "error": null
+      },
+      "advisory": {
+        "grade": {
+          "tone": 4,
+          "taglish": 4,
+          "politeness": 5,
+          "notes": "Tala was warm and professional, with a natural 'Naku, sorry to hear that po' and a courteous close. The English-led Taglish suits a caller who mixes Tagalog and English, though a few replies, such as the outage update, were a bit flat and slightly long, and some had no 'po'."
+        },
+        "reason": null
+      },
+      "transcript": [
+        {
+          "speaker": "tala",
+          "text": "Hello po, thank you for calling Kidlat Fiber! I'm Tala, an AI assistant, and this call is recorded for quality. How can I help you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Hello po, magandang araw. Wala pong internet ang bahay namin since kaninang umaga. Gusto ko lang pong malaman kung bakit at kailan babalik."
+        },
+        {
+          "speaker": "tala",
+          "text": "Naku, sorry to hear that po. Can I have your Kidlat Fiber account number and the last four digits of the mobile number registered on the account, so I can verify you po?"
+        },
+        {
+          "speaker": "caller",
+          "text": "Opo, ang account number ko po ay 8012345601. Tapos yung last four digits ng mobile number ay 0101."
+        },
+        {
+          "speaker": "tala",
+          "text": "Salamat po. Let me verify your account first."
+        },
+        {
+          "speaker": "tala",
+          "text": "Verified na po kayo, Maria. Let me check your area for any outage now."
+        },
+        {
+          "speaker": "tala",
+          "text": "Opo Maria, there's an outage in Batasan Hills. A fiber cable was cut along Batasan Road during road works, and service is expected back around 9 PM today."
+        },
+        {
+          "speaker": "caller",
+          "text": "Ay ganun po ba, naputol pala yung fiber cable dahil sa road works. Okay po, 9 PM today babalik yung service. Salamat po sa info, Tala. Aabangan ko na lang po. Sige po, bye!"
+        },
+        {
+          "speaker": "tala",
+          "text": "Walang anuman po, Maria. Salamat po sa pagtawag, ingat po!"
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "tala": {
+      "nanos": 18935000,
+      "usd": "0.018935",
+      "estimated": false
+    },
+    "caller": {
+      "nanos": 5858000,
+      "usd": "0.005858",
+      "estimated": false
+    },
+    "grader": {
+      "nanos": 4066000,
+      "usd": "0.004066",
+      "estimated": false
+    },
+    "total": {
+      "nanos": 28859000,
+      "usd": "0.028859",
+      "estimated": false
+    }
+  }
+}

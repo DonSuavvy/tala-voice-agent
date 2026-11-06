@@ -1,0 +1,76 @@
+name: Evals
+
+# The eval gate (#9): plays every eval case against Tala on real Claude and
+# fails the PR if any case fails the deterministic gate. It spends API credit
+# (scripts/eval.ts says exactly what its $1.00 cap covers), so it runs only on
+# pull requests that can change what Tala says or does on a call.
+#
+# That is wider than "prompts, the SOP, policies or tools", on purpose:
+# - The SOP, policy, persona, seed world and eval cases are company-pack data
+#   (packages/packs/**).
+# - Tala's prompt is not the SOP file alone: core's pack and call code compile
+#   it with the policy's figures and send it (core pack/**, call/**).
+# - The tools (core tools/**) act through core's business systems
+#   (core systems/**) and are dispatched by the agent loop (core agent/**),
+#   which also makes the model call.
+# - The SDK version that talks to Claude is pinned in package-lock.json.
+# - The eval package and its runner (packages/evals/**, scripts/eval.ts) are the
+#   gate itself, and this file is how it runs.
+# Unit tests, which need no key, are ci.yml.
+on:
+  pull_request:
+    paths:
+      - "packages/packs/**"
+      - "packages/core/src/tools/**"
+      - "packages/core/src/systems/**"
+      - "packages/core/src/policy/**"
+      - "packages/core/src/pack/**"
+      - "packages/core/src/call/**"
+      - "packages/core/src/agent/**"
+      - "package-lock.json"
+      - "packages/evals/**"
+      - "scripts/eval.ts"
+      # A committed report is a result, not a change to what is tested.
+      - "!packages/evals/reports/**"
+      - ".github/workflows/evals.yml"
+
+permissions:
+  contents: read
+
+# A newer push to the same PR makes the older run's spend pointless.
+concurrency:
+  group: evals-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: eval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The runner names the report it wrote as this step's `report` output
+      # (through $GITHUB_OUTPUT), also when the gate fails.
+      - name: Eval suite
+        id: eval
+        run: npm run eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # This run's report only. A run that died before writing one names none,
+      # so a report committed in the checkout is never uploaded in its place.
+      - name: Upload the report
+        if: always() && steps.eval.outputs.report != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-report
+          path: ${{ steps.eval.outputs.report }}
