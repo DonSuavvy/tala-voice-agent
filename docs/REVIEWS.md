@@ -438,3 +438,58 @@ evidence given to it.
 - Whether Tala ever reads the SOP's bracketed example aloud ("[the first
   window]"); the live run read the tool's windows.
 - How a minute of silence during a reboot sounds on a voice call (#8 fillers).
+
+## Round 9 — 2026-11-07 — ticket #16, plan changes and help articles
+
+**Question asked:** does the branch follow the repo's documented standards,
+and does it do what #16 asks: `change_plan` refusing without a matching
+quote or confirmation, proration in pure code, ranked help articles, and
+the three cases?
+
+**Headline:** the first live run failed 2 of 6, both in the checks: the
+account-data check treated public plan names as private (FAILURES 20), and
+the help case required a word for a different situation. The reviewers then
+found that "confirmation" was the model's word and an older quote could be
+applied (FAILURES 21), that a downgrade switched the plan at once, and that
+plan-change timing, the knowledge base and price caps were not where DESIGN
+and ADR 1 put them. 20 findings: 19 fixed, 1 recorded. Tests 1038 → 1208.
+
+**Method:** the orchestrator replayed the builder's slices as RED/GREEN
+commits (both replays matched the builder's trees), ran `npm run eval`
+live (4 of 6, committed as the record, then 6 of 6), and checked masking.
+Then the mattpocock `code-review` skill: two independent Opus agents on
+`feat/slow-internet...feat/plan-changes` at the failing report (the branch is
+stacked on #11). Standards: CLAUDE.md, ADRs 1 and 2, DESIGN §6 and §11,
+GLOSSARY, rounds 6-8. Spec: #16 line by line, spec #1, DESIGN §6, with the
+live evidence; it ran a copy of the ranker on Taglish queries.
+
+### Findings ledger
+
+| ID | Axis | Finding | Status |
+|---|---|---|---|
+| R9-01 | Live | The account-data check counted a catalog plan name as Maria's data | Fixed `1fa11dc` `377dffd` (FAILURES 20) |
+| R9-02 | Live | The help case required "bent", advice for a light that stays red | Fixed `a428e1c` `ce6a3de`: "loss of signal" and the article itself |
+| R9-03 | Builder | A downgrade switched the plan at once, against the GLOSSARY and SOP | Fixed `3e40639` `5e117b1`: scheduled for the next cycle |
+| R9-04 | Spec | A quote and a change in one turn passed: confirmation was the model's word | Fixed `3673222` `c617031` (FAILURES 21) |
+| R9-05 | Spec | Any unused quote of the call could be applied | Fixed `4631b1d` `81872ff` (FAILURES 21) |
+| R9-06 | Spec | The help case could not prove the article was used | Fixed `dd909ab` `bf4b16b`: arrays match as a prefix; the first article must be modem-lights |
+| R9-07 | Spec | No knowledge-base adapter, against spec #1 | Fixed `7af43b1` `e85e5e3` |
+| R9-08 | Spec | An SOP rule to verify before naming any plan, which nobody asked for | Fixed `ce6a3de` |
+| R9-09 | Spec | Plan-change timing hard-coded, though DESIGN lists plan-change rules as policy | Fixed `7db0cf4` `d352411` |
+| R9-10 | Standards | No absolute caps on plan prices and speeds (ADR 1) | Fixed `2f2fc2e` `84949e6`; BigInt stays, since a price difference times a month's milliseconds still passes 2^53 |
+| R9-11 | Standards | A tool description's example mirrored the modem-lights case (R2-15) | Fixed `50de8e2` `feaaa2a` |
+| R9-12 | Standards | The help articles' "no figure" test caught digits only | Fixed `50de8e2` `feaaa2a` |
+| R9-13 | Standards | Possible Feature Envy: the handler made up the missing-bill refusal | Fixed `5bb7242` `4aab1b6` |
+| R9-14 | Standards | Possible Primitive Obsession: plans matched by display name | Fixed `7a8a7f6` `23bba82` |
+| R9-15 | Standards | Possible Mysterious Name: `policyConfig` carried the plan catalog | Fixed `602cd7d`: `facts` |
+| R9-16 | Standards | "Catalog order" for help articles (the catalog is plans) | Fixed `602cd7d` |
+| R9-17 | Standards | Hand-copied prices, channels and a minute | Fixed `602cd7d` |
+| R9-18 | Standards | The downgrade's GLOSSARY entry disagreed with the code (R9-03) | Fixed `5e117b1` |
+| R9-19 | Standards | The article parser was untested on a colon in a value and a byte-order mark | Fixed `36ebfd4` `9d2edd0` (the mark broke it) |
+| R9-20 | Standards | A refactor's commit body copied another's; a GREEN edited a RED test for lint | Recorded here |
+
+### Not verified
+
+- The downgrade-now credit and upgrade-next-cycle paths are unit-tested only;
+  Kidlat's policy uses neither.
+- Whether Tala re-quotes when a caller goes back to an earlier price.

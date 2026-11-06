@@ -540,3 +540,59 @@ tickets carry when they were opened) with no visit yet. RED `3d19dfb`, GREEN
 
 **Lesson:** a rule that holds only because the test double is empty is not
 enforced; write it against the seam's contract.
+
+## 20. The account-data check counted a public plan name as account data — 2026-11-07
+
+**Severity: low (the check, not Tala).** A required gate that fails a
+correct call blocks good PRs, as FAILURES 14 showed.
+
+**Caught by:** the eval gate, on the first live run of #16 (`eee5e80`).
+
+```
+FAIL  scenario-plan-upgrade-declined
+      expected no account data before verify_identity succeeded, but Tala
+      said: plan name of account ending 5601
+```
+
+Jose asked about moving to Kidlat 300, and Tala said "Before I can check the
+Kidlat 300 price for you, may I have your account number". Kidlat 300 is
+also Maria's plan in the seed, and the check counted every seed account's
+plan name as that account's data. Once the plans became a public catalog
+rendered into the SOP, a plan name stopped saying anything about an account.
+The builder had added an SOP rule to verify before naming any plan, which
+the model broke on the first run.
+
+**Fix:** the check skips plan names in the pack's catalog; holder names,
+account numbers and mobile digits still count, and so does a plan missing
+from the catalog. The account gate already guarantees Tala cannot learn an
+account's plan before verification. The SOP rule is gone: plans are public,
+quoting and changing need verification. RED `1fa11dc`, GREEN `377dffd`.
+
+**Lesson:** when data becomes public, the checks that guarded it as private
+have to change with it.
+
+## 21. A plan change needed only the model's word that the caller agreed — 2026-11-07
+
+**Severity: medium (latent, caught before merge).** A plan change raises
+the caller's bill.
+
+**Caught by:** review round 9 (Spec).
+
+`change_plan` refused without a quote or without `customer_confirmed:
+true`, but that flag is whatever the model sends, so a quote and a change in
+one model turn passed every test and the eval case: the caller never heard
+the price. And any unused quote of the call could be applied, so after
+quotes for Kidlat 500 and then Kidlat 1000, a "yes" to 1000 with the first
+quote's id would have applied 500.
+
+**What made it dangerous:** the acceptance criterion read as met. "Refuses
+without confirmation" was tested, and confirmation meant the model's
+say-so.
+
+**Fix:** the session records when the caller last spoke
+(`CallData.lastCallerTurnAt`), and `change_plan` refuses unless it is
+later than the quote; only the call's latest quote can be applied. RED
+`3673222` and `4631b1d`, GREEN `c617031` and `81872ff`.
+
+**Lesson:** a confirmation the model reports is not a confirmation; check
+something the model cannot write, such as whether the caller spoke.

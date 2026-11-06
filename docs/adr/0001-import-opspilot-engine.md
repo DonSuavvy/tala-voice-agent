@@ -50,7 +50,7 @@ What was generalized:
 | Was | Now |
 |---|---|
 | `ToolContext` with Beacon's `OpsData` and `PolicyConfig`, keyed by `ticketId` | `ToolContext<TData, TPolicy>`, keyed by `callId`; registry and loop generic over it |
-| `compileSop` with four Beacon placeholders and a USD-only formatter | `compileSop({ bodyMarkdown, policyConfig, renderers })`; `formatMoney(minorUnits, { code, locale })` |
+| `compileSop` with four Beacon placeholders and a USD-only formatter | `compileSop({ bodyMarkdown, facts, renderers })` (`policyConfig` until #16); `formatMoney(minorUnits, { code, locale })` |
 | `validateSopDraft` against Beacon's policy schema | takes the pack's `parsePolicy` and `renderers` |
 | `prepareTicketRun` (scan a ticket, narrow tools, build the message) | `guardInput({ registry, text, now })`; the notice wording moves to #15 |
 | `scanForInjection({ subject, body })` | `scanForInjection(text)` |
