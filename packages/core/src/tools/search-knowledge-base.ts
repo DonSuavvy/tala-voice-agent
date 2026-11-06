@@ -3,7 +3,9 @@
  * general how-to question, through the business systems' knowledge base.
  *
  * Not behind the account gate: help articles are public and hold nothing
- * about any account, so a caller needs no verification to hear one.
+ * about any account, so a caller needs no verification to hear one. The tool
+ * keeps at most `MAX_HELP_RESULTS` of what the knowledge base gives, so its
+ * description holds whatever system fills that seam.
  */
 import { z } from "zod";
 
@@ -36,7 +38,7 @@ export const searchKnowledgeBase = defineTalaTool({
   handler: async (input, ctx) => {
     const found = await ctx.data.systems.knowledgeBase.search(input.query);
     return {
-      articles: found.map((article) => ({
+      articles: found.slice(0, MAX_HELP_RESULTS).map((article) => ({
         id: article.id,
         title: article.title,
         text: article.body,
