@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SeedWorld } from "../systems/seed-world";
-import { JOSE, MARIA, testSystems, testToolContext, testWorld } from "../testing/fixtures";
+import { CALL_STARTED_AT, JOSE, MARIA, testSystems, testToolContext, testWorld } from "../testing/fixtures";
 
 import type { TalaToolContext } from "./context";
 import { getAccountOverview } from "./get-account-overview";
@@ -79,6 +79,7 @@ describe("get_account_overview — the verified account", () => {
       due_date: "Tue, Oct 27",
       past_due: true,
       disconnection_date: "Sat, Nov 7",
+      scheduled_plan_change: null,
     });
   });
 
@@ -93,6 +94,31 @@ describe("get_account_overview — the verified account", () => {
       due_date: null,
       past_due: false,
       disconnection_date: null,
+      scheduled_plan_change: null,
+    });
+  });
+
+  /** Maria's move to Kidlat 100 starts with her next billing cycle, Thu, Nov 12. */
+  it("gives a plan change scheduled for later, with its plan and the date it starts", async () => {
+    const systems = testSystems();
+    const ctx = testToolContext(systems);
+    await verifyAs(ctx, MARIA);
+    const { reference } = await systems.plans.createQuote(
+      {
+        accountNumber: MARIA.accountNumber,
+        currentPlanName: "Kidlat 300",
+        newPlanName: "Kidlat 100",
+        newMonthlyPriceMinor: 129_900,
+        proratedAmountMinor: 0,
+        effectiveAt: new Date("2026-11-12T05:00:00Z"),
+      },
+      CALL_STARTED_AT,
+    );
+    await systems.plans.applyQuote(MARIA.accountNumber, reference, CALL_STARTED_AT);
+
+    expect(await overview(ctx, MARIA.accountNumber)).toMatchObject({
+      plan: "Kidlat 300",
+      scheduled_plan_change: { plan: "Kidlat 100", effective_date: "Thu, Nov 12" },
     });
   });
 

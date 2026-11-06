@@ -45,13 +45,18 @@ async function quoteFor(ctx: TalaToolContext, accountNumber: string, planId: str
   return (quoted as { quote_id: string }).quote_id;
 }
 
-/** The plan as Tala would read it back. */
-async function planOf(ctx: TalaToolContext, accountNumber: string): Promise<string> {
+/** The overview, as Tala would read it back. */
+async function overviewOf(ctx: TalaToolContext, accountNumber: string) {
   const overview = await getAccountOverview.handler(
     getAccountOverview.input.parse({ account_number: accountNumber }),
     ctx,
   );
-  return (overview as { plan: string }).plan;
+  return overview as { plan: string; scheduled_plan_change: unknown };
+}
+
+/** The plan as Tala would read it back. */
+async function planOf(ctx: TalaToolContext, accountNumber: string): Promise<string> {
+  return (await overviewOf(ctx, accountNumber)).plan;
 }
 
 const NO_QUOTE =
@@ -96,10 +101,14 @@ describe("change_plan — a change the caller confirmed", () => {
     expect(
       await change(ctx, { account_number: "801 234 5601", quote_id: quoteId, customer_confirmed: true }),
     ).toEqual({ changed: true, plan: "Kidlat 500", effective_date: "Fri, Nov 6" });
-    expect(await planOf(ctx, MARIA.accountNumber)).toBe("Kidlat 500");
+    expect(await overviewOf(ctx, MARIA.accountNumber)).toMatchObject({
+      plan: "Kidlat 500",
+      scheduled_plan_change: null,
+    });
   });
 
-  it("gives a downgrade's date as the next billing cycle's start", async () => {
+  /** A downgrade starts with the next billing cycle, so until then the account keeps its plan. */
+  it("schedules a downgrade from the next billing cycle's start, and the plan stays until then", async () => {
     const { ctx } = newCall();
     await verifyAs(ctx, MARIA);
     const quoteId = await quoteFor(ctx, MARIA.accountNumber, "kidlat-100");
@@ -107,6 +116,10 @@ describe("change_plan — a change the caller confirmed", () => {
     expect(
       await change(ctx, { account_number: MARIA.accountNumber, quote_id: quoteId, customer_confirmed: true }),
     ).toEqual({ changed: true, plan: "Kidlat 100", effective_date: "Thu, Nov 12" });
+    expect(await overviewOf(ctx, MARIA.accountNumber)).toMatchObject({
+      plan: "Kidlat 300",
+      scheduled_plan_change: { plan: "Kidlat 100", effective_date: "Thu, Nov 12" },
+    });
   });
 
   it("marks the quote used", async () => {
@@ -202,18 +215,20 @@ describe("change_plan — without a matching quote", () => {
     expect(await planOf(ctx, MARIA.accountNumber)).toBe("Kidlat 300");
   });
 
+  /** A scheduled downgrade leaves Maria on Kidlat 300, so only the used check stands in the way. */
   it("refuses a quote already used, so one quote changes a plan once", async () => {
     const { ctx } = newCall();
     await verifyAs(ctx, MARIA);
-    const up = await quoteFor(ctx, MARIA.accountNumber, "kidlat-500");
-    await change(ctx, { account_number: MARIA.accountNumber, quote_id: up, customer_confirmed: true });
-    const down = await quoteFor(ctx, MARIA.accountNumber, "kidlat-300");
+    const down = await quoteFor(ctx, MARIA.accountNumber, "kidlat-100");
     await change(ctx, { account_number: MARIA.accountNumber, quote_id: down, customer_confirmed: true });
 
     await expect(
-      change(ctx, { account_number: MARIA.accountNumber, quote_id: up, customer_confirmed: true }),
+      change(ctx, { account_number: MARIA.accountNumber, quote_id: down, customer_confirmed: true }),
     ).rejects.toThrow(NO_QUOTE);
-    expect(await planOf(ctx, MARIA.accountNumber)).toBe("Kidlat 300");
+    expect(await overviewOf(ctx, MARIA.accountNumber)).toMatchObject({
+      plan: "Kidlat 300",
+      scheduled_plan_change: { plan: "Kidlat 100", effective_date: "Thu, Nov 12" },
+    });
   });
 
   /** A second quote priced the move from Kidlat 300; once on Kidlat 500, its price no longer holds. */
