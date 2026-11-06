@@ -88,6 +88,7 @@ function seed(): SeedWorld {
       },
     ],
     modems: [],
+    technicianSlots: [],
   };
 }
 

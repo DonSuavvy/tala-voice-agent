@@ -159,6 +159,34 @@ const modemSchema = z
   })
   .strict();
 
+/** 30 days, like the outages: the furthest ahead a technician slot may be. */
+const MAX_SLOT_DAYS_AFTER_CALL = 30;
+
+const HOURS_IN_DAY = 24;
+
+/**
+ * A window in which a technician can visit a barangay, stated by the calendar
+ * day rather than in minutes: the day after the call's local date (1 is the
+ * next day, so a slot is never already past), a local start hour and a length
+ * in hours. "Day 1, 9:00, 3 hours" reads "9:00 AM to 12:00 PM" on the day after
+ * the call, whatever time the call starts. A window ends by midnight.
+ */
+const technicianSlotSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+    barangayId: z.string(),
+    daysAfterCall: z.number().int().positive().max(MAX_SLOT_DAYS_AFTER_CALL),
+    startHour: z.number().int().min(0).max(HOURS_IN_DAY - 1),
+    lengthHours: z.number().int().positive(),
+  })
+  .strict()
+  // zod runs this after a failed check too; a start hour already out of range
+  // is reported once, as itself, not again as a window past midnight.
+  .refine(
+    (slot) => slot.startHour >= HOURS_IN_DAY || slot.startHour + slot.lengthHours <= HOURS_IN_DAY,
+    { path: ["lengthHours"], error: "a technician slot must end by midnight" },
+  );
+
 const seedWorldShape = {
   barangays: z.array(barangaySchema).min(1),
   accounts: z.array(accountSchema).min(1),
@@ -167,6 +195,7 @@ const seedWorldShape = {
   bills: z.array(billSchema),
   payments: z.array(paymentSchema),
   modems: z.array(modemSchema),
+  technicianSlots: z.array(technicianSlotSchema),
 };
 
 /** A top-level list of the seed world, such as 'accounts': derived, so a new list is one too. */
@@ -202,6 +231,7 @@ export const seedWorldSchema = z
     reportDuplicates("payments", "reference", world.payments.map((p) => p.reference));
     // One modem per account, for the same reason as one balance.
     reportDuplicates("modems", "accountNumber", world.modems.map((m) => m.accountNumber));
+    reportDuplicates("technicianSlots", "id", world.technicianSlots.map((s) => s.id));
 
     const known = new Set(world.barangays.map((b) => b.id));
     world.accounts.forEach((account, index) => {
@@ -223,6 +253,15 @@ export const seedWorldSchema = z
           });
         }
       });
+    });
+    world.technicianSlots.forEach((slot, index) => {
+      if (!known.has(slot.barangayId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["technicianSlots", index, "barangayId"],
+          message: `technician slot ${slot.id} names unknown barangay "${slot.barangayId}"`,
+        });
+      }
     });
 
     const accountNumbers = new Set(world.accounts.map((a) => a.accountNumber));

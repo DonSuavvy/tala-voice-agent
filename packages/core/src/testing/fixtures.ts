@@ -116,6 +116,7 @@ export function testWorld(): SeedWorld {
       },
     ],
     modems: [],
+    technicianSlots: [],
   };
 }
 
