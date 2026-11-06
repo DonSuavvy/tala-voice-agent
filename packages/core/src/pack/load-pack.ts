@@ -27,7 +27,7 @@
  */
 import { z } from "zod";
 
-import { compileSop, placeholdersIn, sopPlaceholders } from "../agent/sop";
+import { compileSop, placeholdersIn, sopPlaceholders, strayBraces } from "../agent/sop";
 import {
   SUPPORT_POLICY_RENDERERS,
   supportPolicySchema,
@@ -60,6 +60,23 @@ function isValidLocale(tag: string): boolean {
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+// The loader's own checks go through zod like every other section: a hand-rolled
+// RegExp.test(undefined) tests the string "undefined", and a non-string body
+// would throw a TypeError instead of being listed.
+const idSchema = z.string().regex(ID_PATTERN, {
+  error: (issue) =>
+    `"${String(issue.input)}" is not a slug (lowercase letters, digits and single hyphens)`,
+});
+
+const sopSchema = z.object({
+  version: z.string().regex(VERSION_PATTERN, {
+    error: (issue) =>
+      `"${String(issue.input)}" must start with a letter or digit and use only ` +
+      `letters, digits, ".", "_" and "-"`,
+  }),
+  body: z.string().refine((body) => body.trim() !== "", { error: "the SOP body is blank" }),
+});
+
 export const companySchema = z
   .object({
     name: nonEmpty,
@@ -74,7 +91,7 @@ export const companySchema = z
 export type Company = z.infer<typeof companySchema>;
 
 export const personaSchema = z
-  .object({ agentName: nonEmpty, openingLine: nonEmpty, fallbackLine: nonEmpty })
+  .object({ openingLine: nonEmpty, fallbackLine: nonEmpty })
   .strict();
 export type Persona = z.infer<typeof personaSchema>;
 
@@ -153,18 +170,8 @@ function checkSection<S extends z.ZodType>(
 export function loadPack(source: PackSource): CompanyPack {
   const issues: string[] = [];
 
-  if (!ID_PATTERN.test(source.id)) {
-    issues.push(`id: "${source.id}" is not a slug (lowercase letters, digits and single hyphens)`);
-  }
-  if (!VERSION_PATTERN.test(source.sop.version)) {
-    issues.push(
-      `sop.version: "${source.sop.version}" must start with a letter or digit and use only ` +
-        `letters, digits, ".", "_" and "-"`,
-    );
-  }
-  if (source.sop.body.trim() === "") {
-    issues.push("sop.body: the SOP body is blank");
-  }
+  const id = checkSection("id", idSchema, source.id, issues);
+  const sop = checkSection("sop", sopSchema, source.sop, issues);
 
   const company = checkSection("company", companySchema, source.company, issues);
   const persona = checkSection("persona", personaSchema, source.persona, issues);
@@ -172,7 +179,7 @@ export function loadPack(source: PackSource): CompanyPack {
   const world = checkSection("world", seedWorldSchema, source.world, issues);
 
   const known = sopPlaceholders(SUPPORT_POLICY_RENDERERS);
-  for (const name of placeholdersIn(source.sop.body)) {
+  for (const name of sop ? placeholdersIn(sop.body) : []) {
     if (!known.includes(name)) {
       issues.push(
         `sop: unknown placeholder {{${name}}} (known: ${known.map((k) => `{{${k}}}`).join(", ")})`,
@@ -180,13 +187,19 @@ export function loadPack(source: PackSource): CompanyPack {
     }
   }
 
-  if (issues.length > 0 || !company || !persona || !policy || !world) {
-    throw new PackValidationError(source.id, issues);
+  if (sop && strayBraces(sop.body)) {
+    issues.push(
+      'sop: stray "{{" or "}}" outside a placeholder; check for a malformed placeholder',
+    );
+  }
+
+  if (issues.length > 0 || id === undefined || !sop || !company || !persona || !policy || !world) {
+    throw new PackValidationError(typeof source.id === "string" ? source.id : "(no id)", issues);
   }
 
   const pack = deepFreeze<CompanyPack>({
-    id: source.id,
-    sop: { version: source.sop.version, body: source.sop.body },
+    id,
+    sop: { version: sop.version, body: sop.body },
     company,
     persona,
     policy,

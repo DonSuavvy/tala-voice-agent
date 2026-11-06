@@ -78,7 +78,6 @@ export function testPackSource(): PackSource {
     sop: { version: "v7", body: TEST_SOP_BODY },
     company: { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH" },
     persona: {
-      agentName: "Tala",
       openingLine:
         "Hello po! Ako po si Tala, an AI assistant, at nire-record po ang call na ito.",
       fallbackLine: "Pasensya na po, may problema ang system. Tumawag po ulit mamaya.",

@@ -92,6 +92,16 @@ export function placeholdersIn(body: string): string[] {
   return [...names];
 }
 
+/**
+ * True when the body still has "{{" or "}}" once every well-formed placeholder
+ * is removed: a malformed placeholder (`{{name}`, `{{ two words }}`) that
+ * `compileSop` would pass to the model verbatim. Same grammar as the compiler.
+ */
+export function strayBraces(body: string): boolean {
+  const rest = body.replace(PLACEHOLDER, "");
+  return rest.includes("{{") || rest.includes("}}");
+}
+
 export interface CompileSopInput<P> {
   bodyMarkdown: string;
   policyConfig: P;
