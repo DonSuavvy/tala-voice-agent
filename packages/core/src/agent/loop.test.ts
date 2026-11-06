@@ -5,6 +5,7 @@ import { checkBudget, type BudgetConfig } from "./budget";
 import { rateCard, type RateCard } from "./cost";
 import {
   runAgentLoop,
+  SILENT_TURN_NOTICE,
   type AssistantTurn,
   type ContentBlock,
   type MessageCreator,
@@ -129,6 +130,21 @@ function tool(
   } as ToolDefinition;
 }
 
+/** The forced terminal tool, shaped like Tala's: it returns its own input. */
+function endCallTool() {
+  return tool("end_call", {
+    safetyClass: "auto_write",
+    terminal: true,
+    input: z.object({
+      action: z.string(),
+      credit_minor: z.number(),
+      reply: z.string(),
+      confidence: z.string(),
+    }),
+    handler: async (input) => input,
+  });
+}
+
 /** A registry mirroring the real safety-class mix, with handlers that work. */
 function testRegistry(
   over: {
@@ -152,17 +168,7 @@ function testRegistry(
           );
         }),
     }),
-    tool("end_call", {
-      safetyClass: "auto_write",
-      terminal: true,
-      input: z.object({
-        action: z.string(),
-        credit_minor: z.number(),
-        reply: z.string(),
-        confidence: z.string(),
-      }),
-      handler: async (input) => input,
-    }),
+    endCallTool(),
   ]);
 }
 
@@ -257,20 +263,56 @@ describe("runAgentLoop — reaching an outcome", () => {
   });
 
   /**
-   * A model that talks without acting is not done — every run has to end with
-   * a structured outcome. Without this the loop would exit on `end_turn` with
-   * `outcome: null` and the eval scorers would have nothing to score.
+   * On a call, a reply with no tool call is Tala speaking and then listening.
+   * OpsPilot nudged the model to keep going ("you have not finished"), because
+   * a ticket had no one to wait for. A caller is someone to wait for, so the
+   * loop hands the turn back and the call session waits for their next words.
+   *
+   * The nudge's purpose, that every run ends with a structured outcome the
+   * evals can score, moves up a level: a *call* ends only through `end_call`.
    */
-  it("keeps going when the model ends a turn without calling a tool", async () => {
-    const { input } = loopInput([
-      turn([{ type: "text", text: "Let me look into that." }]),
+  it("ends the turn as awaiting_caller when the model replies without a tool call", async () => {
+    const { input, client } = loopInput([
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
       resolveTurn(),
     ]);
 
     const result = await runAgentLoop(input);
 
-    expect(result.status).toBe("completed");
+    expect(result.status).toBe("awaiting_caller");
+    expect(result.outcome).toBeNull();
+    expect(result.iterations).toBe(1);
+    // The queued end_call turn is never requested: the caller speaks next.
+    expect(client.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the conversation ending on what Tala said, with nothing appended", async () => {
+    const { input } = loopInput([
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.messages).toEqual([
+      { role: "user", content: "Caller: where is my credit?" },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Ano po ang account number ninyo?" }],
+      },
+    ]);
+  });
+
+  it("runs the turn's tools first, then waits for the caller after the spoken reply", async () => {
+    const { input, client } = loopInput([
+      turn([toolUse("search_knowledge_base", { q: "modem lights" })]),
+      turn([{ type: "text", text: "Pakitingnan po ang PON light." }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("awaiting_caller");
     expect(result.iterations).toBe(2);
+    expect(client.create).toHaveBeenCalledTimes(2);
   });
 
   it("gives up after maxIterations rather than looping forever", async () => {
@@ -284,6 +326,248 @@ describe("runAgentLoop — reaching an outcome", () => {
     expect(result.status).toBe("failed");
     expect(result.iterations).toBe(12);
     expect(result.error).toMatch(/iteration/i);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* A silent turn                                                              */
+/* -------------------------------------------------------------------------- */
+
+describe("runAgentLoop — a silent turn", () => {
+  /**
+   * A turn with no tool call and nothing to say out loud is not a reply: the
+   * caller would hear dead air and then be expected to speak. So the loop
+   * tells the model and asks again, and a model that stays silent runs into
+   * the same cap as one that loops on tools.
+   */
+  it("gives up at the iteration cap when every turn is silent", async () => {
+    const turns = Array.from({ length: 12 }, () => turn([]));
+    const { input, client } = loopInput(turns);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("failed");
+    expect(result.iterations).toBe(12);
+    expect(client.create).toHaveBeenCalledTimes(12);
+    expect(result.error).toBe(
+      "agent loop: reached the 12-iteration cap without calling end_call",
+    );
+  });
+
+  /**
+   * The Messages API rejects an assistant message with empty content anywhere
+   * but last, so an empty turn kept in `messages` would fail the very next
+   * request. It was never sent back, so dropping it edits nothing the model
+   * has seen.
+   */
+  it("drops an empty turn, tells the model, and asks again", async () => {
+    const { input, client } = loopInput([
+      turn([]),
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("awaiting_caller");
+    expect(client.create).toHaveBeenCalledTimes(2);
+    expect(client.calls[1].messages).toEqual([
+      { role: "user", content: "Caller: where is my credit?" },
+      {
+        role: "user",
+        content:
+          "(The caller heard nothing. Answer them out loud, or call a tool.)",
+      },
+    ]);
+    expect(SILENT_TURN_NOTICE).toBe(
+      "(The caller heard nothing. Answer them out loud, or call a tool.)",
+    );
+  });
+
+  /**
+   * Thinking is not speech. A turn that only thought says nothing to the
+   * caller, and dropping it means its thinking block is never replayed.
+   */
+  /**
+   * Dropping the turn from the conversation does not unspend it: the model
+   * was called and billed, so the trace and the run's totals still show it.
+   */
+  it("still reports a silent turn's llm_call span and cost", async () => {
+    const { input, spans } = loopInput([
+      turn([]),
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(spans.map((s) => [s.type, s.costNanos])).toEqual([
+      ["llm_call", 60_000],
+      ["llm_call", 60_000],
+    ]);
+    expect(spans[0].output).toEqual({ stop_reason: "end_turn", blocks: [] });
+    expect(result.costNanos).toBe(120_000);
+    expect(result.usage).toEqual({
+      inputTokens: 20,
+      outputTokens: 20,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
+  });
+
+  it("treats a turn whose only text is whitespace as silent", async () => {
+    const { input, client } = loopInput([
+      turn([{ type: "text", text: "  " }]),
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("awaiting_caller");
+    expect(client.create).toHaveBeenCalledTimes(2);
+    expect(client.calls[1].messages).toEqual([
+      { role: "user", content: "Caller: where is my credit?" },
+      {
+        role: "user",
+        content:
+          "(The caller heard nothing. Answer them out loud, or call a tool.)",
+      },
+    ]);
+  });
+
+  it("treats a thinking-only turn as silent and never sends it back", async () => {
+    const { input, client } = loopInput([
+      turn([{ type: "thinking", thinking: "", signature: "s" }]),
+      turn([{ type: "text", text: "Ano po ang account number ninyo?" }]),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("awaiting_caller");
+    expect(client.create).toHaveBeenCalledTimes(2);
+    expect(client.calls[1].messages).toEqual([
+      { role: "user", content: "Caller: where is my credit?" },
+      {
+        role: "user",
+        content:
+          "(The caller heard nothing. Answer them out loud, or call a tool.)",
+      },
+    ]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The terminal tool stands alone                                             */
+/* -------------------------------------------------------------------------- */
+
+describe("runAgentLoop — the terminal tool stands alone", () => {
+  /**
+   * `end_call` decides the run's outcome, so nothing may run after it, and on
+   * a call nothing may run beside it either: a result the model never gets to
+   * relay is a result the caller never hears. Refusing it with is_error lets
+   * the model finish the other work, speak, and call it again on its own.
+   */
+  const ALONE =
+    "end_call must be called on its own, in a reply with no other tool " +
+    "calls, once the caller has heard everything else. Call it again in a " +
+    "later reply.";
+
+  const disposition = (action: string) => ({
+    action,
+    credit_minor: 0,
+    reply: "All set.",
+    confidence: "high",
+  });
+
+  it("runs the other tool, refuses the terminal call beside it, and completes on the next turn", async () => {
+    const { input, client } = loopInput([
+      turn([
+        toolUse("search_knowledge_base", { q: "outage" }, "toolu_search"),
+        toolUse("end_call", disposition("too_soon"), "toolu_end_early"),
+      ]),
+      resolveTurn("answered"),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("completed");
+    expect(client.create).toHaveBeenCalledTimes(2);
+    expect(result.iterations).toBe(2);
+    expect(result.outcome).toEqual(disposition("answered"));
+    expect(client.calls[1].messages.at(-1)).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_search",
+          content: '{"ok":"search_knowledge_base"}',
+        },
+        { type: "tool_result", tool_use_id: "toolu_end_early", content: ALONE, is_error: true },
+      ],
+    });
+  });
+
+  /** The reviewed defect: end_call first used to decide the run, then the read ran anyway. */
+  it("still runs a tool that follows a refused terminal call", async () => {
+    const { input, client, spans } = loopInput([
+      turn([
+        toolUse("end_call", disposition("too_soon"), "toolu_end_early"),
+        toolUse("search_knowledge_base", { q: "outage" }, "toolu_search"),
+      ]),
+      resolveTurn("answered"),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("completed");
+    expect(client.create).toHaveBeenCalledTimes(2);
+    expect(result.outcome).toEqual(disposition("answered"));
+    expect(client.calls[1].messages.at(-1)).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "toolu_end_early", content: ALONE, is_error: true },
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_search",
+          content: '{"ok":"search_knowledge_base"}',
+        },
+      ],
+    });
+    expect(
+      spans.filter((s) => s.type === "tool_exec").map((s) => [s.name, s.isError]),
+    ).toEqual([
+      ["end_call", true],
+      ["search_knowledge_base", false],
+      ["end_call", false],
+    ]);
+  });
+
+  it("refuses both terminal calls when one turn makes two", async () => {
+    const { input, client, spans } = loopInput([
+      turn([
+        toolUse("end_call", disposition("first"), "toolu_end_1"),
+        toolUse("end_call", disposition("second"), "toolu_end_2"),
+      ]),
+      resolveTurn("answered"),
+    ]);
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("completed");
+    expect(client.create).toHaveBeenCalledTimes(2);
+    expect(result.outcome).toEqual(disposition("answered"));
+    expect(client.calls[1].messages.at(-1)).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "toolu_end_1", content: ALONE, is_error: true },
+        { type: "tool_result", tool_use_id: "toolu_end_2", content: ALONE, is_error: true },
+      ],
+    });
+    expect(
+      spans.filter((s) => s.type === "tool_exec").map((s) => [s.name, s.isError]),
+    ).toEqual([
+      ["end_call", true],
+      ["end_call", true],
+      ["end_call", false],
+    ]);
   });
 });
 
@@ -838,6 +1122,41 @@ describe("runAgentLoop — tool execution", () => {
    * handler. A malformed argument must therefore be rejected at parse time and
    * reported back, never handed to the handler.
    */
+  /**
+   * verify_identity's attempt limit reads the call's failed attempts, checks
+   * them, then records one more. Two calls in one turn running concurrently
+   * could both read the same count and spend one attempt between them. The
+   * limit holds because the loop runs a turn's calls one at a time, in order,
+   * so this pins that: `a` waits longer than `b`, and still finishes first.
+   */
+  it("runs a turn's tool calls one at a time, in order", async () => {
+    const markers: string[] = [];
+    const slow = (name: string, ms: number) => async () => {
+      markers.push(`${name}:start`);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      markers.push(`${name}:end`);
+      return { ok: name };
+    };
+    const { input } = loopInput(
+      [
+        turn([toolUse("a", { q: "first" }), toolUse("b", { q: "second" })]),
+        resolveTurn(),
+      ],
+      {
+        registry: buildRegistry([
+          tool("a", { handler: slow("a", 20) }),
+          tool("b", { handler: slow("b", 1) }),
+          endCallTool(),
+        ]),
+      },
+    );
+
+    const result = await runAgentLoop(input);
+
+    expect(result.status).toBe("completed");
+    expect(markers).toEqual(["a:start", "a:end", "b:start", "b:end"]);
+  });
+
   it("rejects arguments that fail the Zod schema before the handler sees them", async () => {
     const handler = vi.fn(async () => ({ ok: true }));
     const { input } = loopInput(
@@ -912,9 +1231,12 @@ describe("runAgentLoop — trace and cost", () => {
    * from cache must cost less than the same run that did not.
    */
   it("prices cache reads separately from uncached input", async () => {
+    // The first turn calls a tool so the loop asks for a second one. It used
+    // to be an empty end_turn, which reached the second turn only through
+    // OpsPilot's "you have not finished" nudge (#5). An empty turn is now
+    // answered with SILENT_TURN_NOTICE, which is not what this test is about.
     const { input } = loopInput([
-      turn([], {
-        stop_reason: "end_turn",
+      turn([toolUse("search_knowledge_base", { q: "cached" })], {
         usage: usage({ input_tokens: 0, cache_read_input_tokens: 100 }),
       }),
       resolveTurn(),

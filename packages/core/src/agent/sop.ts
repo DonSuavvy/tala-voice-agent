@@ -81,6 +81,27 @@ export class UnknownPlaceholderError extends Error {
 /** `{{ anything.without.braces }}`, tolerant of surrounding whitespace. */
 const PLACEHOLDER = /\{\{\s*([^{}\s]+)\s*\}\}/g;
 
+/**
+ * The distinct placeholder names a body uses, in first-appearance order.
+ * Uses the same grammar as `compileSop`, so a boot check and the compiler can
+ * never disagree about what counts as a placeholder.
+ */
+export function placeholdersIn(body: string): string[] {
+  const names = new Set<string>();
+  for (const match of body.matchAll(PLACEHOLDER)) names.add(match[1]);
+  return [...names];
+}
+
+/**
+ * True when the body still has "{{" or "}}" once every well-formed placeholder
+ * is removed: a malformed placeholder (`{{name}`, `{{ two words }}`) that
+ * `compileSop` would pass to the model verbatim. Same grammar as the compiler.
+ */
+export function strayBraces(body: string): boolean {
+  const rest = body.replace(PLACEHOLDER, "");
+  return rest.includes("{{") || rest.includes("}}");
+}
+
 export interface CompileSopInput<P> {
   bodyMarkdown: string;
   policyConfig: P;

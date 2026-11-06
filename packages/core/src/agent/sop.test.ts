@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   compileSop,
   formatMoney,
+  placeholdersIn,
   sopPlaceholders,
+  strayBraces,
   UnknownPlaceholderError,
   type SopRenderers,
 } from "./sop";
@@ -153,6 +155,39 @@ describe("sopPlaceholders", () => {
       "credit.maxCredit",
       "outage.creditAfterHours",
     ]);
+  });
+});
+
+describe("placeholdersIn", () => {
+  it("lists each distinct placeholder once, in first-appearance order", () => {
+    expect(placeholdersIn("{{b.two}} then {{ a.one }} then {{b.two}} then {{c}}")).toEqual([
+      "b.two",
+      "a.one",
+      "c",
+    ]);
+  });
+
+  it("finds nothing in markdown without placeholders", () => {
+    expect(placeholdersIn("# Heading\n\nJust prose.")).toEqual([]);
+  });
+
+  /** One grammar: whatever compileSop would substitute, placeholdersIn reports. */
+  it("agrees with compileSop on what counts as a placeholder", () => {
+    const body = "{{ outage.creditAfterHours }} {{credit.maxCredit}} {not} {{}} {{a b}}";
+    expect(placeholdersIn(body)).toEqual(["outage.creditAfterHours", "credit.maxCredit"]);
+  });
+});
+
+describe("strayBraces", () => {
+  it("is true when a placeholder lacks a closing brace or has a space inside", () => {
+    expect(strayBraces("limit {{maxFailedVerificationAttempts} here")).toBe(true);
+    expect(strayBraces("limit {{ max attempts }} here")).toBe(true);
+    expect(strayBraces("closing only }} here")).toBe(true);
+  });
+
+  it("is false for well-formed placeholders, single braces and plain prose", () => {
+    expect(strayBraces("{{a.b}} and {{ c }} and {not} and plain")).toBe(false);
+    expect(strayBraces("")).toBe(false);
   });
 });
 

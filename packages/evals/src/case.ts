@@ -16,20 +16,15 @@
  */
 import { z } from "zod";
 
-import type { AgentLoopStatus } from "@tala/core";
+import { AGENT_LOOP_STATUSES } from "@tala/core";
 
 /**
- * Mirrors `AgentLoopStatus`. The `satisfies` below is what keeps the two in
- * step: adding a status to the loop without adding it here fails `tsc`, rather
- * than failing a case months later with "expected paused_for_approval".
+ * The loop's own list, not a copy of it. A copy guarded by `satisfies` let
+ * the loop gain `awaiting_caller` while this schema still rejected it, and
+ * `tsc` said nothing (Tala FAILURES entry 6). Re-exported for callers that
+ * imported it from here.
  */
-export const AGENT_LOOP_STATUSES = [
-  "completed",
-  "paused_for_approval",
-  "refused",
-  "failed",
-  "budget_refused",
-] as const satisfies readonly AgentLoopStatus[];
+export { AGENT_LOOP_STATUSES };
 
 /**
  * Every deterministic check a case can make. All optional — a case names the

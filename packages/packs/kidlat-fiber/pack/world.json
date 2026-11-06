@@ -1,0 +1,42 @@
+{
+  "barangays": [
+    { "id": "batasan-hills", "name": "Batasan Hills", "city": "Quezon City" },
+    { "id": "commonwealth", "name": "Commonwealth", "city": "Quezon City" },
+    { "id": "san-antonio", "name": "San Antonio", "city": "Pasig" }
+  ],
+  "accounts": [
+    {
+      "accountNumber": "8012345601",
+      "holderName": "Maria Santos",
+      "registeredMobile": "+639175550101",
+      "status": "active",
+      "planName": "Kidlat 300",
+      "barangayId": "batasan-hills"
+    },
+    {
+      "accountNumber": "8012345602",
+      "holderName": "Jose Dela Cruz",
+      "registeredMobile": "+639175550102",
+      "status": "active",
+      "planName": "Kidlat 100",
+      "barangayId": "commonwealth"
+    },
+    {
+      "accountNumber": "8012345603",
+      "holderName": "Ana Reyes",
+      "registeredMobile": "+639175550103",
+      "status": "active",
+      "planName": "Kidlat 500",
+      "barangayId": "san-antonio"
+    }
+  ],
+  "outages": [
+    {
+      "reference": "OUT-2026-0412",
+      "cause": "a fiber cable cut along Batasan Road during road works",
+      "barangayIds": ["batasan-hills"],
+      "startedMinutesBeforeCall": 150,
+      "restorationMinutesAfterCall": 240
+    }
+  ]
+}

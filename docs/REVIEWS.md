@@ -50,4 +50,88 @@ What this pass could not check, and why.
 
 ## Rounds
 
-None yet.
+## Round 1 — 2026-11-06 — ticket #5, the first text call
+
+**Question asked:** before the branch for #5 goes up for review, can a caller
+or the model get around the account gate, the verification limit, the
+opening disclosure or `end_call`; does the call session's event stream and
+conversation hold up against the real API's rules; and does what Claude reads
+(the SOP, tool descriptions) and what the docs claim match what the code does?
+
+**Headline:** no critical or high finding. Two medium: a silent model turn
+handed the caller dead air and would have broken the next request (R1-01, a
+regression this branch introduced), and the call's pin could not tell apart
+calls run under different policies (R1-02). 20 findings fixed, 1 rejected.
+The suite went from 479 to 524 tests.
+
+**Method:** two independent agents that had not written the code, run in
+parallel on `main...feat/first-text-call` at `1217553`.
+
+- **Code and security** (Opus): hunt for gate bypasses, limit overruns,
+  event-stream and history defects, loader holes, prototype-key lookups and
+  tautological tests. Every finding had to come with a probe (a Vitest test or
+  a tsx script, deleted afterwards) and its quoted output.
+- **Prompts and docs** (Sonnet): check the SOP and the tool descriptions
+  against the handlers, the persona lines for speech, and every claim in the
+  README, ADRs, glossary, FAILURES and commit messages against the code.
+
+The orchestrator did not act on a report as written. Each fix was built
+test-first by a fix lane (three in parallel on disjoint files, plus two
+lanes kept by the orchestrator). Every RED commit was proven to fail against
+the implementation at `HEAD` before its GREEN commit landed.
+
+### Findings ledger
+
+| ID | Severity | Finding | Where | Status |
+|---|---|---|---|---|
+| R1-01 | Medium | A turn with nothing to hear ended the caller's turn in silence, and its empty assistant message was replayed | `agent/loop.ts` | Fixed `3f4f0bb` `ebcde50` (FAILURES 7) |
+| R1-02 | Medium | The pin named pack, SOP version and logical model only: a policy edit left two different calls with identical pins | `call/session.ts` | Fixed `8c7b96d` `993f1d4` `b4a553b` |
+| R1-03 | Low | Tool calls beside `end_call` ran after the outcome, or their result was never heard | `agent/loop.ts`, SOP | Fixed `3f4f0bb` `ebcde50` `eff1705` (FAILURES 8) |
+| R1-04 | Low | Schema accepted any whitespace in the last 4 digits; the policy stripped only spaces, so correct digits spent an attempt | `policy/identity.ts` | Fixed `94eb7fb` `f97739b` (FAILURES 9) |
+| R1-05 | Low | Concurrent `verify_identity` calls exceeded the limit; the fix lane found two accounts could both be verified | `tools/verify-identity.ts` | Fixed `0600230` `69720ec` (FAILURES 9) |
+| R1-06 | Low | After the lock, `check_area_outage` told the model to verify again | `tools/check-area-outage.ts` | Fixed `ce64274` `38e407e` |
+| R1-07 | Low | A malformed placeholder (`{{x}`, `{{ x y }}`) loaded and reached the model verbatim | `agent/sop.ts`, `pack/load-pack.ts` | Fixed `8f386b4` `2394275` |
+| R1-08 | Low | One JSON syntax error in the Kidlat pack hid every other problem and named no file | `packs/kidlat-fiber/src/index.ts` | Fixed `2f9e2a2` `e0569d4` |
+| R1-09 | Low | The loader's own id, version and body checks passed `undefined` and threw TypeErrors | `pack/load-pack.ts` | Fixed `8f386b4` `2394275` |
+| R1-10 | Low | Unbounded outage offsets loaded, then failed mid-call with "Invalid time value" | `systems/seed-world.ts` | Fixed `95b055b` `eb91fb8` |
+| R1-11 | Low | A throwing event subscriber was booked as a failed, $0 model call; no `call_ended` | `call/session.ts` | Fixed `993f1d4` `b4a553b` (FAILURES 10) |
+| R1-12 | Low | The disposition summary accepted account and phone numbers it is told not to carry | `call/disposition.ts` | Fixed `34d590f` `0cfa1e5` |
+| R1-13 | Low | The live check compared the raw tool input, so a dashed account number failed a success | `scripts/verify-first-call.ts` | Fixed `669c7db` |
+| R1-14 | Low | The SOP's filler line, said without a tool call in the same reply, ended the turn | SOP v1 | Fixed `eff1705` |
+| R1-15 | Low | No guidance for speaking an outage reference or a time with its day and date | SOP v1 | Fixed `eff1705` |
+| R1-16 | Low | `account_status` returned with no instruction for a suspended or disconnected account | SOP v1 | Fixed `eff1705` |
+| R1-17 | Low | `verify_identity`'s description did not say a repeat call skips the digit check | `tools/verify-identity.ts` | Fixed `0600230` `69720ec` |
+| R1-18 | Low | `persona.agentName` was required and read by nothing | `pack/load-pack.ts` | Fixed `8f386b4` `2394275` |
+| R1-19 | Low | FAILURES 6 overstated, ADR 2 said "only data", README placed the workspace table under "Talk to Tala" and claimed an unmeasured cost | docs | Fixed in the docs commit |
+| R1-20 | Low | The glossary's "avoid" lists forbade words the code uses for the same concept (session, chat, area, customer) | `GLOSSARY.md` | Fixed in the docs commit |
+| R1-21 | — | `check_area_outage` promises "ongoing" outages, but only the seed guarantees it | `tools/check-area-outage.ts` | **Rejected**: see below |
+
+### Rejected
+
+**R1-21.** "Ongoing outages that include this barangay" is the contract of
+`NetworkOperations.outagesAffecting` (`systems/types.ts`), which every adapter
+implements; the handler relies on its port, as every handler does. The
+in-memory adapter satisfies it by construction: the seed schema requires
+outages to start before the call and end after it, now bounded at 30 days
+(R1-10). A real adapter that returned ended outages would be the adapter's
+bug, caught by its own tests, not something to re-filter in every tool.
+
+**Preferences, not findings** (recorded, deferred): the opening line ends on
+"for quality" and is four sentences; the fallback line is Tagalog for an
+English caller; spoken replies have no `max_tokens` cap below 8,192. The voice
+audition (#3), streaming (#6) and the cached phrases (#8) are where these get
+decided with audio.
+
+### Not verified
+
+- **No live API call has been made.** R1-01's 400 on an empty assistant
+  message is from the API's documented rule, not observed; the fix prevents
+  the message either way. Whether Opus 5.5 returns a one-sentence filler before
+  a tool call as text or as a progress-update thinking block is open, and
+  `npm run verify:first-call` prints each turn's block types to answer it.
+- **Per-account lockout across calls** does not exist: a caller gets 3 tries
+  per call, not per account. A design question for the demo's limits (#22).
+- **Server-side refusal fallback** is not wired. It needs cost accounting by
+  the model that actually served a turn, since a fallback turn is billed at
+  another model's rates; no ticket owns it yet.
+
