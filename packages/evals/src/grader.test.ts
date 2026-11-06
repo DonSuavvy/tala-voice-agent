@@ -188,6 +188,19 @@ describe("gradeTranscript: the request", () => {
     expect(system).not.toMatch(/English-led|Sandali lang|Salamat po/);
   });
 
+  /**
+   * Tone is graded against the style too. A tone of the grader's own, such as
+   * "warm" with "curt" as the worst, would mark down a pack that asks for brisk.
+   */
+  it("grades tone against the style, with no tone of its own", async () => {
+    const claude = scripted(reply([text(JSON.stringify(GRADE))]));
+    await grade(claude.create);
+
+    const ownTone = /warm|calm|curt|cold/i;
+    expect(claude.requests[0].system).not.toMatch(ownTone);
+    expect(GRADE_JSON_SCHEMA.properties.tone.description).not.toMatch(ownTone);
+  });
+
   /** Nothing to grade against is a reason, not a throw and not a paid call. */
   it("gives an SOP without a How you speak section as the reason there is no grade", async () => {
     const claude = scripted(reply([text(JSON.stringify(GRADE))]));

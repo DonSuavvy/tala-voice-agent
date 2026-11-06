@@ -452,3 +452,31 @@ runs after it passed, with the lines firing on both models.
 **Lesson:** a model behaviour that a required check depends on must be
 guaranteed in code. The eval then measures the model's own rate, and does not
 stand guard over it.
+
+## 15. An instruction to say less made Tala hang up without a goodbye — 2026-11-06
+
+**Severity: medium.** Caught before commit; it never reached main. Like
+FAILURES 11, it is what a caller hears as dead air, and as being hung up on.
+
+**Caught by:** live calls during the tone pass (#31): three extra scripted
+callers (English-only slow internet, Tagalog-heavy with a wrong digit, and
+annoyed) played through the call session, beside `verify:first-call`.
+
+The first brisk wording asked Tala to thank the caller once and lead with the
+next step. After terse caller lines, Sonnet 5.5 called `end_call` with no
+goodbye in 3 of 6 calls, and made 3 tool calls with no line before them.
+Main's SOP had done neither in 3 calls.
+
+**What made it dangerous:** the rule was about tone, not about speaking, and
+the check that ran on every change kept passing: `verify:first-call` passed 4
+of 4 throughout, because its scripted caller is not terse. A rule to say less
+was read as permission to say nothing.
+
+**Fix:** "Short never means silent" in the SOP's "How you speak", with an
+example for each moment (`d7f4b8b`): goodbyes in 5 of 5 calls, and a line
+before 15 of 16 tool calls. ADR 5's fixed lines, merged from main in
+`34c3928`, now cover the rest in code. The three callers lived in a scratchpad
+and were not kept (review round 4, R4-05).
+
+**Lesson:** an instruction to say less needs a check on what must still be
+said, run against terse callers too.

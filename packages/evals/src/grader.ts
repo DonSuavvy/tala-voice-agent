@@ -72,7 +72,9 @@ export const GRADE_JSON_SCHEMA = {
     tone: {
       type: "integer",
       enum: SCORES,
-      description: "Warm, calm and natural, from 1 (cold, curt or robotic) to 5.",
+      description:
+        "She sounds the way the company's style asks, and natural, " +
+        "from 1 (unlike the style, or robotic) to 5.",
     },
     taglish: {
       type: "integer",
@@ -130,7 +132,8 @@ function graderSystem(style: string): string {
     "</style>",
     "",
     "Score each from 1 (poor) to 5 (excellent), against that style:",
-    "- tone: warm, calm and natural, the way the style asks. 1 is cold, curt or robotic.",
+    "- tone: she sounds the way the style asks, and natural. 1 is unlike the style, " +
+      "or robotic.",
     "- taglish: her mix of English and Tagalog follows the style for this caller and " +
       "sounds natural. 1 is the wrong language for the caller, or mixing that sounds " +
       "unnatural.",
