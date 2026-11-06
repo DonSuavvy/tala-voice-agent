@@ -111,6 +111,13 @@ function validSeed() {
         },
       },
     ],
+    // A technician's visit windows, by the day after the call's local date
+    // and a local start hour: the morning after the call in Batasan Hills, an
+    // afternoon two days on in Commonwealth.
+    technicianSlots: [
+      { id: "batasan-hills-1", barangayId: "batasan-hills", daysAfterCall: 1, startHour: 9, lengthHours: 3 },
+      { id: "commonwealth-1", barangayId: "commonwealth", daysAfterCall: 2, startHour: 13, lengthHours: 4 },
+    ],
   };
 }
 
@@ -129,6 +136,7 @@ function renameBarangay(seed: ReturnType<typeof validSeed>, id: string) {
   seed.barangays[0].id = id;
   for (const a of seed.accounts) if (a.barangayId === old) a.barangayId = id;
   for (const o of seed.outages) o.barangayIds = o.barangayIds.map((b) => (b === old ? id : b));
+  for (const s of seed.technicianSlots) if (s.barangayId === old) s.barangayId = id;
 }
 
 describe("seedWorldSchema", () => {
@@ -181,6 +189,18 @@ describe("seedWorldSchema", () => {
     expect(seedWorldSchema.safeParse({ ...validSeed(), modems: [] }).success).toBe(true);
   });
 
+  it("accepts a world with no technician slots", () => {
+    expect(seedWorldSchema.safeParse({ ...validSeed(), technicianSlots: [] }).success).toBe(true);
+  });
+
+  it("rejects an unknown key inside a technician slot", () => {
+    const seed = validSeed();
+    (seed.technicianSlots[0] as Record<string, unknown>).extra = 1;
+    expect(seedWorldSchema.safeParse(seed).error?.issues.map((i) => i.path)).toEqual([
+      ["technicianSlots", 0],
+    ]);
+  });
+
   it("rejects an unknown key inside a modem and inside its state after a reboot", () => {
     const a = validSeed();
     (a.modems[0] as Record<string, unknown>).extra = 1;
@@ -203,6 +223,7 @@ describe("seedWorldSchema", () => {
       const seed = validSeed();
       seed.barangays[1].id = "batasan-hills";
       seed.accounts[1].barangayId = "batasan-hills";
+      seed.technicianSlots[1].barangayId = "batasan-hills";
       expect(paths(seed)).toEqual([["barangays", 1, "id"]]);
     });
 
@@ -292,6 +313,21 @@ describe("seedWorldSchema", () => {
       const result = seedWorldSchema.safeParse(seed);
       expect(result.error?.issues.map((i) => [i.path, i.message])).toEqual([
         [["modems", 1, "accountNumber"], 'modem names unknown account "9999999999"'],
+      ]);
+    });
+
+    it("flags a duplicate technician slot id at the later entry", () => {
+      const seed = validSeed();
+      seed.technicianSlots[1].id = "batasan-hills-1";
+      expect(paths(seed)).toEqual([["technicianSlots", 1, "id"]]);
+    });
+
+    it("flags a technician slot in an unknown barangay", () => {
+      const seed = validSeed();
+      seed.technicianSlots[1].barangayId = "payatas";
+      const result = seedWorldSchema.safeParse(seed);
+      expect(result.error?.issues.map((i) => [i.path, i.message])).toEqual([
+        [["technicianSlots", 1, "barangayId"], 'technician slot commonwealth-1 names unknown barangay "payatas"'],
       ]);
     });
   });
@@ -504,6 +540,59 @@ describe("seedWorldSchema", () => {
       over.modems[0].lastSeenMinutesBeforeCall = 43_201;
       expect(seedWorldSchema.safeParse(over).error?.issues.map((i) => i.path)).toEqual([
         ["modems", 0, "lastSeenMinutesBeforeCall"],
+      ]);
+    });
+  });
+
+  /**
+   * A slot is a day after the call's local date, a local start hour and a
+   * length, so its window reads the same whatever time the call starts.
+   */
+  describe("technician slot shape", () => {
+    const cases: Array<[string, (s: ReturnType<typeof validSeed>) => void, (string | number)[]]> = [
+      ["slot id not a slug", (s) => (s.technicianSlots[0].id = "Slot 1"), ["technicianSlots", 0, "id"]],
+      ["slot on the call's own date", (s) => (s.technicianSlots[0].daysAfterCall = 0), ["technicianSlots", 0, "daysAfterCall"]],
+      ["fractional day offset", (s) => (s.technicianSlots[0].daysAfterCall = 1.5), ["technicianSlots", 0, "daysAfterCall"]],
+      ["negative start hour", (s) => (s.technicianSlots[0].startHour = -1), ["technicianSlots", 0, "startHour"]],
+      ["start hour 24", (s) => (s.technicianSlots[0].startHour = 24), ["technicianSlots", 0, "startHour"]],
+      ["fractional start hour", (s) => (s.technicianSlots[0].startHour = 9.5), ["technicianSlots", 0, "startHour"]],
+      ["zero-hour window", (s) => (s.technicianSlots[0].lengthHours = 0), ["technicianSlots", 0, "lengthHours"]],
+      ["fractional length", (s) => (s.technicianSlots[0].lengthHours = 2.5), ["technicianSlots", 0, "lengthHours"]],
+      [
+        "window past midnight",
+        (s) => {
+          s.technicianSlots[0].startHour = 22;
+          s.technicianSlots[0].lengthHours = 3;
+        },
+        ["technicianSlots", 0, "lengthHours"],
+      ],
+    ];
+
+    it.each(cases)("rejects %s", (_name, mutate, path) => {
+      const seed = validSeed();
+      mutate(seed);
+      const result = seedWorldSchema.safeParse(seed);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues.map((i) => i.path)).toEqual([path]);
+    });
+
+    it("accepts a window that ends at midnight", () => {
+      const seed = validSeed();
+      seed.technicianSlots[0].startHour = 21;
+      seed.technicianSlots[0].lengthHours = 3;
+      expect(seedWorldSchema.safeParse(seed).success).toBe(true);
+    });
+
+    // 30 days, like the outages: an unbounded offset fails mid-call.
+    it("accepts a slot 30 days after the call's date and refuses 31", () => {
+      const atLimit = validSeed();
+      atLimit.technicianSlots[0].daysAfterCall = 30;
+      expect(seedWorldSchema.safeParse(atLimit).success).toBe(true);
+
+      const over = validSeed();
+      over.technicianSlots[0].daysAfterCall = 31;
+      expect(seedWorldSchema.safeParse(over).error?.issues.map((i) => i.path)).toEqual([
+        ["technicianSlots", 0, "daysAfterCall"],
       ]);
     });
   });
