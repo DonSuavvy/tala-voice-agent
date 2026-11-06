@@ -7,15 +7,11 @@
  * indistinguishable from a caching bug, so the failure gets debugged instead of
  * explained.
  *
- * Demo mode runs Haiku 4.5, whose floor is the highest of the three at 4096
- * tokens, so the SOP prefix is exactly the thing most likely to sit under it.
- *
- * Decided 2026-08-14: display the shortfall rather than padding the
- * constitution to clear the floor. The floor is not monotonic across models —
- * 512 / 1024 / 4096 on Opus 5 / Sonnet 5 / Haiku 4.5 — so a pad sized for Haiku
- * is pure noise on Opus, and padding that isn't genuine policy content is
- * theatre a reviewer can spot. If the SOP later grows past 4096 on its own the
- * cache starts hitting and the same display reports it, with no code change.
+ * OpsPilot ran Haiku 4.5, whose floor was 4096 tokens, and decided on
+ * 2026-08-14 to display the shortfall rather than pad its prompt to clear the
+ * floor: padding that isn't genuine policy content is theatre a reviewer can
+ * spot. On the 5.5 models every floor is 512, which Tala's SOP should clear
+ * easily; the honest display stays for the day a prompt does not.
  */
 import type { LogicalModel } from "./provider";
 import type { TokenUsage } from "./cost";
@@ -23,14 +19,15 @@ import type { TokenUsage } from "./cost";
 /**
  * The minimum cacheable prefix, per model, in tokens.
  *
- * Not monotonic across generations, which is why this is a lookup and not a
- * constant: a 3K-token prompt caches on Opus 5 and Sonnet 5 and silently does
- * not on Haiku 4.5.
+ * 512 on all three 5.5 models (prompt caching docs, checked 2026-11-06). Kept
+ * a lookup rather than a constant because the floor has not been monotonic
+ * across generations: on the models OpsPilot ran, a 3K-token prompt cached on
+ * Opus 5 and silently did not on Haiku 4.5, whose floor was 4096.
  */
 export const CACHE_MINIMUM_TOKENS: Readonly<Record<LogicalModel, number>> =
   Object.freeze({
-    haiku: 4096,
-    sonnet: 1024,
+    haiku: 512,
+    sonnet: 512,
     opus: 512,
   });
 

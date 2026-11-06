@@ -28,9 +28,9 @@ export type ProviderId = "anthropic";
 export type LogicalModel = "haiku" | "sonnet" | "opus";
 
 const FIRST_PARTY_ID: Readonly<Record<LogicalModel, ModelId>> = {
-  haiku: "claude-haiku-4-5",
-  sonnet: "claude-sonnet-5",
-  opus: "claude-opus-5",
+  haiku: "claude-haiku-5-5",
+  sonnet: "claude-sonnet-5-5",
+  opus: "claude-opus-5-5",
 };
 
 export interface Provider {
