@@ -59,6 +59,34 @@ describe("check_area_outage — the account gate", () => {
     );
   });
 
+  it("with an attempt still left, still tells the model to verify first", async () => {
+    const ctx = newContext();
+    const wrong = { accountNumber: MARIA.accountNumber, mobileLast4: "9999" };
+    await verifyAs(ctx, wrong);
+    await verifyAs(ctx, wrong);
+
+    await expect(checkOutage(ctx, MARIA.accountNumber)).rejects.toThrow(
+      "Refused: the caller has not been verified on this call. " +
+        "Verify them with verify_identity first.",
+    );
+  });
+
+  // verify_identity and the SOP both say "do not try again" once locked; this
+  // refusal must not send the model back to verify_identity.
+  it("once verification is locked, refuses without telling the model to verify again", async () => {
+    const ctx = newContext();
+    const wrong = { accountNumber: MARIA.accountNumber, mobileLast4: "9999" };
+    await verifyAs(ctx, wrong);
+    await verifyAs(ctx, wrong);
+    await verifyAs(ctx, wrong);
+
+    await expect(checkOutage(ctx, MARIA.accountNumber)).rejects.toThrow(
+      "Refused: verification is locked for this call, so no account can be checked. " +
+        "Do not call verify_identity again; tell the caller you cannot access the account " +
+        "on this call.",
+    );
+  });
+
   it("refuses any account but the one verified on this call", async () => {
     const ctx = newContext();
     await verifyAs(ctx, JOSE);
