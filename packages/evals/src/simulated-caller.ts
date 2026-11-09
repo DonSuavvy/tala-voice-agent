@@ -35,7 +35,7 @@ import {
 
 import type { EvalCase } from "./case";
 import { errorText } from "./error-text";
-import { priceUsage, type PricedUsage } from "./priced";
+import { priceTurn, type PricedUsage } from "./priced";
 
 /** The model that plays callers unless a run says otherwise (DESIGN section 11). */
 export const DEFAULT_CALLER_MODEL: LogicalModel = "sonnet";
@@ -173,7 +173,9 @@ export async function runSimulatedCall(options: SimulatedCallOptions): Promise<S
       return stop("caller_failed", `the simulated caller's model call failed: ${errorText(error)}`);
     }
 
-    callerCalls.push({ ...priceUsage(provider.rateCard(callerModel), reply.usage), isError: false });
+    // By the models that served the turn: the caller asks for server-side
+    // refusal fallback too, through the same streaming creator as Tala.
+    callerCalls.push({ ...priceTurn(provider, callerModel, reply), isError: false });
 
     // Before the content, as in Tala's loop: a refused turn is never said.
     if (reply.stop_reason === "refusal") {

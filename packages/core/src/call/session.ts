@@ -20,7 +20,9 @@
  *   here and in the tool context, never inferred from the conversation. The
  *   disposition carries it from the code, not from the model's say-so.
  * - **The pin.** Every call records the pack, SOP version and model it ran
- *   with, on its first and last events.
+ *   with, on its first and last events. The pin names the model requested;
+ *   a turn a server-side refusal fallback served says so on its llm_call
+ *   span (#35).
  * - **The conversation.** Append-only, as the 5.5 models' preserved thinking
  *   requires: nothing already sent is ever edited.
  * - **Streaming and interruption (#6).** Tala's words go out as
@@ -545,6 +547,9 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       createMessage: speakingCreator,
       model: pin.modelId,
       rates: provider.rateCard(model),
+      // A turn is priced by the model that served it, which a server-side
+      // refusal fallback can make other than the one pinned.
+      rateCardFor: (modelId) => provider.rateCardForModelId(modelId),
       system,
       messages: [...history, { role: "user", content: words }],
       toolContext: {

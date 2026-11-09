@@ -50,6 +50,11 @@ The fixed apology Tala says when a call has to end for any reason other than
 the call reaching its disposition.
 _Avoid_: error message
 
+**Refusal fallback**:
+The API re-running a turn a safety classifier declined on another model,
+inside the same call (#35).
+_Avoid_: fallback (alone)
+
 **Filler line**:
 The fixed short line Tala says when she starts a check without having said
 anything, so the caller is never left in silence.

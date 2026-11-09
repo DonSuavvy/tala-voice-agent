@@ -30,7 +30,9 @@
  * in the conversation stays, and every tool call not run is answered "Not
  * run". A model call the abort cut off mid-stream is booked at no less than
  * its estimate, because its usage undercounts; one that had already returned
- * when the abort landed is booked exactly. What it does not own:
+ * when the abort landed is booked exactly. A turn a server-side refusal
+ * fallback served is priced by the models that served it and recorded on its
+ * llm_call span with who declined and who served. What it does not own:
  * the database, HTTP, the wall clock, or pricing. Those arrive as arguments,
  * which is what keeps this testable without a database and deterministic in
  * the eval suite.
@@ -38,10 +40,12 @@
 import { checkBudget, type BudgetConfig, type BudgetRefusal } from "./budget";
 import type { SystemBlock } from "./cache";
 import {
-  costOf,
+  costOfTurn,
   type CacheTtl,
   type RateCard,
+  type RateCardFor,
   type TokenUsage,
+  type TurnUsage,
 } from "./cost";
 import {
   ToolRegistryError,
@@ -83,6 +87,24 @@ export type ContentBlock =
   | ToolResultBlock
   | { type: string; [key: string]: unknown };
 
+/**
+ * Where a server-side refusal fallback took over a turn: `from` declined,
+ * and `to` wrote what follows. One per switch, in `content` where it
+ * happened. It goes back to the API where it came, as every block does: the
+ * server validates the turn against it.
+ */
+export type FallbackBlock = {
+  type: "fallback";
+  from: { model: string };
+  to: { model: string };
+};
+
+function isFallbackBlock(block: ContentBlock): block is FallbackBlock {
+  if (block.type !== "fallback") return false;
+  const { from, to } = block as { from?: { model?: unknown }; to?: { model?: unknown } };
+  return typeof from?.model === "string" && typeof to?.model === "string";
+}
+
 export interface MessageParam {
   role: "user" | "assistant";
   content: string | ContentBlock[];
@@ -107,12 +129,14 @@ export interface AssistantTurn {
    * signal. `if (stop_details)` is the wrong test and misses refusals.
    */
   stop_details?: { type: string; category?: string | null } | null;
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_creation_input_tokens?: number | null;
-    cache_read_input_tokens?: number | null;
-  };
+  /**
+   * The model that produced the message, which a server-side refusal
+   * fallback can make a different one from the model requested. A turn
+   * without it (a scripted one) is priced as the requested model's.
+   */
+  model?: string;
+  /** As the SDK reports it; `usage.iterations`, when present, is what cost is priced from. */
+  usage: TurnUsage;
 }
 
 export interface MessageCreateParams {
@@ -154,6 +178,24 @@ export type MessageCreator = (
 export type SpanType = "llm_call" | "tool_exec" | "guardrail" | "approval_wait";
 
 /**
+ * A turn a server-side refusal fallback served, as its `llm_call` span's
+ * output records it under `fallback`. Absent on a turn the requested model
+ * served.
+ */
+export interface FallbackRecord {
+  /** The model the request named: the call's pinned model. */
+  requested: string;
+  /**
+   * Each model that ran and declined this turn, in order: the `from` of
+   * every `fallback` block. Empty on a sticky turn, which the API sent
+   * straight to the fallback model, so nothing declined.
+   */
+  declined: string[];
+  /** The model that produced the message. On a whole-chain refusal, the last to refuse. */
+  servedBy: string;
+}
+
+/**
  * One row of the flight recorder. Emitted as it happens rather than collected
  * at the end, so a live view and a database writer can share one code path,
  * and a run that dies halfway still has its spans.
@@ -183,7 +225,16 @@ export interface AgentLoopInput<C extends ToolContext = ToolContext> {
   createMessage: MessageCreator;
   /** The provider's wire id. Logical names are resolved in provider.ts. */
   model: string;
+  /** The requested model's card, for the spend pre-flight. */
   rates: RateCard;
+  /**
+   * The card for a model a turn says served it, by wire id: the provider's
+   * `rateCardForModelId`. A turn is priced by the model(s) that served it,
+   * which a refusal fallback makes more than the one requested. Which card a
+   * model with none of its own gets is the provider's decision, not the
+   * loop's (`costOfTurn`).
+   */
+  rateCardFor: RateCardFor;
   /** Pass `cachedSystem(prompt)` to mark the prefix cacheable. */
   system: string | SystemBlock[];
   messages: MessageParam[];
@@ -358,15 +409,6 @@ const EMPTY_TURN_USAGE: AssistantTurn["usage"] = {
   cache_read_input_tokens: 0,
 };
 
-function toTokenUsage(u: AssistantTurn["usage"]): TokenUsage {
-  return {
-    inputTokens: u.input_tokens,
-    outputTokens: u.output_tokens,
-    cacheCreationInputTokens: u.cache_creation_input_tokens ?? 0,
-    cacheReadInputTokens: u.cache_read_input_tokens ?? 0,
-  };
-}
-
 function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return {
     inputTokens: a.inputTokens + b.inputTokens,
@@ -374,6 +416,26 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
     cacheCreationInputTokens:
       a.cacheCreationInputTokens + b.cacheCreationInputTokens,
     cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+  };
+}
+
+/**
+ * Whether a server-side refusal fallback served this turn, and how.
+ *
+ * The served-by signal is a `fallback_message` entry in `usage.iterations`,
+ * not the block: a sticky turn has none (claude-api skill, refusal section).
+ * The blocks name who declined. A turn the caller cut before its `fallback`
+ * block came, which has neither, records nothing here; its cost is still
+ * priced at the model that was writing.
+ */
+function fallbackOf(turn: AssistantTurn, requested: string): FallbackRecord | null {
+  const switches = turn.content.filter(isFallbackBlock);
+  const serving = (turn.usage.iterations ?? []).find((a) => a.type === "fallback_message");
+  if (switches.length === 0 && serving === undefined) return null;
+  return {
+    requested,
+    declined: switches.map((block) => block.from.model),
+    servedBy: switches.at(-1)?.to.model ?? turn.model ?? serving?.model ?? requested,
   };
 }
 
@@ -418,6 +480,7 @@ export async function runAgentLoop<C extends ToolContext>(
     createMessage,
     model,
     rates,
+    rateCardFor,
     system,
     toolContext,
     budget,
@@ -655,8 +718,15 @@ export async function runAgentLoop<C extends ToolContext>(
         return { ...base(), status: "failed", error: errorText(error) };
       }
 
-      const turnUsage = toTokenUsage(assistant.usage);
-      const cost = costOf(rates, turnUsage, { cacheTtl: input.cacheTtl });
+      // Priced by the model(s) that served the turn, which a server-side
+      // refusal fallback can make other than the one requested.
+      const cost = costOfTurn(
+        assistant.usage,
+        { requested: model, servedBy: assistant.model ?? null },
+        rateCardFor,
+        { cacheTtl: input.cacheTtl },
+      );
+      const turnUsage = cost.usage;
       const cutShort = assistant.stop_reason === "interrupted";
       // A turn the caller cut short reports only what had streamed by then,
       // which undercounts its output. The pre-flight estimate is the floor,
@@ -670,6 +740,9 @@ export async function runAgentLoop<C extends ToolContext>(
       accruedNanos += callNanos;
       estimated = estimated || callEstimated;
 
+      // The span keeps the requested model's name, as the pin does. On a turn
+      // a refusal fallback served, who declined and who served go in its output.
+      const fallback = fallbackOf(assistant, model);
       await span({
         type: "llm_call",
         name: model,
@@ -677,6 +750,7 @@ export async function runAgentLoop<C extends ToolContext>(
         output: {
           stop_reason: assistant.stop_reason,
           blocks: assistant.content.map((b) => b.type),
+          ...(fallback ? { fallback } : {}),
         },
         isError: false,
         usage: turnUsage,
