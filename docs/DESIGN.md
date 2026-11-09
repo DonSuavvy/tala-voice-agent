@@ -170,7 +170,7 @@ Tala has 17 tools, all against the mock systems in the company pack. Each tool d
 
 | Profile | STT | TTS | Used for |
 |---|---|---|---|
-| `local` | ElevenLabs Scribe v2 Realtime | ElevenLabs Flash v2.5, with a designed Tala voice | your computer, the demo video |
+| `local` | ElevenLabs Scribe v2 Realtime | ElevenLabs Flash v2.5, with a designed Tala voice and `fil` (ADR 6) | your computer, the demo video |
 | `public` | Gemini Transcribe Live (free tier) | Gemini TTS (free tier) | the public demo |
 
 - **Switching:** profiles change by config. ElevenLabs is never called from cloud servers, to protect the free account.

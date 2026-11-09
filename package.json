@@ -17,6 +17,7 @@
     "chat": "tsx scripts/chat.ts",
     "eval": "tsx scripts/eval.ts",
     "eval:diff": "tsx scripts/eval-diff.ts",
+    "audition": "tsx scripts/voice-audition.ts",
     "verify:first-call": "tsx scripts/verify-first-call.ts"
   },
   "devDependencies": {

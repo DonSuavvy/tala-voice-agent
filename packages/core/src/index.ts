@@ -34,3 +34,4 @@ export * from "./agent/sop";
 export * from "./agent/sop-draft";
 export * from "./agent/streaming";
 export * from "./agent/trace";
+export * from "./voice/spoken-digits";
