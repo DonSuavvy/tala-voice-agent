@@ -41,9 +41,13 @@ import {
 const OUTPUT_ROOT = "voice-audition";
 const SUBSCRIPTION_URL = "https://api.elevenlabs.io/v1/user/subscription";
 
-/** The credit counter lags; how long to wait for it to catch up. */
+/**
+ * The credit counter lags by seconds, and polling it every 2 s got the run
+ * rate-limited (429) on 2026-11-09, so it is read every 5 s and a failed read
+ * never ends the run: the clips are the deliverable, the count is a bonus.
+ */
 const COUNTER_WAIT_MS = 30_000;
-const COUNTER_POLL_MS = 2_000;
+const COUNTER_POLL_MS = 5_000;
 
 interface Voice {
   label: string;
@@ -106,18 +110,39 @@ async function creditCount(apiKey: string): Promise<number> {
   return (JSON.parse(text) as { character_count: number }).character_count;
 }
 
-/** Re-reads the lagging counter until it reaches `target` or stops moving. */
-async function settledCount(apiKey: string, before: number, target: number): Promise<number> {
-  const deadline = performance.now() + COUNTER_WAIT_MS;
-  let count = await creditCount(apiKey);
-  while (count < target && performance.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, COUNTER_POLL_MS));
-    count = await creditCount(apiKey);
+async function tryCreditCount(apiKey: string): Promise<number | null> {
+  try {
+    return await creditCount(apiKey);
+  } catch (error) {
+    console.log(`   (${error instanceof Error ? error.message : String(error)})`);
+    return null;
   }
-  return Math.max(count, before);
+}
+
+/**
+ * Re-reads the lagging counter until it reaches `target` or the wait runs
+ * out. Null when no read succeeded, so the report says "not measured" rather
+ * than inventing a number.
+ */
+async function settledCount(apiKey: string, target: number): Promise<number | null> {
+  const deadline = performance.now() + COUNTER_WAIT_MS;
+  let count = await tryCreditCount(apiKey);
+  while ((count === null || count < target) && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, COUNTER_POLL_MS));
+    count = (await tryCreditCount(apiKey)) ?? count;
+  }
+  return count;
 }
 
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+interface SttResult {
+  file: string;
+  /** Null when the counter did not move within the wait. */
+  credits: number | null;
+  seconds: number | null;
+  transcript: string;
+}
 
 interface Render {
   firstAudioMs: number | null;
@@ -169,8 +194,8 @@ async function main(): Promise<void> {
   const runDir = join(OUTPUT_ROOT, new Date().toISOString().replace(/[:.]/g, "-"));
   mkdirSync(runDir, { recursive: true });
 
-  const before = await creditCount(apiKey);
-  console.log(`credits used this month before the run: ${before}`);
+  const before = await tryCreditCount(apiKey);
+  console.log(`credits used this month before the run: ${before ?? "unknown"}`);
 
   const rows: AuditionRow[] = [];
   for (const voice of options.voices) {
@@ -199,9 +224,40 @@ async function main(): Promise<void> {
 
   const rendered = rows.filter((row) => !row.failure);
   const expected = rendered.reduce((sum, row) => sum + row.expectedCredits, 0);
-  const afterTts = await settledCount(apiKey, before, before + expected);
+  const failures = rows.filter((row) => row.failure);
 
-  let stt: { file: string; credits: number; seconds: number | null; transcript: string } | null = null;
+  let afterTts: number | null = null;
+  let stt: SttResult | null = null;
+
+  const report = (): string =>
+    [
+      `# Voice audition, ${runDir}`,
+      "",
+      resultsTable(rows),
+      "",
+      before !== null && afterTts !== null
+        ? `Text to speech: ${afterTts - before} credits measured on the account, ${expected} expected ` +
+          `from ${rendered.length} clips at half a credit a character.`
+        : `Text to speech: ${expected} credits expected from ${rendered.length} clips; not measured on the account.`,
+      stt
+        ? `Speech to text: ${stt.credits === null ? "the credit counter did not move within 30 s" : `${stt.credits} credits`} ` +
+          `for ${stt.seconds ?? "?"} s of audio (${stt.file}). Transcript: "${stt.transcript}"`
+        : "Speech to text: not measured.",
+      failures.length > 0
+        ? `Failures: ${failures.length}. ${[...new Set(failures.map((row) => row.failure?.kind))].join(", ")}.`
+        : "Failures: none. No unusual-activity flag on this connection.",
+      "",
+    ].join("\n");
+  const save = (): void => {
+    writeFileSync(join(runDir, "results.md"), report());
+    writeFileSync(join(runDir, "results.json"), JSON.stringify({ rows, stt, before, afterTts }, null, 2));
+  };
+
+  // Saved before any counter reads, so nothing after this can lose the table.
+  save();
+
+  if (before !== null) afterTts = await settledCount(apiKey, before + expected);
+
   const sample = rendered.find((row) => row.line === "disclosure") ?? rendered[0];
   if (options.stt && sample?.file) {
     const audio = readFileSync(join(runDir, sample.file));
@@ -210,11 +266,13 @@ async function main(): Promise<void> {
     const text = await response.text();
     if (response.ok) {
       const result = JSON.parse(text) as { text: string; audio_duration_secs?: number };
-      // Any movement means the charge landed; wait for at least one credit.
-      const afterStt = await settledCount(apiKey, afterTts, afterTts + 1);
+      // Any movement means the charge landed. On 2026-11-09 it did not move
+      // at all within 30 s, so "did not move" is reported, never "0 credits".
+      const afterStt = afterTts === null ? null : await settledCount(apiKey, afterTts + 1);
       stt = {
         file: sample.file,
-        credits: afterStt - afterTts,
+        credits:
+          afterTts !== null && afterStt !== null && afterStt > afterTts ? afterStt - afterTts : null,
         seconds: result.audio_duration_secs ?? null,
         transcript: result.text,
       };
@@ -224,27 +282,8 @@ async function main(): Promise<void> {
     }
   }
 
-  const failures = rows.filter((row) => row.failure);
-  const report = [
-    `# Voice audition, ${new Date().toISOString()}`,
-    "",
-    resultsTable(rows),
-    "",
-    `Text to speech: ${afterTts - before} credits measured on the account, ${expected} expected ` +
-      `from ${rendered.length} clips at half a credit a character.`,
-    stt
-      ? `Speech to text: ${stt.credits} credits for ${stt.seconds ?? "?"} s of audio (${stt.file}). ` +
-        `Transcript: "${stt.transcript}"`
-      : "Speech to text: not measured.",
-    failures.length > 0
-      ? `Failures: ${failures.length}. ${[...new Set(failures.map((row) => row.failure?.kind))].join(", ")}.`
-      : "Failures: none. No unusual-activity flag on this connection.",
-    "",
-  ].join("\n");
-
-  writeFileSync(join(runDir, "results.md"), report);
-  writeFileSync(join(runDir, "results.json"), JSON.stringify({ rows, stt, before, afterTts }, null, 2));
-  console.log(`\n${report}`);
+  save();
+  console.log(`\n${report()}`);
   console.log(`clips and results are in ${runDir}/`);
 }
 
