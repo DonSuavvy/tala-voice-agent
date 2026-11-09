@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# voice audition output (#3): generated audio is never committed
+/voice-audition/
