@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
+import { spokenDigits } from "@tala/core";
 import { loadKidlatFiber } from "@tala/kidlat-fiber";
 import {
   auditionLines,
@@ -202,7 +203,9 @@ async function main(): Promise<void> {
     console.log(`\n${voice.label} (${voice.id})`);
     for (const line of lines) {
       for (const language of options.languages) {
-        const result = await render(apiKey, voice.id, line.text, language);
+        // What a caller would hear: long numbers digit by digit.
+        const spoken = spokenDigits(line.text);
+        const result = await render(apiKey, voice.id, spoken, language);
         const file = result.audio ? `${slug(voice.label)}-${line.id}-${language}.mp3` : null;
         if (file && result.audio) writeFileSync(join(runDir, file), result.audio);
 
@@ -210,8 +213,8 @@ async function main(): Promise<void> {
           voice: voice.label,
           line: line.id,
           language,
-          chars: line.text.length,
-          expectedCredits: expectedTtsCredits(line.text),
+          chars: spoken.length,
+          expectedCredits: expectedTtsCredits(spoken),
           firstAudioMs: result.firstAudioMs,
           file,
           failure: result.failure,
