@@ -9,7 +9,7 @@ import { z } from "zod";
 import { attemptsRemaining, checkAccountAccess, normalizeAccountNumber } from "../policy/identity";
 
 import { defineTalaTool } from "./context";
-import { formatLocalTime } from "./format-time";
+import { formatLocalTime, roundUpToQuarterHour } from "./format-time";
 
 export const checkAreaOutage = defineTalaTool({
   name: "check_area_outage",
@@ -65,7 +65,7 @@ export const checkAreaOutage = defineTalaTool({
         estimated_restoration:
           outage.estimatedRestorationAt === null
             ? null
-            : formatLocalTime(outage.estimatedRestorationAt, company),
+            : formatLocalTime(roundUpToQuarterHour(outage.estimatedRestorationAt), company),
       })),
     };
   },

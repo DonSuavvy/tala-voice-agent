@@ -28,3 +28,17 @@ export function formatLocalTime(date: Date, company: { timeZone: string; locale:
     .format(date)
     .replace(NO_BREAK_SPACES, " ");
 }
+
+const QUARTER_HOUR_MS = 15 * 60 * 1000;
+
+/**
+ * The first quarter-hour mark at or after `instant`; one already on a quarter
+ * hour (to the millisecond) is returned as it is.
+ *
+ * It works on the UTC instant. That is right in any time zone, because every
+ * real UTC offset is a whole multiple of 15 minutes, so a quarter hour in UTC
+ * is a quarter hour on the local clock too.
+ */
+export function roundUpToQuarterHour(instant: Date): Date {
+  return new Date(Math.ceil(instant.getTime() / QUARTER_HOUR_MS) * QUARTER_HOUR_MS);
+}

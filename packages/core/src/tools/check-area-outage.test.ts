@@ -155,3 +155,60 @@ describe("check_area_outage — the verified caller's area", () => {
     });
   });
 });
+
+/** The result shape the handler returns, which the tool type leaves as unknown. */
+interface OutageResult {
+  checked_at: string;
+  outages: { started: string; estimated_restoration: string | null }[];
+}
+
+/**
+ * The model says a restoration time aloud and rounds it itself, sometimes down,
+ * which promises service back earlier than estimated (#36). The tool rounds it
+ * up to the next quarter hour so the model only reads it out. The call starts
+ * at 1:00 PM Manila, so 461 minutes after it is 8:41 PM.
+ */
+describe("check_area_outage — restoration times are rounded up to the quarter hour", () => {
+  async function restorationFor(minutesAfterCall: number | null): Promise<string | null> {
+    const world = testWorld();
+    world.outages[0].restorationMinutesAfterCall = minutesAfterCall;
+    const ctx = newContext(world);
+    await verifyAs(ctx, MARIA);
+    const result = (await checkOutage(ctx, MARIA.accountNumber)) as OutageResult;
+    return result.outages[0].estimated_restoration;
+  }
+
+  it("says an estimate of 8:41 PM as 8:45 PM", async () => {
+    expect(await restorationFor(461)).toBe("Fri, Nov 6, 8:45 PM");
+  });
+
+  it("says an estimate of 10:47 PM as 11:00 PM", async () => {
+    expect(await restorationFor(587)).toBe("Fri, Nov 6, 11:00 PM");
+  });
+
+  it("leaves an estimate already on a quarter hour alone", async () => {
+    expect(await restorationFor(450)).toBe("Fri, Nov 6, 8:30 PM");
+  });
+
+  it("carries 11:50 PM to 12:00 AM on the next day, with that day's weekday and date", async () => {
+    expect(await restorationFor(650)).toBe("Sat, Nov 7, 12:00 AM");
+  });
+
+  it("keeps no estimate as null", async () => {
+    expect(await restorationFor(null)).toBeNull();
+  });
+
+  it("rounds only the estimate, not when the outage started or when it was checked", async () => {
+    const world = testWorld();
+    world.outages[0].startedMinutesBeforeCall = 143;
+    world.outages[0].restorationMinutesAfterCall = 461;
+    const ctx = { ...newContext(world), now: new Date("2026-11-06T05:07:00Z") };
+    await verifyAs(ctx, MARIA);
+
+    const result = (await checkOutage(ctx, MARIA.accountNumber)) as OutageResult;
+
+    expect(result.checked_at).toBe("Fri, Nov 6, 1:07 PM");
+    expect(result.outages[0].started).toBe("Fri, Nov 6, 10:37 AM");
+    expect(result.outages[0].estimated_restoration).toBe("Fri, Nov 6, 8:45 PM");
+  });
+});
