@@ -480,3 +480,34 @@ and were not kept (review round 4, R4-05).
 
 **Lesson:** an instruction to say less needs a check on what must still be
 said, run against terse callers too.
+
+## 18. Masking missed numbers in comma groups, and numbers split across streamed speech — 2026-11-06
+
+**Severity: medium (caught before merge).** Eval reports are committed to a
+public repo and the eval runner's log is public in CI, so an unmasked number
+there is published.
+
+**Caught by:** review round 7 (Spec), by trying spellings against
+`maskNumbers` and reading the SSE boundary.
+
+The first masking treated only spaces, dots, hyphens and plus signs as
+separators between digits. `801, 234, 5602` stayed unmasked, and that is how
+Tala reads digits aloud; the SOP tells her to give numbers "in small groups".
+So did `(0917) 555 0101`, an en dash from speech-to-text, slashes and line
+breaks. Separately, the SSE stream masked each frame alone, while Tala's
+words stream as `speech_delta` pieces: a number split across two pieces
+passed unmasked in both.
+
+**What made it dangerous:** the acceptance test passed. It searched for leaks
+after removing the same separators the masking removed, so anything the
+masking missed, the test missed too; and its scripted model sends no deltas.
+
+**Fix:** up to three separators between digits from a wider set (any
+whitespace, `. , + - / ( )`, en and em dashes), RED `cd611ff`, GREEN
+`334da64`. No `speech_delta` crosses SSE, only whole masked lines (RED
+`878025c`, GREEN `df1f690`). The acceptance test now removes every non-digit
+before searching and checks the local `09...` form and payment references
+too; it fails 2 of 4 against the old masking (`174fd1c`).
+
+**Lesson:** a test for a filter must not share the filter's idea of what to
+look for.

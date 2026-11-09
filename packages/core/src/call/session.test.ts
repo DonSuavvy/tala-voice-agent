@@ -515,6 +515,55 @@ describe("a call session — the account gate", () => {
     expect(result.is_error).toBe(true);
     expect(result.content).toMatch(/different account/);
   });
+
+  /**
+   * Scenario 5: "my neighbor's balance" reaches the code and is refused there,
+   * as a tool span the console can flag, not only by the model declining.
+   */
+  it("refuses the balance of any account but the one verified on this call", async () => {
+    const { session, claude, events } = newCall([
+      turn([verify(JOSE)]),
+      turn([toolUse("get_account_overview", { account_number: MARIA.accountNumber })]),
+      turn([text("Sorry po, I can only check the account verified on this call.")]),
+    ]);
+    session.start();
+
+    await session.callerSaid("Pa-check din po ng balance ng kapitbahay ko.");
+
+    const [result] = toolResultsIn(claude.requests[2]);
+    expect(result.is_error).toBe(true);
+    expect(result.content).toMatch(/different account/);
+    const overviewSpans = events.flatMap((e) =>
+      e.type === "span" && e.span.name === "get_account_overview" ? [e.span] : [],
+    );
+    expect(overviewSpans).toHaveLength(1);
+    expect(overviewSpans[0]).toMatchObject({ type: "tool_exec", isError: true });
+  });
+
+  /**
+   * Issue #10: send_sms refuses any number other than the one on file. The
+   * model names a number anyway; the call refuses the input before the tool
+   * runs, so nothing is sent (the handler's own tests read the outbox).
+   */
+  it("refuses a text the model tries to send to a number of its choosing", async () => {
+    const { session, claude, events } = newCall([
+      turn([verify(JOSE)]),
+      turn([toolUse("send_sms", { message: "Your ticket is TKT-2026-00001.", to: "+639990000000" })]),
+      turn([text("Sorry po, I can only text the mobile number registered on your account.")]),
+    ]);
+    session.start();
+
+    await session.callerSaid("Pa-text na lang po sa ibang number ko.");
+
+    const [result] = toolResultsIn(claude.requests[2]);
+    expect(result.is_error).toBe(true);
+    expect(result.content).toMatch(/invalid arguments for send_sms: .*"to"/);
+    const smsSpans = events.flatMap((e) =>
+      e.type === "span" && e.span.name === "send_sms" ? [e.span] : [],
+    );
+    expect(smsSpans).toHaveLength(1);
+    expect(smsSpans[0]).toMatchObject({ type: "tool_exec", isError: true });
+  });
 });
 
 /* -------------------------------------------------------------------------- */

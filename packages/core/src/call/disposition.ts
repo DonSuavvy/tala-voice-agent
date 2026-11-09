@@ -14,6 +14,8 @@
  */
 import { z } from "zod";
 
+import { hasAccountOrPhoneNumber } from "../policy/masking";
+
 export const DISPOSITION_OUTCOMES = ["resolved", "unresolved"] as const;
 
 export const DISPOSITION_TOPICS = [
@@ -25,19 +27,6 @@ export const DISPOSITION_TOPICS = [
   "account_access",
   "other",
 ] as const;
-
-/**
- * True when the text holds a run of 10 or more digits once the spaces, dots,
- * hyphens and plus signs between digits are removed: a 10-digit account number
- * or a PH mobile in any common spacing. Short numbers and the outage reference
- * format ("OUT-2026-0412", 8 digits joined) pass.
- *
- * This only keeps numbers out of the disposition. Masking of everything that
- * is stored is #10 and #18.
- */
-function hasAccountOrPhoneNumber(text: string): boolean {
-  return /\d{10,}/.test(text.replace(/(?<=\d)[ .+-]+(?=\d)/g, ""));
-}
 
 export const dispositionSchema = z
   .object({
@@ -55,6 +44,7 @@ export const dispositionSchema = z
       .min(10)
       .max(400)
       .refine((summary) => !hasAccountOrPhoneNumber(summary), {
+        // The one definition of an account or phone number is in masking.ts.
         error: "summary must not contain an account or phone number",
       })
       .describe(

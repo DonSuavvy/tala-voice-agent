@@ -12,9 +12,11 @@
  * - `pack/persona.json`: the lines Tala says that no model writes: the
  *   opening disclosure, the fallback line, and the filler and closing lines
  *   said for a model turn that calls a tool with nothing said.
- * - `pack/company.json`: the time zone and locale times are spoken in.
+ * - `pack/company.json`: the time zone and locale times are spoken in, and
+ *   the currency money is spoken in.
  * - `pack/world.json`: the seed world every call starts from a fresh copy of,
- *   including scenario 1's Batasan Hills fiber cut.
+ *   including scenario 1's Batasan Hills fiber cut and scenario 2's GCash
+ *   payment that has not posted.
  *
  * `loadKidlatFiber()` reads them and hands them to core's `loadPack`, which
  * checks all of it at boot and lists every problem at once.

@@ -61,7 +61,7 @@ describe("loadPack on a broken pack", () => {
     const source = testPackSource();
     source.policy = { identity: { maxFailedAttempts: 9 } };
     source.sop.body += "Credit up to {{creditLimit}}.\n";
-    source.company = { name: "Test ISP", timeZone: "Asia/Manilla", locale: "en-PH" };
+    source.company = { name: "Test ISP", timeZone: "Asia/Manilla", locale: "en-PH", currency: "PHP" };
     const world = source.world as SeedWorld;
     world.accounts[1].barangayId = "nowhere";
 
@@ -80,7 +80,7 @@ describe("loadPack on a broken pack", () => {
   it("puts the pack id and the count in the message, one line per problem", () => {
     const source = testPackSource();
     source.policy = { identity: { maxFailedAttempts: 9 } };
-    source.company = { name: "Test ISP", timeZone: "Asia/Manilla", locale: "en-PH" };
+    source.company = { name: "Test ISP", timeZone: "Asia/Manilla", locale: "en-PH", currency: "PHP" };
 
     expect(() => loadPack(source)).toThrow(
       /^Company pack "test-isp" failed validation with 2 problem\(s\):\n {2}- company\.timeZone: .*\n {2}- policy\.identity/,
@@ -172,8 +172,26 @@ describe("loadPack on the small parts", () => {
 
   it("rejects a locale that is not a BCP 47 tag", () => {
     const source = testPackSource();
-    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en_PH" };
+    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en_PH", currency: "PHP" };
     expect(issuesOf(source)).toEqual([expect.stringMatching(/^company\.locale: .*"en_PH"/)]);
+  });
+
+  it("loads the currency the company's money is spoken in", () => {
+    expect(loadPack(testPackSource()).company.currency).toBe("PHP");
+  });
+
+  it.each(["PESO", "php", "XYZ", ""])("rejects %j, which is not an ISO 4217 currency code", (code) => {
+    const source = testPackSource();
+    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH", currency: code };
+    expect(issuesOf(source)).toEqual([
+      `company.currency: "${code}" is not an ISO 4217 currency code`,
+    ]);
+  });
+
+  it("rejects a company with no currency", () => {
+    const source = testPackSource();
+    source.company = { name: "Test ISP", timeZone: "Asia/Manila", locale: "en-PH" };
+    expect(issuesOf(source)).toEqual([expect.stringMatching(/^company\.currency: /)]);
   });
 
   /** The test pack's persona with every fixed line but one. */

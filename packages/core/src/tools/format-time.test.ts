@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { formatLocalTime } from "./format-time";
+import { formatLocalDate, formatLocalTime } from "./format-time";
 
 /**
  * Times reach the model as words in the company's own time zone, because the
@@ -35,5 +35,15 @@ describe("formatLocalTime", () => {
     });
 
     expect(formatLocalTime(new Date("2026-11-06T09:00:00Z"), MANILA)).toBe("Fri, Nov 6, 5:00 PM");
+  });
+});
+
+describe("formatLocalDate", () => {
+  it("says a UTC instant as the company's local weekday and date, with no time", () => {
+    expect(formatLocalDate(new Date("2026-10-27T05:00:00Z"), MANILA)).toBe("Tue, Oct 27");
+  });
+
+  it("gives the local date, which is the next day for a late UTC evening in Manila", () => {
+    expect(formatLocalDate(new Date("2026-11-06T17:00:00Z"), MANILA)).toBe("Sat, Nov 7");
   });
 });

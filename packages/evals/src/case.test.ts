@@ -113,6 +113,32 @@ describe("expectationsSchema: disposition", () => {
   });
 });
 
+describe("expectationsSchema: tool order and tool results", () => {
+  it("accepts an order of tool names and tool results with input and result fields", () => {
+    expect(
+      issuesOf({
+        toolsCalledInOrder: ["verify_identity", "verify_payment", "end_call"],
+        toolResults: [
+          { tool: "verify_payment", result: { found: true, posted: false } },
+          { tool: "create_trouble_ticket", input: { category: "billing" } },
+          { tool: "verify_identity" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  /** `output` for `result` would otherwise be a check that asserts nothing. */
+  it("closes each tool result", () => {
+    expect(issuesOf({ toolResults: [{ tool: "verify_payment", output: { found: true } }] })).toEqual([
+      expect.objectContaining({
+        code: "unrecognized_keys",
+        keys: ["output"],
+        path: ["toolResults", 0],
+      }),
+    ]);
+  });
+});
+
 describe("expectationsSchema: values that would assert nothing", () => {
   /** `false` reads like a check and checks nothing; leave the key out instead. */
   it.each(["noAccountDataBeforeVerification", "speaksBeforeEveryToolCall"])(
@@ -124,12 +150,28 @@ describe("expectationsSchema: values that would assert nothing", () => {
   );
 
   /** Every text contains the empty string, and no tool is named "". */
-  it.each(["saidMentions", "toolsNever", "toolsCalled", "guardrailOn"])(
+  it.each(["saidMentions", "toolsNever", "toolsCalled", "toolsCalledInOrder", "guardrailOn"])(
     "rejects an empty name in %s",
     (key) => {
       expect(rejectedAt({ [key]: [""] })).toEqual([`${key}.0`]);
     },
   );
+
+  it("rejects an empty order and an empty list of tool results", () => {
+    expect(rejectedAt({ toolsCalledInOrder: [] })).toEqual(["toolsCalledInOrder"]);
+    expect(rejectedAt({ toolResults: [] })).toEqual(["toolResults"]);
+  });
+
+  /** `{}` is a subset of every input and every result. */
+  it("rejects a tool result with an empty tool name, input or result", () => {
+    expect(rejectedAt({ toolResults: [{ tool: "" }] })).toEqual(["toolResults.0.tool"]);
+    expect(rejectedAt({ toolResults: [{ tool: "verify_payment", input: {} }] })).toEqual([
+      "toolResults.0.input",
+    ]);
+    expect(rejectedAt({ toolResults: [{ tool: "verify_payment", result: {} }] })).toEqual([
+      "toolResults.0.result",
+    ]);
+  });
 
   it("rejects a model-call cap that is not a positive whole number", () => {
     expect(rejectedAt({ maxModelCalls: 0 })).toEqual(["maxModelCalls"]);

@@ -19,6 +19,7 @@ import {
 import { parseSupportPolicy } from "../policy/support-policy";
 import type { AccountRecord } from "../systems/types";
 
+import { accountNumberInput } from "./account-gate";
 import { defineTalaTool } from "./context";
 
 export const verifyIdentity = defineTalaTool({
@@ -36,11 +37,7 @@ export const verifyIdentity = defineTalaTool({
     "other than 4 digits, ask again before calling.",
   input: z
     .object({
-      account_number: z
-        .string()
-        .min(1)
-        .max(40)
-        .describe("The account number as the caller said it; spaces and dashes are fine."),
+      account_number: accountNumberInput,
       mobile_last4: z
         .string()
         .regex(/^\s*(\d\s*){4}$/)

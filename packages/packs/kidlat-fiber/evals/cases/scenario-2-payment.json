@@ -1,0 +1,20 @@
+{
+  "slug": "scenario-2-payment",
+  "title": "Scenario 2: GCash payment not posted, disconnection due tomorrow",
+  "caller": {
+    "brief": "You are Jose Dela Cruz, a Kidlat Fiber customer in Commonwealth, Quezon City. Yesterday you paid your 1,299 peso bill through GCash, but your account still shows it as unpaid, and you got a notice that your internet will be disconnected tomorrow. You are worried, because your kids need the internet for school. You speak Taglish, mostly English with some Tagalog mixed in, the way many callers in Metro Manila do. You know your Kidlat Fiber account number, 8012345602, the last four digits of the mobile number registered on the account, 0102, and the GCash reference number of your payment, 1234567890123; give each one when the agent asks for it. You want the agent to confirm the payment was received and to make sure it gets posted. When the agent gives you a ticket reference, you want it by text so you do not have to write it down: say yes if the agent offers to text it, or ask the agent to text it to your registered mobile if they do not offer. You are satisfied once the payment is confirmed, a ticket is opened to post it, and the reference has been texted to you. Then thank the agent and say goodbye.",
+    "maxTurns": 8
+  },
+  "expect": {
+    "endedBy": "end_call",
+    "toolsCalled": ["verify_identity", "verify_payment", "create_trouble_ticket", "send_sms", "end_call"],
+    "toolsCalledInOrder": ["verify_identity", "verify_payment", "create_trouble_ticket", "send_sms", "end_call"],
+    "toolResults": [
+      { "tool": "verify_payment", "result": { "found": true, "posted": false } },
+      { "tool": "create_trouble_ticket", "input": { "category": "billing" } }
+    ],
+    "disposition": { "outcome": "resolved", "topic": "payment" },
+    "noAccountDataBeforeVerification": true,
+    "speaksBeforeEveryToolCall": true
+  }
+}

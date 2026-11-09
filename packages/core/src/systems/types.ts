@@ -2,17 +2,20 @@
  * The business systems Tala works through, as adapter interfaces.
  *
  * Each interface is a seam a real company fills with its own system (DESIGN
- * §13): `CustomerAccounts` with its CRM and billing, `NetworkOperations` with
- * its OSS and outage tooling. The demo fills them with an in-memory world
- * built from the company pack's seed (`./in-memory`), a fresh copy per call.
+ * §13): `CustomerAccounts` with its CRM, `NetworkOperations` with its OSS and
+ * outage tooling, `Billing` with its billing and payment collection,
+ * `Ticketing` with its ticketing system and `SmsGateway` with its SMS
+ * provider. The demo fills them with an in-memory world built from the company
+ * pack's seed (`./in-memory`), a fresh copy per call.
  *
  * Tool handlers reach the business only through `BusinessSystems`, so a unit
  * test needs a seed world, not a database. Every method is async because every
- * real implementation is a network call.
+ * real implementation is a network call. Money is integer minor units
+ * (centavos for PHP) everywhere, formatted only when spoken.
  *
- * Later tickets add billing history and payments (#10), diagnostics, tickets
- * and technician slots (#11), plans (#16) and SMS (#11). Each grows this file
- * by one interface; none changes the ones here.
+ * #5 added accounts and outages; #10 added billing, tickets and SMS. Later
+ * tickets add diagnostics and technician slots (#11) and plans (#16). Each
+ * adds its own interfaces; none changes the ones already here.
  */
 
 /** Where an account's line is: the unit outages are declared against. */
@@ -50,7 +53,7 @@ export interface OutageRecord {
   estimatedRestorationAt: Date | null;
 }
 
-/** The CRM and billing side. */
+/** The CRM side. */
 export interface CustomerAccounts {
   /**
    * The account with exactly this number, or null.
@@ -67,7 +70,94 @@ export interface NetworkOperations {
   outagesAffecting(barangayId: string): Promise<OutageRecord[]>;
 }
 
+/**
+ * The ways a payment can reach the company. The seed schema and
+ * `verify_payment`'s description read this list, so a channel added here is
+ * added to both.
+ */
+export const PAYMENT_CHANNELS = ["gcash", "maya", "bank", "seven_eleven", "bayad"] as const;
+export type PaymentChannel = (typeof PAYMENT_CHANNELS)[number];
+
+/** What an account owes now. */
+export interface BalanceRecord {
+  /** In minor units. 0 when nothing is owed. */
+  amountDueMinor: number;
+  /** Null when nothing is due. */
+  dueAt: Date | null;
+  /** When service is to be cut for non-payment. Null when none is scheduled. */
+  disconnectionAt: Date | null;
+}
+
+export interface BillRecord {
+  /** e.g. `SOA-2610-5602`. */
+  reference: string;
+  amountMinor: number;
+  issuedAt: Date;
+}
+
+export interface PaymentRecord {
+  /** As the channel issued it, normalized: letters and digits only, upper case. */
+  reference: string;
+  channel: PaymentChannel;
+  amountMinor: number;
+  paidAt: Date;
+  /** Whether it has been applied to the account. A payment can be received and not yet posted. */
+  posted: boolean;
+}
+
+/** The billing and payment-collection side. */
+export interface Billing {
+  /** The account's balance, or null when the account has none on record. Returns a copy. */
+  balanceOf(accountNumber: string): Promise<BalanceRecord | null>;
+  /** The account's bills, newest first. Empty if none. */
+  billsFor(accountNumber: string): Promise<BillRecord[]>;
+  /** The account's payments, newest first. Empty if none. */
+  paymentsFor(accountNumber: string): Promise<PaymentRecord[]>;
+  /**
+   * The payment with exactly this normalized reference, looked for among this
+   * account's payments only, or null. Another account's payment is null too:
+   * a caller can never learn about a payment by guessing its reference.
+   */
+  findPayment(accountNumber: string, reference: string): Promise<PaymentRecord | null>;
+}
+
+/** What a ticket is about. The ticket tool's input reads this list. */
+export const TICKET_CATEGORIES = ["billing", "connection", "other"] as const;
+export type TicketCategory = (typeof TICKET_CATEGORIES)[number];
+
+export interface NewTicket {
+  /** Normalized. */
+  accountNumber: string;
+  category: TicketCategory;
+  /** What the team working the ticket needs to know. */
+  notes: string;
+}
+
+/** The ticketing side. */
+export interface Ticketing {
+  /** Opens a ticket and returns the reference a caller can quote back, e.g. `TKT-2026-00001`. */
+  createTicket(ticket: NewTicket): Promise<{ reference: string }>;
+}
+
+export interface SmsMessage {
+  /** E.164, e.g. `+639175550102`. */
+  to: string;
+  message: string;
+}
+
+/**
+ * The SMS provider. It sends to the number it is given. The model never
+ * chooses that number: `send_sms` passes only the verified account's
+ * registered mobile.
+ */
+export interface SmsGateway {
+  send(sms: SmsMessage): Promise<void>;
+}
+
 export interface BusinessSystems {
   accounts: CustomerAccounts;
   network: NetworkOperations;
+  billing: Billing;
+  tickets: Ticketing;
+  sms: SmsGateway;
 }

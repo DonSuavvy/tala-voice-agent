@@ -229,3 +229,60 @@ describe("encodeSseEvent", () => {
     );
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Masking, at the storage and streaming boundaries (#10, Q21)                */
+/* -------------------------------------------------------------------------- */
+
+describe("masking at the boundary", () => {
+  const withNumbers = span({
+    type: "tool_exec",
+    name: "verify_identity",
+    input: { account_number: "8012345601", mobile: "0917 555 0101" },
+    output: { ok: true, summary: "Verified +639175550101 on account 8012345601" },
+  });
+
+  it("stores a span's input and output with account and phone numbers masked", () => {
+    const row = spanToRow(IDS, withNumbers);
+
+    expect(row.input).toEqual({ account_number: "******5601", mobile: "*******0101" });
+    expect(row.output).toEqual({
+      ok: true,
+      summary: "Verified ********0101 on account ******5601",
+    });
+  });
+
+  it("leaves the span itself unmasked, since the loop and the scorer read it", () => {
+    spanToRow(IDS, withNumbers);
+
+    expect(withNumbers.input).toEqual({ account_number: "8012345601", mobile: "0917 555 0101" });
+  });
+
+  it("streams a payload with account and phone numbers masked", () => {
+    const frame = encodeSseEvent("span", { name: "verify_identity", input: withNumbers.input });
+
+    expect(frame).toBe(
+      'event: span\ndata: {"name":"verify_identity","input":' +
+        '{"account_number":"******5601","mobile":"*******0101"}}\n\n',
+    );
+  });
+
+  /**
+   * A frame is masked alone, so a number split across two deltas would pass.
+   * Speech goes out as whole lines; the voice transport reads deltas in process.
+   */
+  it("sends no speech delta, so a number split across two cannot get through", () => {
+    const first = { type: "speech_delta", text: "Account 8012 34" };
+    const second = { type: "speech_delta", text: "5601, po." };
+
+    expect(encodeSseEvent("speech_delta", first)).toBe("");
+    expect(encodeSseEvent("speech_delta", second)).toBe("");
+    expect(encodeSseEvent("event", first)).toBe("");
+  });
+
+  it("sends a whole speech line, masked", () => {
+    expect(encodeSseEvent("speech", { type: "speech", text: "Account 8012345601, po." })).toBe(
+      'event: speech\ndata: {"type":"speech","text":"Account ******5601, po."}\n\n',
+    );
+  });
+});

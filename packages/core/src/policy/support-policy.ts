@@ -9,7 +9,8 @@
  * level makes a typo in a pack's policy a boot error instead of a limit that
  * is silently ignored.
  *
- * Later tickets add bill credits and currency (#13).
+ * Later tickets add bill credits (#13). The currency money is spoken in is
+ * the company's, not the policy's: `company.currency` in the pack (#10).
  */
 import { z } from "zod";
 

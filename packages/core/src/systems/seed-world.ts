@@ -5,13 +5,17 @@
  * fails at boot with a path, not mid-call. `./in-memory` then serves it as
  * `BusinessSystems`.
  *
- * Outage times are stored relative to the call's start, on purpose. A seed
- * with absolute dates would announce a restoration time that passed months ago
- * the first time anyone ran the demo. The in-memory world anchors the offsets
- * to the moment the call begins.
+ * Times (outages, due dates, disconnections, bills, payments) are stored
+ * relative to the call's start, on purpose. A seed with absolute dates would
+ * announce a restoration time that passed months ago the first time anyone ran
+ * the demo. The in-memory world anchors the offsets to the moment the call
+ * begins. Each offset's name says its direction (`...MinutesBeforeCall`,
+ * `...MinutesAfterCall`), so none is ever negative, and each is bounded:
+ * outages to 30 days, billing dates to 366. Money is whole minor units.
  *
- * Cross-references (unique ids, every barangay named is declared) are checked
- * in a refinement with one issue per broken reference, each with its own path.
+ * Cross-references (unique ids and references, every barangay and account
+ * named is declared) are checked in a refinement with one issue per broken
+ * reference, each with its own path.
  *
  * What zod 4 does when the shape is also wrong (pinned by tests, not assumed):
  * the refinement still runs after a failed *check* (a regex, a `min`, an
@@ -23,6 +27,8 @@
  * limit; there is deliberately no second parse to work around it.
  */
 import { z } from "zod";
+
+import { PAYMENT_CHANNELS } from "./types";
 
 const nonEmpty = z.string().min(1);
 
@@ -46,37 +52,89 @@ const accountSchema = z
   .strict();
 
 /**
- * 30 days, in minutes. An unbounded offset loads fine and then fails mid-call
- * ("Invalid time value") once it is added to the call's start; a bad config
- * must fail at boot instead (spec user story 69).
+ * 30 days, in minutes: the bound on outage times. An unbounded offset loads
+ * fine and then fails mid-call ("Invalid time value") once it is added to the
+ * call's start; a bad config must fail at boot instead (spec user story 69).
  */
-const MAX_OFFSET_MINUTES = 43_200;
+const MAX_OUTAGE_OFFSET_MINUTES = 43_200;
+
+/**
+ * 366 days, in minutes: the bound on billing dates (due dates, disconnections,
+ * bills, payments). A billing history spans months, so it cannot live inside
+ * the outages' 30 days, but it is bounded for the same reason: an unbounded
+ * offset loads fine and then fails mid-call once it is added to the call's
+ * start, and a bad config must fail at boot instead.
+ */
+const MAX_BILLING_OFFSET_MINUTES = 527_040;
+
+/** At or before the call's start, by up to `max` minutes. */
+const minutesBeforeCall = (max: number) => z.number().int().min(0).max(max);
+/** After the call's start, by up to `max` minutes. */
+const minutesAfterCall = (max: number) => z.number().int().positive().max(max);
 
 const outageSchema = z
   .object({
     reference: nonEmpty,
     cause: nonEmpty,
     barangayIds: z.array(z.string()).min(1),
-    startedMinutesBeforeCall: z.number().int().min(0).max(MAX_OFFSET_MINUTES),
-    restorationMinutesAfterCall: z.number().int().positive().max(MAX_OFFSET_MINUTES).nullable(),
+    startedMinutesBeforeCall: minutesBeforeCall(MAX_OUTAGE_OFFSET_MINUTES),
+    restorationMinutesAfterCall: minutesAfterCall(MAX_OUTAGE_OFFSET_MINUTES).nullable(),
   })
   .strict();
 
-export const seedWorldSchema = z
+/** Whole minor units (centavos for PHP), so no amount is ever a fraction. */
+const minorUnits = z.number().int().min(0);
+
+/** What an account owes as the call starts. At most one per account. */
+const balanceSchema = z
   .object({
-    barangays: z.array(barangaySchema).min(1),
-    accounts: z.array(accountSchema).min(1),
-    outages: z.array(outageSchema),
+    accountNumber: z.string(),
+    amountDueMinor: minorUnits,
+    dueMinutesBeforeCall: minutesBeforeCall(MAX_BILLING_OFFSET_MINUTES).nullable(),
+    disconnectionMinutesAfterCall: minutesAfterCall(MAX_BILLING_OFFSET_MINUTES).nullable(),
   })
+  .strict();
+
+const billSchema = z
+  .object({
+    reference: nonEmpty,
+    accountNumber: z.string(),
+    amountMinor: minorUnits.positive(),
+    issuedMinutesBeforeCall: minutesBeforeCall(MAX_BILLING_OFFSET_MINUTES),
+  })
+  .strict();
+
+const paymentSchema = z
+  .object({
+    /** Normalized as `verify_payment` normalizes what the caller says: no spaces or dashes, upper case. */
+    reference: z.string().regex(/^[A-Z0-9]+$/),
+    accountNumber: z.string(),
+    channel: z.enum(PAYMENT_CHANNELS),
+    amountMinor: minorUnits.positive(),
+    paidMinutesBeforeCall: minutesBeforeCall(MAX_BILLING_OFFSET_MINUTES),
+    posted: z.boolean(),
+  })
+  .strict();
+
+const seedWorldShape = {
+  barangays: z.array(barangaySchema).min(1),
+  accounts: z.array(accountSchema).min(1),
+  outages: z.array(outageSchema),
+  balances: z.array(balanceSchema),
+  bills: z.array(billSchema),
+  payments: z.array(paymentSchema),
+};
+
+/** A top-level list of the seed world, such as 'accounts': derived, so a new list is one too. */
+type Collection = keyof typeof seedWorldShape;
+
+export const seedWorldSchema = z
+  .object(seedWorldShape)
   .strict()
   .superRefine((world, ctx) => {
     // The first of two clashing entries is the one that is kept; the later one
     // is reported, so the path points at the line an author should change.
-    const reportDuplicates = (
-      collection: "barangays" | "accounts" | "outages",
-      field: string,
-      values: readonly string[],
-    ) => {
+    const reportDuplicates = (collection: Collection, field: string, values: readonly string[]) => {
       const seen = new Set<string>();
       values.forEach((value, index) => {
         if (seen.has(value)) {
@@ -92,6 +150,12 @@ export const seedWorldSchema = z
     reportDuplicates("barangays", "id", world.barangays.map((b) => b.id));
     reportDuplicates("accounts", "accountNumber", world.accounts.map((a) => a.accountNumber));
     reportDuplicates("outages", "reference", world.outages.map((o) => o.reference));
+    // A second balance for one account would leave the first one served and
+    // the second silently ignored.
+    reportDuplicates("balances", "accountNumber", world.balances.map((b) => b.accountNumber));
+    reportDuplicates("bills", "reference", world.bills.map((b) => b.reference));
+    // Unique across accounts, not per account: one reference, one payment.
+    reportDuplicates("payments", "reference", world.payments.map((p) => p.reference));
 
     const known = new Set(world.barangays.map((b) => b.id));
     world.accounts.forEach((account, index) => {
@@ -114,5 +178,27 @@ export const seedWorldSchema = z
         }
       });
     });
+
+    const accountNumbers = new Set(world.accounts.map((a) => a.accountNumber));
+    const reportUnknownAccount = (
+      collection: "balances" | "bills" | "payments",
+      index: number,
+      accountNumber: string,
+      what: string,
+    ) => {
+      if (accountNumbers.has(accountNumber)) return;
+      ctx.addIssue({
+        code: "custom",
+        path: [collection, index, "accountNumber"],
+        message: `${what} names unknown account "${accountNumber}"`,
+      });
+    };
+    world.balances.forEach((b, i) => reportUnknownAccount("balances", i, b.accountNumber, "balance"));
+    world.bills.forEach((b, i) =>
+      reportUnknownAccount("bills", i, b.accountNumber, `bill ${b.reference}`),
+    );
+    world.payments.forEach((p, i) =>
+      reportUnknownAccount("payments", i, p.accountNumber, `payment ${p.reference}`),
+    );
   });
 export type SeedWorld = z.infer<typeof seedWorldSchema>;
